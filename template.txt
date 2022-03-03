@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+    <head>
+        <link rel="icon" href="https://i.ibb.co/2dX2WYW/atomism-ICONSSS.png">
+        <title>Raid targets</title>
+        <style>
+            table {
+                font-family: Verdana, Arial, Monaco;
+                font-size: 80%;
+                border-collapse: collapse;
+                width: 100%;
+            }
+
+            th {
+                text-align: left;
+                padding: 6px;
+                user-select: none;
+            }
+
+            tr:nth-child(even) {
+                background-color: #f2f2f2
+            }
+
+            th {
+                background-color: #383838;
+                color: white;
+                padding: 4px 10px;
+            }
+
+            th:hover {
+                background-color: #606060;
+            }
+
+            td {
+                position: relative;
+                text-align: left;
+                padding: 1px 6px;
+                white-space: nowrap;
+            }
+
+            tr.strikeout td:before {
+                content: " ";
+                position: absolute;
+                top: 50%;
+                left: 0;
+                border-bottom: 1px solid #111;
+                width: 100%;
+            }
+
+            p {
+                font-family: sans-serif;
+                font-size: small;
+                padding-left: 10px;
+            }
+
+            button {
+                font-size: smaller;
+                padding: 0px 4px;
+            }
+
+            body {
+                margin: 0px;
+            }
+
+            .right {
+                text-align: right;
+            }
+
+            /* #working {
+                opacity:0.5;
+                background-color:rgb(255,255,255);
+                position:fixed;
+                width:100%;
+                height:100%;
+                top:0px;
+                left:0px;
+                z-index:1000;
+                display:none;
+            } */
+
+        </style>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        <script>
+            function postreq(id, turns, name, btn_id) {
+                console.log('button click registered')
+                var to_parse = {turns: turns, invoker: "${invoker}", id: id, endpoint: "${endpoint}"}
+
+                $.ajax({
+                    url: 'https://fuquiem.karemcbob.repl.co/raids/${endpoint}',
+                    type: 'POST',
+                    data: JSON.stringify(to_parse),
+                    contentType: "application/json; charset=utf-8",
+                    dataType: "text",
+                    success: function(data) {
+                        console.log(data);
+                        var abc = document.getElementById(btn_id);
+                        abc.innerHTML = "Reminder active";
+                    },
+                    error: function(er) {
+                        console.log(er);
+                        var abc = document.getElementById(btn_id);
+                        abc.innerHTML = "<b>Error! Try reloading the page.</b>";
+                    }
+                });
+            };
+        </script>
+    </head>
+    <body>
+        <!-- <div id="working"></div> -->
+        <div style="overflow-x:auto;">
+            <table id="grid">
+                <tbody>
+                    <tr>
+                        <th>Nation id</th>
+                        <th>Nation name</th>
+                        <th>Leader name</th>
+                        <th>Alliance</th>
+                        <th>Alliance pos.</th>
+                        <th>Cities</th>
+                        <th>Color</th>
+
+                        % if beige:
+                        <th>Turns of beige</th>
+                        <th><abbr title="Reminders for when the nation exits beige.">Reminder</abbr></th>
+                        % endif
+
+                        <th>Days inactive</th>
+                        <th><abbr title="The net value of a nation's daily production/consumption.&#10;Be wary if the nation is in an alliance. Taxes are not considered in these calculations.">Monetary Net Income</abbr></th>
+                        <th><abbr title="The raw money income of a nation. Be wary if the nation is in an alliance.&#10;Taxes are not considered in these calculations.">Net Cash Income</abbr></th>
+                        <th><abbr title="The net value of everything stolen from the nation when the nation was last beiged.&#10;Income is frankly a better metric if the nation is not in an alliance.&#10;Beige loot varies based on policies and war types, so you may get a lot more/less than the previous guy.">Beige loot</abbr></th>
+                        <th>Treasures</th>
+                        <th><abbr title="The number of defensive slots currently occupied.">Used slots</abbr></th>
+                        <th>Days since war</th>
+                        <th>Soldiers</th>
+                        <th>Tanks</th>
+                        <th>Aircraft</th>
+                        <th>Ships</th>
+                        <th>Missiles</th>
+                        <th>Nukes</th>
+                        <th><abbr title="Your average chance to win ground battle rolls. Higher is better.&#10;Around 50 means battles will be indecisive and lead to heavy casualties.&#10;100 means you are guaranteed to win, 0 means you are guaranteed to lose.">Ground win%</abbr></th>
+                        <th><abbr title="Your average chance to win air battle rolls. Higher is better.&#10;Around 50 means battles will be indecisive and lead to heavy casualties.&#10;100 means you are guaranteed to win, 0 means you are guaranteed to lose.">Air win%</abbr></th>
+                        <th><abbr title="Your average chance to win naval battle rolls. Higher is better.&#10;Around 50 means battles will be indecisive and lead to heavy casualties.&#10;100 means you are guaranteed to win, 0 means you are guaranteed to lose.">Naval win%</abbr></th>
+                        <th><abbr title="Your average chance to win ground, air and naval battle rolls. Higher is better.&#10;Around 50 means the war might go either way.&#10;100 means you are guaranteed to win, 0 means you are guaranteed to lose.">Total win%</abbr></th>
+                    </tr>
+                    % for nation in targets:
+                        <td>${nation['id']}</td>
+                        <td><a href="https://politicsandwar.com/nation/id=${nation['id']}" target="_blank">${nation['nation_name']}</a></td>
+                        <td>${nation['leader_name']}</td>
+
+                        % if nation['alliance_id'] != "0":
+                        <td><a href="https://politicsandwar.com/alliance/id=${nation['alliance_id']}" target="_blank">${nation['alliance']['name']}</a></td>
+                        % else:
+                        <td>None</td>
+                        % endif
+
+                        % if nation['alliance_position'] == "NOALLIANCE":
+                        <td>None</td>
+                        % else:
+                        <td>${nation['alliance_position'].lower().capitalize()}</td>
+                        % endif
+                        
+                        <td>${nation['num_cities']}</td>
+                        <td>${nation['color']}</td>
+
+                        % if beige:
+                            <td>${nation['beigeturns']}</td>
+
+                            % if nation['beigeturns'] > 0:
+                                % if nation['id'] not in [alert['id'] for alert in beige_alerts]:
+                                    <td id="btn${nation['id']}">
+                                        <button onclick="postreq(${nation['id']}, ${nation['beigeturns']}, '${nation['nation_name']}', 'btn${nation['id']}')">Remind me</button>
+                                    </td>
+                                % else:
+                                    <td>Reminder active</td>
+                                % endif
+                            % else:
+                            <td>Not beige</td>
+                            % endif
+                        % endif
+
+                        % if nation['last_active'] == '-0001-11-30 00:00:00':
+                        <td class="right">0</td>
+                        % else:
+                        <td class="right">${(datetime.utcnow() - datetime.strptime(nation['last_active'], "%Y-%m-%d %H:%M:%S%z").replace(tzinfo=None)).days}</td>
+                        % endif
+
+                        <td class="right">${f"{nation['monetary_net_num']:,}"}</td>
+                        <td class="right">${f"{nation['net_cash_num']:,}"}</td>
+                        <td class="right">${nation['nation_loot']}</td>
+                        <td class="right">${nation['treasures']}</td>
+
+                        <td class="right">${nation['def_slots']}/3</td>
+                        <td class="right">${nation['time_since_war']}</td>
+
+                        <td class="right">${f"{nation['soldiers']:,}"}</td>
+                        <td class="right">${f"{nation['tanks']:,}"}</td>
+                        <td class="right">${nation['aircraft']}</td>
+                        <td class="right">${nation['ships']}</td>
+                        <td class="right">${nation['missiles']}</td>
+                        <td class="right">${nation['nukes']}</td>
+                        <td class="right">${round(nation['groundwin']*100)}</td>
+                        <td class="right">${round(nation['airwin']*100)}</td>
+                        <td class="right">${round(nation['navalwin']*100)}</td>
+                        <td class="right">${nation['winchance']}</td>
+                    </tr>
+                    % endfor
+                </tbody>
+            </table>
+            <p>Time fetched: ${datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC<br><a href="http://www.timezoneconverter.com/cgi-bin/tzc.tzc" target="_blank">Timezone converter</a></p>
+            <p style="color:gray">Please report bugs to RandomNoobster#0093<br>Courtesy of Church of Atom</p>
+        </div>
+        <script>
+            const getCellValue = (tr, idx) => tr.children[idx].innerText.replace(/,/g, '') || tr.children[idx].textContent.replace(/,/g, '');
+
+            const comparer = (idx, asc) => (a, b) => ((v1, v2) => 
+                v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
+                )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
+
+            const table = document.querySelector('table');
+            //const working = document.querySelector('#working');
+
+            document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {
+                //working.style.display = "block";
+                Array.from(table.querySelectorAll('tr:nth-child(n+2)'))
+                    .sort(comparer(Array.from(th.parentNode.children).indexOf(th), this.asc = !this.asc))
+                    .forEach(tr => table.appendChild(tr));
+                //working.style.display = "block";
+            })));
+        </script>
+    </body>
+</html>
