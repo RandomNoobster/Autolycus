@@ -1,3 +1,6 @@
 language = "python3"
 run = "git pull; pip install py-cord==2.0.0b3; python main.py"
 onBoot = "git pull; pip install py-cord==2.0.0b3"
+
+[packager]
+ignoredPackages=["discord"]
