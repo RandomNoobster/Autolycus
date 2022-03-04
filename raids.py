@@ -1,6 +1,4 @@
 import discord
-if "__name__" == "raids":
-    from main import mongo
 from discord.ext import commands
 import aiohttp
 import re
@@ -8,12 +6,20 @@ from mako.template import Template
 import asyncio
 import random
 import pathlib
+from typing import Union
 import os
 from datetime import datetime, timedelta
 import utils
 from keep_alive import app
 from flask.views import MethodView
 from flask import request
+import requests
+import pymongo
+import ssl
+
+client = pymongo.MongoClient(os.getenv("pymongolink"), ssl_cert_reqs=ssl.CERT_NONE)
+version = os.getenv("version")
+mongo = client[str(version)]
 
 api_key = os.getenv("api_key")
 
@@ -504,7 +510,7 @@ class TargetFinding(commands.Cog):
             class webraid(MethodView):
                 def get(raidclass):
                     beige_alerts = mongo.global_users.find_one({"user": int(invoker)})['beige_alerts']
-                    with open('./data/templates/raidspage.txt', 'r') as file:
+                    with open(pathlib.Path.cwd() / "templates" / "raidspage.txt", "r") as file:
                         template = file.read()
                     result = Template(template).render(attacker=atck_ntn, targets=best_targets, endpoint=endpoint, invoker=str(invoker), beige_alerts=beige_alerts, beige=beige, datetime=datetime)
                     return str(result)
@@ -547,6 +553,11 @@ class TargetFinding(commands.Cog):
 
             def button_check(self, x):
                 beige_button = [x for x in self.children if x.custom_id == "beige"][0]
+                user = mongo.global_users.find_one({"user": ctx.author.id})
+                for entry in user['beige_alerts']:
+                    if x['id'] == entry['id']:
+                        beige_button.disabled = True
+                        return
                 if x['beigeturns'] > 0:
                     beige_button.disabled = False
                 else:
@@ -588,10 +599,13 @@ class TargetFinding(commands.Cog):
             @discord.ui.button(label="Beige reminder", style=discord.ButtonStyle.primary, disabled=disabled, custom_id="beige")
             async def beige_callback(self, b: discord.Button, i: discord.Interaction):
                 nonlocal cur_page
+                beige_button = [x for x in self.children if x.custom_id == "beige"][0]
                 reminder = {}
                 cur_embed = best_targets[cur_page-1]
                 turns = cur_embed['beigeturns']
                 if turns == 0:
+                    beige_button.disabled = True
+                    await message.edit(view=view)
                     await i.response.send_message(content=f"They are not in beige!", ephemeral=True)
                     return
                 time = datetime.utcnow()
@@ -607,9 +621,14 @@ class TargetFinding(commands.Cog):
                     return
                 for entry in user['beige_alerts']:
                     if reminder['id'] == entry['id']:
+                        beige_button.disabled = True
+                        await message.edit(view=view)
                         await i.response.send_message(content=f"You already have a beige reminder for this nation!", ephemeral=True)
                         return
                 mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
+                beige_button.disabled = True
+                await message.edit(view=view)
+                await i.response.send_message(content=f"A beige reminder for <https://politicsandwar.com/nation/id={cur_embed['id']}> was added!", ephemeral=True)
 
             @discord.ui.button(label='Type "page <number>" to go to that page', style=discord.ButtonStyle.gray, disabled=True)
             async def info_callback(self, b: discord.Button, i: discord.Interaction):
@@ -647,6 +666,606 @@ class TargetFinding(commands.Cog):
         
         msg_task = asyncio.create_task(message_checker())
         await asyncio.gather(msg_task)
+    
+    @commands.command(brief='Show all your active beige reminders', help='', aliases=['alerts', 'rems'])
+    async def reminders(self, ctx):
+        message = await ctx.send('Let\'s see...')
+        person = mongo.global_users.find_one({"user": ctx.author.id})
+        if person == None:
+            await message.edit(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
+            return
+        insults = ['ha loser', 'what a nub', 'such a pleb', 'get gud', 'u suc lol']
+        insult = random.choice(insults)
+        if person['beige_alerts'] == []:
+            await message.edit(content=f"You have no beige reminders!\n\n||{insult}||")
+            return
+        reminders = ""
+        person['beige_alerts'] = sorted(person['beige_alerts'], key=lambda k: k['time'], reverse=True)
+        for x in person['beige_alerts']:
+            reminders += (f"\n<t:{round(x['time'].timestamp())}> (<t:{round(x['time'].timestamp())}:R>) - <https://politicsandwar.com/nation/id={x['id']}>")
+        await message.edit(content=f"Here are your reminders:\n{reminders}")
+    
+    @commands.command(brief='Delete a beige reminder', help='Supply the id or link of the nation whose beige reminder you want to delete.', aliases=['delrem', 'dr'])
+    async def delreminder(self, ctx, id):
+        message = await ctx.send('Let me think...')
+        id = str(re.sub("[^0-9]", "", id))
+        person = mongo.global_users.find_one({"user": ctx.author.id})
+        if person == None:
+            await message.edit(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
+            return
+        found = False
+        for alert in person['beige_alerts']:
+            if alert['id'] == id:
+                alert_list = person['beige_alerts'].remove(alert)
+                if not alert_list:
+                    alert_list = []
+                mongo.global_users.find_one_and_update({"user": person['user']}, {"$set": {"beige_alerts": alert_list}})
+                found = True
+        if not found:
+            await message.edit(content="I did not find a reminder for that nation!")
+        await message.edit(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
+
+    @commands.command(brief='Add a beige reminder', help='Supply the id, link, nation name, leader name or discord of the nation you want to add a reminder for. The bot will send you a DM when the nation exits beige.', aliases=['addrem', 'ar', 'remindme'])
+    async def addreminder(self, ctx, arg):
+        message = await ctx.send('Hang on...')
+        nation = utils.find_nation(arg)
+        if nation == None:
+            await message.edit(content='I could not find that nation!')
+            return
+        #print(nation)
+        res = requests.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nation['id']}){{data{{beigeturns}}}}}}"}).json()['data']['nations']['data'][0]
+        if res['beigeturns'] == 0:
+            await message.edit(content="They are not beige!")
+            return
+        reminder = {}
+        #print(data)
+        turns = int(res['beigeturns'])
+        time = datetime.utcnow()
+        if time.hour % 2 == 0:
+            time += timedelta(hours=turns*2)
+        else:
+            time += timedelta(hours=turns*2-1)
+        reminder['time'] = datetime(time.year, time.month, time.day, time.hour)
+        reminder['id'] = nation['id']
+        user = mongo.global_users.find_one({"user": ctx.author.id})
+        if user == None:
+            await message.edit(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
+            return
+        for entry in user['beige_alerts']:
+            if reminder['id'] == entry['id']:
+                await message.edit(content=f"You already have a beige reminder for this nation!")
+                return
+        mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
+        await message.edit(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
+
+    @commands.command(
+        aliases=['bsim', 'bs'],
+        brief='Simulate battles between two nations',
+        help="Accepts up to two arguments. The first argument is the attacking nation, whilst the latter is the defending nation. If only one argument is provided, the bot will assume that you are the defender. If no arguments are provided, it will assume you are attacking yourself."
+        )
+    async def battlesim(self, ctx, nation1=None, nation2=None):
+        message = await ctx.send('Alright, give me a sec to calculate the winrates...')
+        if nation1 == None:
+            nation1 = ctx.author.id
+        nation1_nation = utils.find_nation_plus(self, nation1)
+        if not nation1_nation:
+            if nation2 == None:
+                await message.edit(content='I could not find that nation!')
+                return
+            else:
+                await message.edit(content='I could not find nation 1!')
+                return 
+        nation1_id = str(nation1_nation['id'])
+
+        if nation2 == None:
+            nation2 = ctx.author.id
+        nation2_nation = utils.find_nation_plus(self, nation2)
+        if not nation2_nation:
+            if nation2 == None:
+                await message.edit(content='I was able to find the nation you linked, but I could not find *your* nation!')
+                return
+            else:
+                await message.edit(content='I could not find nation 2!')
+                return 
+        nation2_id = str(nation2_nation['id'])
+        
+        results = await self.battle_calc(nation1_id, nation2_id)
+
+        embed = discord.Embed(title="Battle Simulator", description=f"These are the results for when [{results['nation1']['nation_name']}](https://politicsandwar.com/nation/id={results['nation1']['id']}){results['nation1_append']} attacks [{results['nation2']['nation_name']}](https://politicsandwar.com/nation/id={results['nation2']['id']}){results['nation2_append']}\nIf you want to use custom troop counts, you can use the [in-game battle simulators](https://politicsandwar.com/tools/)", color=0x00ff00)
+        embed1 = discord.Embed(title="Battle Simulator", description=f"These are the results for when [{results['nation2']['nation_name']}](https://politicsandwar.com/nation/id={results['nation2']['id']}){results['nation2_append']} attacks [{results['nation1']['nation_name']}](https://politicsandwar.com/nation/id={results['nation1']['id']}){results['nation1_append']}\nIf you want to use custom troop counts, you can use the [in-game battle simulators](https://politicsandwar.com/tools/)", color=0x00ff00)
+
+        if results['nation2']['soldiers'] + results['nation2']['tanks'] + results['nation1']['soldiers'] + results['nation1']['tanks'] == 0:
+            embed.add_field(name="Ground Attack", value="Nobody has any forces!")
+            embed1.add_field(name="Ground Attack", value="Nobody has any forces!")
+        else:
+            embed.add_field(name="Ground Attack", value=f"Immense Triumph: {round(results['nation1_ground_it']*100)}%\nModerate Success: {round(results['nation1_ground_mod']*100)}%\nPyrrhic Victory: {round(results['nation1_ground_pyr']*100)}%\nUtter Failure: {round(results['nation1_ground_fail']*100)}%")
+            embed1.add_field(name="Ground Attack", value=f"Immense Triumph: {round(results['nation2_ground_it']*100)}%\nModerate Success: {round(results['nation2_ground_mod']*100)}%\nPyrrhic Victory: {round(results['nation2_ground_pyr']*100)}%\nUtter Failure: {round(results['nation2_ground_fail']*100)}%")
+        
+        if results['nation2']['aircraft'] + results['nation1']['aircraft'] != 0:
+            embed.add_field(name="Airstrike", value=f"Immense Triumph: {round(results['nation1_air_it']*100)}%\nModerate Success: {round(results['nation1_air_mod']*100)}%\nPyrrhic Victory: {round(results['nation1_air_pyr']*100)}%\nUtter Failure: {round(results['nation1_air_fail']*100)}%")
+            embed1.add_field(name="Airstrike", value=f"Immense Triumph: {round(results['nation1_air_fail']*100)}%\nModerate Success: {round(results['nation1_air_pyr']*100)}%\nPyrrhic Victory: {round(results['nation1_air_mod']*100)}%\nUtter Failure: {round(results['nation1_air_it']*100)}%")
+        else:
+            embed.add_field(name="Airstrike", value="Nobody has any forces!")
+            embed1.add_field(name="Airstrike", value="Nobody has any forces!")
+
+        if results['nation2']['ships'] + results['nation1']['ships'] != 0:
+            embed.add_field(name="Naval Battle", value=f"Immense Triumph: {round(results['nation1_naval_it']*100)}%\nModerate Success: {round(results['nation1_naval_mod']*100)}%\nPyrrhic Victory: {round(results['nation1_naval_pyr']*100)}%\nUtter Failure: {round(results['nation1_naval_fail']*100)}%")
+            embed1.add_field(name="Naval Battle", value=f"Immense Triumph: {round(results['nation1_naval_fail']*100)}%\nModerate Success: {round(results['nation1_naval_pyr']*100)}%\nPyrrhic Victory: {round(results['nation1_naval_mod']*100)}%\nUtter Failure: {round(results['nation1_naval_it']*100)}%")
+
+        else:
+            embed.add_field(name="Naval Battle", value="Nobody has any forces!")
+            embed1.add_field(name="Naval Battle", value="Nobody has any forces!")
+
+        embed.add_field(name="Casualties", value=f"Att. Sol.: {results['nation1_ground_nation1_avg_soldiers']:,} ± {results['nation1_ground_nation1_diff_soldiers']:,}\nAtt. Tnk.: {results['nation1_ground_nation1_avg_tanks']:,} ± {results['nation1_ground_nation1_diff_tanks']:,}\n\nDef. Sol.: {results['nation1_ground_nation2_avg_soldiers']:,} ± {results['nation1_ground_nation2_diff_soldiers']:,}\nDef. Tnk.: {results['nation1_ground_nation2_avg_tanks']:,} ± {results['nation1_ground_nation2_diff_tanks']:,}\n\n{results['nation2']['aircas']}")        
+        embed1.add_field(name="Casualties", value=f"Att. Sol.: {results['nation2_ground_nation2_avg_soldiers']:,} ± {results['nation2_ground_nation2_diff_soldiers']:,}\nAtt. Tnk.: {results['nation2_ground_nation2_avg_tanks']:,} ± {results['nation2_ground_nation2_diff_tanks']:,}\n\nDef. Sol.: {results['nation2_ground_nation1_avg_soldiers']:,} ± {results['nation2_ground_nation1_diff_soldiers']:,}\nDef. Tnk.: {results['nation2_ground_nation1_avg_tanks']:,} ± {results['nation2_ground_nation1_diff_tanks']:,}\n\n{results['nation1']['aircas']}")        
+        
+        embed.add_field(name="Casualties", value=f"*Targeting air:*\nAtt. Plane: {results['nation1_airtoair_nation1_avg']:,} ± {results['nation1_airtoair_nation1_diff']:,}\nDef. Plane: {results['nation1_airtoair_nation2_avg']:,} ± {results['nation1_airtoair_nation2_diff']:,}\n\n*Targeting other:*\nAtt. Plane: {results['nation1_airtoother_nation1_avg']:,} ± {results['nation1_airtoother_nation1_diff']:,}\nDef. Plane: {results['nation1_airtoother_nation2_avg']:,} ± {results['nation1_airtoother_nation2_diff']:,}\n\u200b")        
+        embed1.add_field(name="Casualties", value=f"*Targeting air:*\nAtt. Plane: {results['nation2_airtoair_nation2_avg']:,} ± {results['nation2_airtoair_nation2_diff']:,}\nDef. Plane: {results['nation2_airtoair_nation1_avg']:,} ± {results['nation2_airtoair_nation1_diff']:,}\n\n*Targeting other:*\nAtt. Plane: {results['nation2_airtoother_nation2_avg']:,} ± {results['nation2_airtoother_nation2_diff']:,}\nDef. Plane: {results['nation2_airtoother_nation1_avg']:,} ± {results['nation2_airtoother_nation1_diff']:,}\n\u200b")        
+
+        embed.add_field(name="Casualties", value=f"Att. Ships: {results['nation1_naval_nation1_avg']:,} ± {results['nation1_naval_nation1_diff']:,}\nDef. Ships: {results['nation1_naval_nation2_avg']:,} ± {results['nation1_naval_nation2_diff']:,}")        
+        embed1.add_field(name="Casualties", value=f"Att. Ships: {results['nation2_naval_nation2_avg']:,} ± {results['nation2_naval_nation2_diff']:,}\nDef. Ships: {results['nation2_naval_nation1_avg']:,} ± {results['nation2_naval_nation1_diff']:,}")        
+
+        cur_page = 1
+
+        class switch(discord.ui.View):
+            @discord.ui.button(label="Switch attacker/defender", style=discord.ButtonStyle.primary)
+            async def callback(self, b: discord.Button, i: discord.Interaction):
+                nonlocal cur_page
+                if cur_page == 1:
+                    cur_page = 2
+                    await i.response.edit_message(embed=embed1)
+                else:
+                    cur_page = 1
+                    await i.response.edit_message(embed=embed)
+            
+            async def interaction_check(self, interaction) -> bool:
+                if interaction.user != ctx.author:
+                    await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                    return False
+                else:
+                    return True
+            
+            async def on_timeout(self):
+                await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                
+        await message.edit(embed=embed, content="", view=switch())
+
+    @commands.command(
+        aliases=["dmg"],
+        brief="Shows you how much damage each war attack would do",
+        help="You can supply arguments just like what you'd do for $battlesim. It links to a page with some tables showing the damage dealt for each kind of attack."
+        )
+    async def damage(self, ctx, nation1=None, nation2=None):
+        message = await ctx.send('Alright, give me a sec to calculate your mom...')
+        if nation1 == None:
+            nation1 = ctx.author.id
+        nation1_nation = utils.find_user(self, nation1)
+        if not nation1_nation:
+            nation1_nation = utils.find_nation(nation1)
+            if not nation1_nation:
+                if nation2 == None:
+                    await message.edit(content='I could not find that nation!')
+                    return
+                else:
+                    await message.edit(content='I could not find nation 1!')
+                    return 
+            nation1_nation['id'] = nation1_nation['nationid']
+        nation1_id = str(nation1_nation['id'])
+
+        if nation2 == None:
+            nation2 = ctx.author.id
+        nation2_nation = utils.find_user(self, nation2)
+        if not nation2_nation:
+            nation2_nation = utils.find_nation(nation2)
+            if not nation2_nation:
+                if nation2 == None:
+                    await message.edit(content='I was able to find the nation you linked, but I could not find *your* nation!')
+                    return
+                else:
+                    await message.edit(content='I could not find nation 2!')
+                    return 
+            nation2_nation['id'] = nation2_nation['nationid']
+        nation2_id = str(nation2_nation['id'])
+        
+        results = await self.battle_calc(nation1_id, nation2_id)
+        endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
+        class webraid(MethodView):
+            def get(raidclass):
+                with open(pathlib.Path.cwd() / "templates" / "damage.txt", "r") as file:
+                    template = file.read()
+                result = Template(template).render(results=results)
+                return str(result)
+        app.add_url_rule(f"/damage/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
+        await message.edit(content=f"Go to https://fuquiem.politicsandwar.repl.co/damage/{endpoint}", attachments=[])
+
+        
+    async def battle_calc(self, nation1_id, nation2_id):
+        results = {}
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nation1_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"}) as temp:
+                results['nation1'] = (await temp.json())['data']['nations']['data'][0]
+            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nation2_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}}}}}}}}"}) as temp:
+                results['nation2'] = (await temp.json())['data']['nations']['data'][0]
+
+        results['nation1_append'] = ""
+        results['nation2_append'] = ""
+        results['nation1_tanks'] = 1
+        results['nation2_tanks'] = 1
+        results['nation1_extra_cas'] = 1
+        results['nation2_extra_cas'] = 1
+        results['gc'] = None
+        results['nation1_war_infra_mod'] = 0.5
+        results['nation2_war_infra_mod'] = 0.5
+        results['nation1_war_loot_mod'] = 0.5
+        results['nation2_war_loot_mod'] = 0.5
+
+        for war in results['nation1']['wars']:
+            if war['attid'] == nation2_id and war['turnsleft'] > 0 and war['defid'] == nation1_id:
+                if war['groundcontrol'] == nation1_id:
+                    results['gc'] = results['nation1']
+                    results['nation1_append'] += "<:small_gc:924988666613489685>"
+                elif war['groundcontrol'] == nation2_id:
+                    results['gc'] = results['nation2']
+                    results['nation2_append'] += "<:small_gc:924988666613489685>"
+                if war['airsuperiority'] == nation1_id:
+                    results['nation2_tanks'] = 0.5
+                    results['nation1_append'] += "<:small_air:924988666810601552>"
+                elif war['airsuperiority'] == nation2_id:
+                    results['nation1_tanks'] = 0.5
+                    results['nation2_append'] += "<:small_air:924988666810601552>"
+                if war['navalblockade'] == nation1_id: #blockade is opposite than the others
+                    results['nation2_append'] += "<:small_blockade:924988666814808114>"
+                elif war['navalblockade'] == nation2_id:
+                    results['nation1_append'] += "<:small_blockade:924988666814808114>"
+                if war['att_fortify']:
+                    results['nation2_append'] += "<:fortified:925465012955385918>"
+                    results['nation1_extra_cas'] = 1.25
+                if war['def_fortify']:
+                    results['nation1_append'] += "<:fortified:925465012955385918>"
+                    results['nation2_extra_cas'] = 1.25
+                if war['attpeace']:
+                    results['nation2_append'] += "<:peace:926855240655990836>"
+                elif war['defpeace']:
+                    results['nation1_append'] += "<:peace:926855240655990836>"
+                if war['war_type'] == "RAID":
+                    results['nation2_war_infra_mod'] = 0.25
+                    results['nation1_war_infra_mod'] = 0.5
+                    results['nation2_war_loot_mod'] = 1
+                    results['nation1_war_loot_mod'] = 1
+                elif war['war_type'] == "ORDINARY":
+                    results['nation2_war_infra_mod'] = 0.5
+                    results['nation1_war_infra_mod'] = 0.5
+                    results['nation2_war_loot_mod'] = 0.5
+                    results['nation1_war_loot_mod'] = 0.5
+                elif war['war_type'] == "ATTRITION":
+                    results['nation2_war_infra_mod'] = 1
+                    results['nation1_war_infra_mod'] = 1
+                    results['nation2_war_loot_mod'] = 0.25
+                    results['nation1_war_loot_mod'] = 0.5
+            elif war['defid'] == nation2_id and war['turnsleft'] > 0 and war['attid'] == nation1_id:
+                if war['groundcontrol'] == nation1_id:
+                    results['gc'] = results['nation1']
+                    results['nation1_append'] += "<:small_gc:924988666613489685>"
+                elif war['groundcontrol'] == nation2_id:
+                    results['gc'] = results['nation2']
+                    results['nation2_append'] += "<:small_gc:924988666613489685>"
+                if war['airsuperiority'] == nation1_id:
+                    results['nation2_tanks'] = 0.5
+                    results['nation1_append'] += "<:small_air:924988666810601552>"
+                elif war['airsuperiority'] == nation2_id:
+                    results['nation1_tanks'] = 0.5
+                    results['nation2_append'] += "<:small_air:924988666810601552>"
+                if war['navalblockade'] == nation1_id: #blockade is opposite than the others
+                    results['nation2_append'] += "<:small_blockade:924988666814808114>"
+                elif war['navalblockade'] == nation2_id:
+                    results['nation1_append'] += "<:small_blockade:924988666814808114>"
+                if war['att_fortify']:
+                    results['nation1_append'] += "<:fortified:925465012955385918>"
+                    results['nation2_extra_cas'] = 1.25
+                if war['def_fortify']:
+                    results['nation2_append'] += "<:fortified:925465012955385918>"
+                    results['nation1_extra_cas'] = 1.25
+                if war['attpeace']:
+                    results['nation1_append'] += "<:peace:926855240655990836>"
+                elif war['defpeace']:
+                    results['nation2_append'] += "<:peace:926855240655990836>"
+                if war['war_type'] == "RAID":
+                    results['nation1_war_infra_mod'] = 0.25
+                    results['nation2_war_infra_mod'] = 0.5
+                    results['nation1_war_loot_mod'] = 1
+                    results['nation2_war_loot_mod'] = 1
+                elif war['war_type'] == "ORDINARY":
+                    results['nation1_war_infra_mod'] = 0.5
+                    results['nation2_war_infra_mod'] = 0.5
+                    results['nation1_war_loot_mod'] = 0.5
+                    results['nation2_war_loot_mod'] = 0.5
+                elif war['war_type'] == "ATTRITION":
+                    results['nation1_war_infra_mod'] = 1
+                    results['nation2_war_infra_mod'] = 1
+                    results['nation1_war_loot_mod'] = 0.25
+                    results['nation2_war_loot_mod'] = 0.5
+        
+        for attacker, defender in [("nation1", "nation2"), ("nation2", "nation1")]:
+            defender_tanks_value = results[defender]['tanks'] * 40 * results[f'{defender}_tanks']
+            defender_soldiers_value = results[defender]['soldiers'] * 1.75 + results[defender]['population'] * 0.0025
+            defender_army_value = defender_soldiers_value + defender_tanks_value
+
+            attacker_tanks_value = results[attacker]['tanks'] * 40 * results[f'{attacker}_tanks']
+            attacker_soldiers_value = results[attacker]['soldiers'] * 1.75
+            attacker_army_value = attacker_soldiers_value + attacker_tanks_value
+
+            results[f'{attacker}_ground_win_rate'] = self.winrate_calc(attacker_army_value, defender_army_value)
+            results[f'{attacker}_ground_it'] = results[f'{attacker}_ground_win_rate']**3
+            results[f'{attacker}_ground_mod'] = results[f'{attacker}_ground_win_rate']**2 * (1 - results[f'{attacker}_ground_win_rate']) * 3
+            results[f'{attacker}_ground_pyr'] = results[f'{attacker}_ground_win_rate'] * (1 - results[f'{attacker}_ground_win_rate'])**2 * 3
+            results[f'{attacker}_ground_fail'] = (1 - results[f'{attacker}_ground_win_rate'])**3
+
+            results[f'{attacker}_air_win_rate'] = self.winrate_calc((results[f'{attacker}']['aircraft'] * 3), (results[f'{defender}']['aircraft'] * 3))
+            results[f'{attacker}_air_it'] = results[f'{attacker}_air_win_rate']**3
+            results[f'{attacker}_air_mod'] = results[f'{attacker}_air_win_rate']**2 * (1 - results[f'{attacker}_air_win_rate']) * 3
+            results[f'{attacker}_air_pyr'] = results[f'{attacker}_air_win_rate'] * (1 - results[f'{attacker}_air_win_rate'])**2 * 3
+            results[f'{attacker}_air_fail'] = (1 - results[f'{attacker}_air_win_rate'])**3
+
+            results[f'{attacker}_naval_win_rate'] = self.winrate_calc((results[f'{attacker}']['ships'] * 4), (results[f'{defender}']['ships'] * 4))
+            results[f'{attacker}_naval_it'] = results[f'{attacker}_naval_win_rate']**3
+            results[f'{attacker}_naval_mod'] = results[f'{attacker}_naval_win_rate']**2 * (1 - results[f'{attacker}_naval_win_rate']) * 3
+            results[f'{attacker}_naval_pyr'] = results[f'{attacker}_naval_win_rate'] * (1 - results[f'{attacker}_naval_win_rate'])**2 * 3
+            results[f'{attacker}_naval_fail'] = (1 - results[f'{attacker}_naval_win_rate'])**3
+            
+            if results['gc'] == results[attacker]:
+                results[f'{attacker}_ground_{defender}_avg_aircraft'] = avg_air = min(results[f'{attacker}']['tanks'] * 0.0075 * results[f'{attacker}_ground_win_rate'] ** 3, results[defender]['aircraft'])
+                results[defender]['aircas'] = f"Def. Plane: {avg_air} ± {round(results[f'{attacker}']['tanks'] * 0.0075 * (1 - results[f'{attacker}_ground_win_rate'] ** 3))}"
+            else:
+                results[defender]['aircas'] = ""
+                results[f'{attacker}_ground_{defender}_avg_aircraft'] = 0
+            
+            for type, cas_rate in [("avg", 0.7), ("diff", 0.3)]:
+                results[f'{attacker}_ground_{attacker}_{type}_soldiers'] = min(round(((defender_soldiers_value * 0.0084) + (defender_tanks_value * 0.0092)) * cas_rate * 3), results[attacker]['soldiers'])
+                results[f'{attacker}_ground_{attacker}_{type}_tanks'] = min(round((((defender_soldiers_value * 0.0004060606) + (defender_tanks_value * 0.00066666666)) * results[f'{attacker}_ground_win_rate'] + ((defender_soldiers_value * 0.00043225806) + (defender_tanks_value * 0.00070967741)) * (1 - results[f'{attacker}_ground_win_rate'])) * cas_rate * 3), results[attacker]['tanks'])
+                results[f'{attacker}_ground_{defender}_{type}_soldiers'] = min(round(((attacker_soldiers_value * 0.0084) + (attacker_tanks_value * 0.0092)) * cas_rate * 3), results[defender]['soldiers'])
+                results[f'{attacker}_ground_{defender}_{type}_tanks'] = min(round((((attacker_soldiers_value * 0.00043225806) + (attacker_tanks_value * 0.00070967741)) * results[f'{attacker}_ground_win_rate'] + ((attacker_soldiers_value * 0.0004060606) + (attacker_tanks_value * 0.00066666666)) * (1 - results[f'{attacker}_ground_win_rate'])) * cas_rate * 3), results[defender]['tanks'])
+
+            results[f'{attacker}_airtoair_{attacker}_avg'] = min(round(results[f'{defender}']['aircraft'] * 3 * 0.7 * 0.01 * 3 * results[f'{attacker}_extra_cas']), results[f'{attacker}']['aircraft'])
+            results[f'{attacker}_airtoair_{attacker}_diff'] = min(round(results[f'{defender}']['aircraft'] * 3 * 0.3 * 0.01 * 3 * results[f'{attacker}_extra_cas']), results[f'{attacker}']['aircraft'])
+            results[f'{attacker}_airtoother_{attacker}_avg'] = min(round(results[f'{defender}']['aircraft'] * 3 * 0.7 * 0.015385 * 3 * results[f'{attacker}_extra_cas']), results[f'{attacker}']['aircraft'])
+            results[f'{attacker}_airtoother_{attacker}_diff'] = min(round(results[f'{defender}']['aircraft'] * 3 * 0.3 * 0.015385 * 3 * results[f'{attacker}_extra_cas']), results[f'{attacker}']['aircraft'])
+
+            results[f'{attacker}_airtoair_{defender}_avg'] = min(round(results[f'{attacker}']['aircraft'] * 3 * 0.7 * 0.018337 * 3), results[f'{defender}']['aircraft'])
+            results[f'{attacker}_airtoair_{defender}_diff'] = min(round(results[f'{attacker}']['aircraft'] * 3 * 0.3 * 0.018337 * 3), results[f'{defender}']['aircraft'])
+            results[f'{attacker}_airtoother_{defender}_avg'] = min(round(results[f'{attacker}']['aircraft'] * 3 * 0.7 * 0.009091 * 3), results[f'{defender}']['aircraft'])
+            results[f'{attacker}_airtoother_{defender}_diff'] = min(round(results[f'{attacker}']['aircraft'] * 3 * 0.3 * 0.009091 * 3), results[f'{defender}']['aircraft'])
+
+            results[f'{attacker}_naval_{defender}_avg'] = min(round(results[f'{attacker}']['ships'] * 4 * 0.7 * 0.01375 * 3 * results[f'{attacker}_extra_cas']), results[f'{defender}']['aircraft'])
+            results[f'{attacker}_naval_{defender}_diff'] = min(round(results[f'{attacker}']['ships'] * 4 * 0.3 * 0.01375 * 3 * results[f'{attacker}_extra_cas']), results[f'{defender}']['aircraft'])
+            results[f'{attacker}_naval_{attacker}_avg'] = min(round(results[f'{defender}']['ships'] * 4 * 0.7 * 0.01375 * 3), results[f'{attacker}']['aircraft'])
+            results[f'{attacker}_naval_{attacker}_diff'] = min(round(results[f'{defender}']['ships'] * 4 * 0.3 * 0.01375 * 3), results[f'{attacker}']['aircraft'])
+
+        def def_rss_consumption(winrate: Union[int, float]) -> float:
+            rate = -0.4624 * winrate**2 + 1.06256 * winrate + 0.3999            
+            if rate < 0.4:
+                rate = 0.4
+            return rate
+            ## See note
+
+        results["nation1"]['city'] = sorted(results['nation1']['cities'], key=lambda k: k['infrastructure'], reverse=True)[0]
+        results["nation2"]['city'] = sorted(results['nation2']['cities'], key=lambda k: k['infrastructure'], reverse=True)[0]
+
+        for nation in ["nation1", "nation2"]:
+            results[f'{nation}_policy_infra_dealt'] = 1
+            results[f'{nation}_policy_loot_stolen'] = 1
+            results[f'{nation}_policy_infra_lost'] = 1
+            results[f'{nation}_policy_loot_lost'] = 1
+            results[f'{nation}_policy_improvements_lost'] = 1
+            results[f'{nation}_policy_loot_stolen'] = 1
+            results[f'{nation}_policy_improvements_destroyed'] = 1
+            results[f'{nation}_vds_mod'] = 1
+            results[f'{nation}_irond_mod'] = 1
+
+            if results[f'{nation}']['warpolicy'] == "Attrition":
+                results[f'{nation}_policy_infra_dealt'] = 1.1
+                results[f'{nation}_policy_loot_stolen'] = 0.8
+            elif results[f'{nation}']['warpolicy'] == "Turtle":
+                results[f'{nation}_policy_infra_lost'] = 0.9
+                results[f'{nation}_policy_loot_lost'] = 1.2
+            elif results[f'{nation}']['warpolicy'] == "Moneybags":
+                results[f'{nation}_policy_infra_lost'] = 1.05
+                results[f'{nation}_policy_loot_lost'] = 0.6
+            elif results[f'{nation}']['warpolicy'] == "Pirate":
+                results[f'{nation}_policy_improvements_lost'] = 2.0
+                results[f'{nation}_policy_loot_stolen'] = 1.4
+            elif results[f'{nation}']['warpolicy'] == "Tactician":
+                results[f'{nation}_policy_improvements_destroyed'] = 2.0
+            elif results[f'{nation}']['warpolicy'] == "Guardian":
+                results[f'{nation}_policy_improvements_lost'] = 0.5
+                results[f'{nation}_policy_loot_lost'] = 1.2
+            elif results[f'{nation}']['warpolicy'] == "Covert":
+                results[f'{nation}_policy_infra_lost'] = 1.05
+            elif results[f'{nation}']['warpolicy'] == "Arcane":
+                results[f'{nation}_policy_infra_lost'] = 1.05
+            elif results[f'{nation}']['vds']:
+                results[f'{nation}_vds_mod'] = 0.8
+            elif results[f'{nation}']['irond']:
+                results[f'{nation}_irond_mod'] = 0.5
+        
+        def airstrike_casualties(winrate: Union[int, float]) -> float:
+            rate = -0.4624 * winrate**2 + 1.06256 * winrate + 0.3999            
+            if rate < 0.4:
+                rate = 0.4
+            return rate
+
+        for attacker, defender in [("nation1", "nation2"), ("nation2", "nation1")]:
+            results[f'{attacker}_ground_{defender}_lost_infra_avg'] = max(min(((results[f'{attacker}']['soldiers'] - results[f'{defender}']['soldiers'] * 0.5) * 0.000606061 + (results[f'{attacker}']['tanks'] - (results[f'{defender}']['tanks'] * 0.5)) * 0.01) * 0.95 * results[f'{attacker}_ground_win_rate'], results[defender]['city']['infrastructure'] * 0.2 + 25), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
+            results[f'{attacker}_ground_{defender}_lost_infra_diff'] = results[f'{attacker}_ground_{defender}_lost_infra_avg'] / 0.95 * 0.15
+            results[f'{attacker}_ground_loot_avg'] = (results[f'{attacker}']['soldiers'] * 1.1 + results[f'{attacker}']['tanks'] * 25.15) * results[f'{attacker}_ground_win_rate'] * 3 * 0.95 * results[f'{attacker}_war_loot_mod'] * results[f'{attacker}_policy_loot_stolen'] * results[f'{defender}_policy_loot_lost']
+            results[f'{attacker}_ground_loot_diff'] = results[f'{attacker}_ground_loot_avg'] / 0.95 * 0.1
+
+            results[f'{attacker}_air_{defender}_lost_infra_avg'] = max(min((results[f'{attacker}']['aircraft'] - results[f'{defender}']['aircraft'] * 0.5) * 0.35353535 * 0.95 * results[f'{attacker}_air_win_rate'], results[defender]['city']['infrastructure'] * 0.5 + 100), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
+            results[f'{attacker}_air_{defender}_lost_infra_diff'] = results[f'{attacker}_air_{defender}_lost_infra_avg'] / 0.95 * 0.15
+            results[f'{attacker}_air_{defender}_soldiers_destroyed_avg'] = round(max(min(results[f'{defender}']['soldiers'], results[f'{defender}']['soldiers'] * 0.75 + 1000, (results[f'{attacker}']['aircraft'] - results[f'{defender}']['aircraft'] * 0.5) * 35 * 0.95), 0)) * airstrike_casualties(results[f'{attacker}_air_win_rate'])
+            results[f'{attacker}_air_{defender}_soldiers_destroyed_diff'] = results[f'{attacker}_air_{defender}_soldiers_destroyed_avg'] / 0.95 * 0.1
+            results[f'{attacker}_air_{defender}_tanks_destroyed_avg'] = round(max(min(results[f'{defender}']['tanks'], results[f'{defender}']['tanks'] * 0.75 + 10, (results[f'{attacker}']['aircraft'] - results[f'{defender}']['aircraft'] * 0.5) * 1.25 * 0.95), 0)) * airstrike_casualties(results[f'{attacker}_air_win_rate'])
+            results[f'{attacker}_air_{defender}_tanks_destroyed_diff'] = results[f'{attacker}_air_{defender}_tanks_destroyed_avg'] / 0.95 * 0.1
+            results[f'{attacker}_air_{defender}_ships_destroyed_avg'] = round(max(min(results[f'{defender}']['ships'], results[f'{defender}']['ships'] * 0.75 + 4, (results[f'{attacker}']['aircraft'] - results[f'{defender}']['aircraft'] * 0.5) * 0.0285 * 0.95), 0)) * airstrike_casualties(results[f'{attacker}_air_win_rate'])
+            results[f'{attacker}_air_{defender}_ships_destroyed_diff'] = results[f'{attacker}_air_{defender}_ships_destroyed_avg'] / 0.95 * 0.1
+
+            results[f'{attacker}_naval_{defender}_lost_infra_avg'] = max(min((results[f'{attacker}']['ships'] - results[f'{attacker}']['ships'] * 0.5) * 2.625 * 0.95 * results[f'{attacker}_naval_win_rate'], results[defender]['city']['infrastructure'] * 0.5 + 25), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
+            results[f'{attacker}_naval_{defender}_lost_infra_diff'] = results[f'{attacker}_naval_{defender}_lost_infra_avg'] / 0.95 * 0.15
+
+            results[f'{attacker}_nuke_{defender}_lost_infra_avg'] = max(min((1700 + max(2000, results[defender]['city']['infrastructure'] * 100 / results[defender]['city']['land'] * 13.5)) / 2, results[defender]['city']['infrastructure'] * 0.8 + 150), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost'] * results[f'{attacker}_vds_mod']
+            results[f'{attacker}_missile_{defender}_lost_infra_avg'] = max(min((300 + max(350, results[defender]['city']['infrastructure'] * 100 / results[defender]['city']['land'] * 3)) / 2, results[defender]['city']['infrastructure'] * 0.3 + 100), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost'] * results[f'{attacker}_irond_mod']
+            
+            for infra in [
+                f"{attacker}_ground_{defender}_lost_infra",
+                f"{attacker}_air_{defender}_lost_infra",
+                f"{attacker}_naval_{defender}_lost_infra",
+                f"{attacker}_nuke_{defender}_lost_infra",
+                f"{attacker}_missile_{defender}_lost_infra",
+                ]:
+                results[f'{infra}_avg_value'] = utils.infra_cost(results[defender]['city']['infrastructure'] - results[f'{infra}_avg'], results[defender]['city']['infrastructure'])
+                try:
+                    results[f'{infra}_diff_value'] = utils.infra_cost(results[defender]['city']['infrastructure'] - results[f'{infra}_diff'], results[defender]['city']['infrastructure'])
+                except:
+                    pass
+            
+            for attack in ['airvair', 'airvsoldiers', 'airvtanks', 'airvships']:
+                results[f"{attacker}_{attack}_{defender}_lost_infra_avg_value"] = results[f"{attacker}_air_{defender}_lost_infra_avg_value"] * 1/3
+            results[f"{attacker}_airvinfra_{defender}_lost_infra_avg_value"] = results[f"{attacker}_air_{defender}_lost_infra_avg_value"]
+
+            results[f'{attacker}_ground_{attacker}_mun'] = results[f'{attacker}']['soldiers'] * 0.0002 + results[f'{attacker}']['tanks'] * 0.01
+            results[f'{attacker}_ground_{attacker}_gas'] = results[f'{attacker}']['tanks'] * 0.01
+            results[f'{attacker}_ground_{attacker}_alum'] = 0
+            results[f'{attacker}_ground_{attacker}_steel'] = results[f'{attacker}_ground_{attacker}_avg_tanks'] * 0.5
+            results[f'{attacker}_ground_{attacker}_money'] = -results[f'{attacker}_ground_loot_avg'] + results[f'{attacker}_ground_{attacker}_avg_tanks'] * 50 + results[f'{attacker}_ground_{attacker}_avg_soldiers'] * 5
+            results[f'{attacker}_ground_{attacker}_total'] = results[f'{attacker}_ground_{attacker}_alum'] * 2971 + results[f'{attacker}_ground_{attacker}_steel'] * 3990 + results[f'{attacker}_ground_{attacker}_gas'] * 3340 + results[f'{attacker}_ground_{attacker}_mun'] * 1960 + results[f'{attacker}_ground_{attacker}_money'] 
+
+            base_mun = (results[f'{defender}']['soldiers'] * 0.0002 + results[f'{defender}']['population'] / 2000000 + results[f'{defender}']['tanks'] * 0.01) * def_rss_consumption(results[f'{attacker}_ground_win_rate'])
+            results[f'{attacker}_ground_{defender}_mun'] = (base_mun * (1 - results[f'{attacker}_ground_fail']) + min(base_mun, results[f'{attacker}_ground_{attacker}_mun']) * results[f'{attacker}_ground_fail'])
+            base_gas = results[f'{defender}']['tanks'] * 0.01 * def_rss_consumption(results[f'{attacker}_ground_win_rate'])
+            results[f'{attacker}_ground_{defender}_gas'] = (base_gas * (1 - results[f'{attacker}_ground_fail']) + min(base_gas, results[f'{attacker}_ground_{attacker}_gas']) * results[f'{attacker}_ground_fail'])
+            results[f'{attacker}_ground_{defender}_alum'] = results[f'{attacker}_ground_{defender}_avg_aircraft'] * 5
+            results[f'{attacker}_ground_{defender}_steel'] = results[f'{attacker}_ground_{defender}_avg_tanks'] * 0.5
+            results[f'{attacker}_ground_{defender}_money'] = results[f'{attacker}_ground_loot_avg'] + results[f'{attacker}_ground_{defender}_avg_aircraft'] * 4000 + results[f'{attacker}_ground_{defender}_avg_tanks'] * 50 + results[f'{attacker}_ground_{defender}_avg_soldiers'] * 5 + results[f'{attacker}_ground_{defender}_lost_infra_avg_value']
+            results[f'{attacker}_ground_{defender}_total'] = results[f'{attacker}_ground_{defender}_alum'] * 2971 + results[f'{attacker}_ground_{defender}_steel'] * 3990 + results[f'{attacker}_ground_{defender}_gas'] * 3340 + results[f'{attacker}_ground_{defender}_mun'] * 1960 + results[f'{attacker}_ground_{defender}_money'] 
+            results[f'{attacker}_ground_net'] = results[f'{attacker}_ground_{defender}_total'] - results[f'{attacker}_ground_{attacker}_total']
+            
+
+            for attack in ['air', 'airvair', 'airvinfra', 'airvsoldiers', 'airvtanks', 'airvships']:
+                results[f'{attacker}_{attack}_{attacker}_gas'] = results[f'{attacker}_{attack}_{attacker}_mun'] = results[f'{attacker}']['aircraft'] / 4
+                base_gas = results[f'{defender}']['aircraft'] / 4 * def_rss_consumption(results[f'{attacker}_air_win_rate'])
+                results[f'{attacker}_{attack}_{defender}_gas'] = results[f'{attacker}_{attack}_{defender}_mun'] = (base_gas * (1 - results[f'{attacker}_air_fail']) + min(base_gas, results[f'{attacker}_air_{attacker}_gas']) * results[f'{attacker}_air_fail'])
+
+
+            results[f'{attacker}_airvair_{attacker}_alum'] = results[f'{attacker}_airtoair_{attacker}_avg'] * 5
+            results[f'{attacker}_airvair_{attacker}_steel'] = 0
+            results[f'{attacker}_airvair_{attacker}_money'] = results[f'{attacker}_airtoair_{attacker}_avg'] * 4000
+            results[f'{attacker}_airvair_{attacker}_total'] = results[f'{attacker}_airvair_{attacker}_alum'] * 2971 + results[f'{attacker}_airvair_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvair_{attacker}_money'] 
+           
+            results[f'{attacker}_airvair_{defender}_alum'] = results[f'{attacker}_airtoair_{defender}_avg'] * 5
+            results[f'{attacker}_airvair_{defender}_steel'] = 0
+            results[f'{attacker}_airvair_{defender}_money'] = results[f'{attacker}_airtoair_{defender}_avg'] * 4000 + results[f'{attacker}_air_{defender}_lost_infra_avg_value'] * 1/3
+            results[f'{attacker}_airvair_{defender}_total'] = results[f'{attacker}_airvair_{defender}_alum'] * 2971 + results[f'{attacker}_airvair_{defender}_steel'] * 3990 + results[f'{attacker}_air_{defender}_gas'] * 3340 + results[f'{attacker}_air_{defender}_mun'] * 1960 + results[f'{attacker}_airvair_{defender}_money'] 
+            results[f'{attacker}_airvair_net'] = results[f'{attacker}_airvair_{defender}_total'] - results[f'{attacker}_airvair_{attacker}_total']
+
+
+            results[f'{attacker}_airvinfra_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+            results[f'{attacker}_airvinfra_{attacker}_steel'] = 0
+            results[f'{attacker}_airvinfra_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
+            results[f'{attacker}_airvinfra_{attacker}_total'] = results[f'{attacker}_airvinfra_{attacker}_alum'] * 2971 + results[f'{attacker}_airvinfra_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvinfra_{attacker}_money'] 
+
+            results[f'{attacker}_airvinfra_{defender}_alum'] = results[f'{attacker}_airtoother_{defender}_avg'] * 5
+            results[f'{attacker}_airvinfra_{defender}_steel'] = 0
+            results[f'{attacker}_airvinfra_{defender}_money'] = results[f'{attacker}_airtoother_{defender}_avg'] * 4000 + results[f'{attacker}_air_{defender}_lost_infra_avg_value']
+            results[f'{attacker}_airvinfra_{defender}_total'] = results[f'{attacker}_airvinfra_{defender}_alum'] * 2971 + results[f'{attacker}_airvinfra_{defender}_steel'] * 3990 + results[f'{attacker}_air_{defender}_gas'] * 3340 + results[f'{attacker}_air_{defender}_mun'] * 1960 + results[f'{attacker}_airvinfra_{defender}_money'] 
+            results[f'{attacker}_airvinfra_net'] = results[f'{attacker}_airvinfra_{defender}_total'] - results[f'{attacker}_airvinfra_{attacker}_total']
+
+
+            results[f'{attacker}_airvsoldiers_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+            results[f'{attacker}_airvsoldiers_{attacker}_steel'] = 0
+            results[f'{attacker}_airvsoldiers_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
+            results[f'{attacker}_airvsoldiers_{attacker}_total'] = results[f'{attacker}_airvsoldiers_{attacker}_alum'] * 2971 + results[f'{attacker}_airvsoldiers_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvsoldiers_{attacker}_money'] 
+            
+            results[f'{attacker}_airvsoldiers_{defender}_alum'] = results[f'{attacker}_airtoother_{defender}_avg'] * 5
+            results[f'{attacker}_airvsoldiers_{defender}_steel'] = 0
+            results[f'{attacker}_airvsoldiers_{defender}_money'] = results[f'{attacker}_airtoother_{defender}_avg'] * 4000 + results[f'{attacker}_air_{defender}_lost_infra_avg_value'] * 1/3 + results[f'{attacker}_air_{defender}_soldiers_destroyed_avg'] * 5
+            results[f'{attacker}_airvsoldiers_{defender}_total'] = results[f'{attacker}_airvsoldiers_{defender}_alum'] * 2971 + results[f'{attacker}_airvsoldiers_{defender}_steel'] * 3990 + results[f'{attacker}_air_{defender}_gas'] * 3340 + results[f'{attacker}_air_{defender}_mun'] * 1960 + results[f'{attacker}_airvsoldiers_{defender}_money'] 
+            results[f'{attacker}_airvsoldiers_net'] = results[f'{attacker}_airvair_{defender}_total'] - results[f'{attacker}_airvsoldiers_{attacker}_total']
+
+
+            results[f'{attacker}_airvtanks_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+            results[f'{attacker}_airvtanks_{attacker}_steel'] = 0
+            results[f'{attacker}_airvtanks_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
+            results[f'{attacker}_airvtanks_{attacker}_total'] = results[f'{attacker}_airvtanks_{attacker}_alum'] * 2971 + results[f'{attacker}_airvtanks_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvtanks_{attacker}_money'] 
+            
+            results[f'{attacker}_airvtanks_{defender}_alum'] = results[f'{attacker}_airtoother_{defender}_avg'] * 5
+            results[f'{attacker}_airvtanks_{defender}_steel'] = results[f'{attacker}_air_{defender}_tanks_destroyed_avg'] * 0.5
+            results[f'{attacker}_airvtanks_{defender}_money'] = results[f'{attacker}_airtoother_{defender}_avg'] * 4000 + results[f'{attacker}_air_{defender}_lost_infra_avg_value'] * 1/3 + results[f'{attacker}_air_{defender}_tanks_destroyed_avg'] * 60
+            results[f'{attacker}_airvtanks_{defender}_total'] = results[f'{attacker}_airvtanks_{defender}_alum'] * 2971 + results[f'{attacker}_airvtanks_{defender}_steel'] * 3990 + results[f'{attacker}_air_{defender}_gas'] * 3340 + results[f'{attacker}_air_{defender}_mun'] * 1960 + results[f'{attacker}_airvtanks_{defender}_money'] 
+            results[f'{attacker}_airvtanks_net'] = results[f'{attacker}_airvtanks_{defender}_total'] - results[f'{attacker}_airvtanks_{attacker}_total']
+
+
+            results[f'{attacker}_airvships_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+            results[f'{attacker}_airvships_{attacker}_steel'] = 0
+            results[f'{attacker}_airvships_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
+            results[f'{attacker}_airvships_{attacker}_total'] = results[f'{attacker}_airvships_{attacker}_alum'] * 2971 + results[f'{attacker}_airvships_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvships_{attacker}_money'] 
+            
+            results[f'{attacker}_airvships_{defender}_alum'] = results[f'{attacker}_airtoother_{defender}_avg'] * 5
+            results[f'{attacker}_airvships_{defender}_steel'] = results[f'{attacker}_air_{defender}_ships_destroyed_avg'] * 30
+            results[f'{attacker}_airvships_{defender}_money'] = results[f'{attacker}_airtoother_{defender}_avg'] * 4000 + results[f'{attacker}_air_{defender}_lost_infra_avg_value'] * 1/3 + results[f'{attacker}_air_{defender}_ships_destroyed_avg'] * 50000
+            results[f'{attacker}_airvships_{defender}_total'] = results[f'{attacker}_airvships_{defender}_alum'] * 2971 + results[f'{attacker}_airvships_{defender}_steel'] * 3990 + results[f'{attacker}_air_{defender}_gas'] * 3340 + results[f'{attacker}_air_{defender}_mun'] * 1960 + results[f'{attacker}_airvships_{defender}_money'] 
+            results[f'{attacker}_airvships_net'] = results[f'{attacker}_airvships_{defender}_total'] - results[f'{attacker}_airvships_{attacker}_total']
+
+
+            results[f'{attacker}_naval_{attacker}_mun'] = results[f'{attacker}']['ships'] * 3
+            results[f'{attacker}_naval_{attacker}_gas'] = results[f'{attacker}']['ships'] * 2
+            results[f'{attacker}_naval_{attacker}_alum'] = 0
+            results[f'{attacker}_naval_{attacker}_steel'] = results[f'{attacker}_naval_{attacker}_avg'] * 30
+            results[f'{attacker}_naval_{attacker}_money'] = results[f'{attacker}_naval_{attacker}_avg'] * 50000
+            results[f'{attacker}_naval_{attacker}_total'] = results[f'{attacker}_naval_{attacker}_alum'] * 2971 + results[f'{attacker}_naval_{attacker}_steel'] * 3990 + results[f'{attacker}_naval_{attacker}_gas'] * 3340 + results[f'{attacker}_naval_{attacker}_mun'] * 1960 + results[f'{attacker}_naval_{attacker}_money'] 
+           
+            base_mun = results[f'{defender}']['ships'] * 3 * def_rss_consumption(results[f'{attacker}_air_win_rate'])
+            results[f'{attacker}_naval_{defender}_mun'] = results[f'{attacker}_naval_{defender}_mun'] = (base_mun * (1 - results[f'{attacker}_naval_fail']) + min(base_gas, results[f'{attacker}_naval_{attacker}_mun']) * results[f'{attacker}_naval_fail'])
+            base_gas = results[f'{defender}']['ships'] * 2 * def_rss_consumption(results[f'{attacker}_air_win_rate'])
+            results[f'{attacker}_naval_{defender}_gas'] = results[f'{attacker}_naval_{defender}_gas'] = (base_gas * (1 - results[f'{attacker}_naval_fail']) + min(base_gas, results[f'{attacker}_naval_{attacker}_gas']) * results[f'{attacker}_naval_fail'])
+            results[f'{attacker}_naval_{defender}_alum'] = 0
+            results[f'{attacker}_naval_{defender}_steel'] = results[f'{attacker}_naval_{defender}_avg'] * 30
+            results[f'{attacker}_naval_{defender}_money'] = results[f'{attacker}_naval_{defender}_lost_infra_avg_value'] + results[f'{attacker}_naval_{defender}_avg'] * 50000
+            results[f'{attacker}_naval_{defender}_total'] = results[f'{attacker}_naval_{defender}_alum'] * 2971 + results[f'{attacker}_naval_{defender}_steel'] * 3990 + results[f'{attacker}_naval_{defender}_gas'] * 3340 + results[f'{attacker}_naval_{defender}_mun'] * 1960 + results[f'{attacker}_naval_{defender}_money'] 
+            results[f'{attacker}_naval_net'] = results[f'{attacker}_naval_{defender}_total'] - results[f'{attacker}_naval_{attacker}_total']
+
+
+            results[f'{attacker}_nuke_{attacker}_alum'] = 750
+            results[f'{attacker}_nuke_{attacker}_steel'] = 0
+            results[f'{attacker}_nuke_{attacker}_gas'] = 500
+            results[f'{attacker}_nuke_{attacker}_mun'] = 0
+            results[f'{attacker}_nuke_{attacker}_money'] = 1750000
+            results[f'{attacker}_nuke_{attacker}_total'] = results[f'{attacker}_nuke_{attacker}_alum'] * 2971 + results[f'{attacker}_nuke_{attacker}_steel'] * 3990 + results[f'{attacker}_nuke_{attacker}_gas'] * 3340 + results[f'{attacker}_nuke_{attacker}_mun'] * 1960 + results[f'{attacker}_nuke_{attacker}_money'] + 250 * 3039 #price of uranium
+            
+            results[f'{attacker}_nuke_{defender}_alum'] = 0
+            results[f'{attacker}_nuke_{defender}_steel'] = 0
+            results[f'{attacker}_nuke_{defender}_gas'] = 0
+            results[f'{attacker}_nuke_{defender}_mun'] = 0
+            results[f'{attacker}_nuke_{defender}_money'] = results[f'{attacker}_nuke_{defender}_lost_infra_avg_value']
+            results[f'{attacker}_nuke_{defender}_total'] = results[f'{attacker}_nuke_{defender}_alum'] * 2971 + results[f'{attacker}_nuke_{defender}_steel'] * 3990 + results[f'{attacker}_nuke_{defender}_gas'] * 3340 + results[f'{attacker}_nuke_{defender}_mun'] * 1960 + results[f'{attacker}_nuke_{defender}_money'] 
+            results[f'{attacker}_nuke_net'] = results[f'{attacker}_nuke_{defender}_total'] - results[f'{attacker}_nuke_{attacker}_total']
+
+
+            results[f'{attacker}_missile_{attacker}_alum'] = 100
+            results[f'{attacker}_missile_{attacker}_steel'] = 0
+            results[f'{attacker}_missile_{attacker}_gas'] = 75
+            results[f'{attacker}_missile_{attacker}_mun'] = 75
+            results[f'{attacker}_missile_{attacker}_money'] = 150000
+            results[f'{attacker}_missile_{attacker}_total'] = results[f'{attacker}_missile_{attacker}_alum'] * 2971 + results[f'{attacker}_missile_{attacker}_steel'] * 3990 + results[f'{attacker}_missile_{attacker}_gas'] * 3340 + results[f'{attacker}_missile_{attacker}_mun'] * 1960 + results[f'{attacker}_missile_{attacker}_money']
+            
+            results[f'{attacker}_missile_{defender}_alum'] = 0
+            results[f'{attacker}_missile_{defender}_steel'] = 0
+            results[f'{attacker}_missile_{defender}_gas'] = 0
+            results[f'{attacker}_missile_{defender}_mun'] = 0
+            results[f'{attacker}_missile_{defender}_money'] = results[f'{attacker}_missile_{defender}_lost_infra_avg_value']
+            results[f'{attacker}_missile_{defender}_total'] = results[f'{attacker}_missile_{defender}_alum'] * 2971 + results[f'{attacker}_missile_{defender}_steel'] * 3990 + results[f'{attacker}_missile_{defender}_gas'] * 3340 + results[f'{attacker}_missile_{defender}_mun'] * 1960 + results[f'{attacker}_missile_{defender}_money'] 
+            results[f'{attacker}_missile_net'] = results[f'{attacker}_missile_{defender}_total'] - results[f'{attacker}_missile_{attacker}_total']
+
+        return results
 
 def setup(bot):
     bot.add_cog(TargetFinding(bot))
