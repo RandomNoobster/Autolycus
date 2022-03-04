@@ -22,6 +22,19 @@ class TargetFinding(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    def winrate_calc(self, attacker_value, defender_value):
+        try:
+            x = attacker_value / defender_value
+            if x > 2:
+                winrate = 1
+            elif x < 0.4:
+                winrate = 0
+            else:
+                winrate = (12.832883444301027*x**(11)-171.668262561212487*x**(10)+1018.533858483560834*x**(9)-3529.694284997589875*x**(8)+7918.373606722701879*x**(7)-12042.696852729619422*x**(6)+12637.399722721022044*x**(5)-9128.535790660698694*x**(4)+4437.651655224382012*x**(3)-1378.156072477675025*x**(2)+245.439740545813436*x-18.980551645186498)
+        except ZeroDivisionError:
+            winrate = 1
+        return winrate
+
     @commands.command(aliases=['raid'])
     async def raids(self, ctx, *, arg=None):
         invoker = str(ctx.author.id)
