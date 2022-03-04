@@ -256,12 +256,12 @@ class TargetFinding(commands.Cog):
                     json = {'query': f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount war_type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}
                     futures.append(asyncio.ensure_future(call_api(url, json)))
                 
-            embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?", color=0x00ff00)
-            embed1 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0x00ff00)
-            embed2 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0x00ff00)
-            embed3 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0x00ff00)
-            embed4 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0x00ff00)
-            embed5 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0x00ff00)
+            embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?", color=0xff5100)
+            embed1 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
+            embed2 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
+            embed3 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
+            embed4 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
+            embed5 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
 
             for embed, view in [(embed0, stage_one()), (embed1, stage_two()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six())]:
                 if embed == embed2:
@@ -340,7 +340,7 @@ class TargetFinding(commands.Cog):
             await message.edit(content='Calculating best targets...')
 
             for target in target_list:
-                embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0x00ff00)
+                embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
                 prev_nat_loot = False
                 target['infrastructure'] = 0
                 target['def_slots'] = 0

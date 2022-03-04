@@ -20,7 +20,7 @@ key = os.getenv("encryption_key")
 api_key = os.getenv("api_key")
 cipher_suite = Fernet(key)
 
-def embed_pager(title: str, fields: list, description: str = "", color: int = 0x00ff00, inline: bool = True) -> list:
+def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
     embeds = []
     for i in range(math.ceil(len(fields)/24)):
         embeds.append(discord.Embed(title=f"{title} page {i+1}", description=description, color=color)) 
