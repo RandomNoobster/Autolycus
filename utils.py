@@ -78,17 +78,6 @@ def find_user(self, arg):
             pass
             
     current = list(db.find({}))
-    if not found:
-        try:
-            for x in current:
-                if arg.lower() in x['name'].lower():
-                    found = True
-                    return x
-                elif arg.lower() in x['leader'].lower():
-                    found = True
-                    return x
-        except:
-            pass
 
     if not found:
         try:
@@ -146,7 +135,7 @@ def find_nation(arg: Union[str, int]) -> Union[dict, None]:
                     result = None
     return result
 
-def find_nation_plus(self, arg: Union[str, int]) -> Union[dict, None]: # only returns a nation if it is at least 1 day old
+def find_nation_plus(self, arg: Union[str, int]) -> Union[dict, None]: # only returns a nation if it is at least 1 hour old
     if isinstance(arg, str):
         arg = arg.strip()
     nation = find_nation(arg)
