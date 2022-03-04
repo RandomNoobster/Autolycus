@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+    <head>
+        <link rel="icon" href="https://i.ibb.co/2dX2WYW/atomism-ICONSSS.png">
+        <title>Damage</title>
+        <style>
+            body {
+                background-color: dimgray;
+                overflow-x: auto;
+            }
+
+            table {
+                font-family: Verdana, Arial, Monaco;
+                font-size: 80%;
+                border-collapse: collapse;
+                width: 100%;
+                outline: 1px solid black;
+            }
+
+            tr {
+                background-color: #e3e3e3
+            }            
+
+            tr:nth-child(even) {
+                background-color: #f2f2f2
+            }
+
+            th, caption {
+                background-color: #383838;
+                color: white;
+                cursor: pointer;
+                text-align: left;
+                padding: 6px;
+                user-select: none;
+            }
+
+            caption {
+                text-align: center;
+                font-size: 120%;
+                font-weight: bold;
+                cursor: default;
+            }
+
+            a {
+                text-align: center;
+                font-size: 150%;
+                font-weight: bold;
+                font-family: sans-serif;
+                text-shadow: 0px 0px 4px black;
+                margin: 0;
+                color: white;
+                text-decoration: none;
+            }
+
+            a:hover {
+                color: darkgray;
+            }
+
+            p {
+                width: 1700px;
+            }
+
+            th:hover {
+                background-color: #008000;
+            }
+
+            td {
+                position: relative;
+                text-align: left;
+                padding: 1px 6px;
+                white-space: nowrap;
+            }
+
+            #grid {
+                display: grid;
+                width: min-content;
+                margin: 0 auto 20px;
+                column-gap: 20px;
+                row-gap: 20px;
+                justify-content: center;
+                grid-template-areas: 
+                "alert alert"
+                "nation1_title nation2_title"
+                "nation1_attacks_0 nation2_attacks_0"
+                "nation1_attacks_1 nation2_attacks_1"
+                "nation1_attacks_2 nation2_attacks_2"
+                "nation1_attacks_3 nation2_attacks_3";
+            }
+
+            #grid.items {
+                margin: 1px;
+            }
+
+            .alert {
+                padding: 20px;
+                border-radius: 10px;
+                background-color: maroon;
+                color: white;
+                font-size: small;
+                font-family: sans-serif;
+                outline: 1px solid black;
+            }
+
+            .closebtn {
+                margin-left: 15px;
+                color: white;
+                font-weight: bold;
+                float: right;
+                font-size: 33px;
+                line-height: 10px;
+                cursor: pointer;
+                transition: 0.3s;
+            }
+
+            .closebtn:hover {
+                color: gray;
+            }
+
+        </style>
+    </head>
+    <body>
+        <div id="grid">
+            <div class="alert" style="grid-area:alert">
+                <span class="closebtn" onclick="this.parentElement.style.display='none';">&times;</span> 
+                <p><strong>Disclaimer</strong> - This tool is designed to help you decide what attack to perform in order to burn as many enemy pixels as possible. Please note that you should not blindly do the attacks with the highest net damage, and that targeting enemy military forces is usually a better move. You should also note that the application takes military policies, projects etc into consideration when determining results. If there is an ongoing war between the nations, war type, air superiority etc is taken into consideration. If there is no ongoing war, the numbers are those of an ordinary war (50% infra damage and 50% loot).</p>
+                <p><strong>How to use</strong> - There are two columns of tables. One for when each nation performs an attack. You can click on a header to sort by that metric. By holding the SHIFT-key, you can sort all tables. You can also click on a row to highlight that row in all tables. The resources listed are the resources consumed by the nation in question. For net damage, higher is better. Negative net damage means that the opponent would do more damage. Negative money means the nation is earning money.</p>
+            </div>
+        % for primary, secondary in [("nation1", "nation2"), ("nation2", "nation1")]:
+            <a style="grid-area:${primary}_title" target="_blank" href="https://politicsandwar.com/nation/id=${results[primary]['id']}">If ${results[primary]['nation_name']} attacks:</a>
+            <table style="grid-area:${primary}_attacks_0">
+            <caption>${results[primary]['nation_name']} (attacker) stats per MAP</caption>
+                <tbody>
+                    <tr class="header">
+                        <th>Attack Type</th>
+                        <th>Net Damage</th>
+                        <th>Damage Dealt</th>
+                        <th>Damage Recieved</th>
+                        <th>Gasoline Consumed</th>
+                        <th>Munitions Consumed</th>
+                        <th>Steel Consumed</th>
+                        <th>Aluminum Consumed</th>
+                        <th>Money Used</th>
+                        <th>Infra Destroyed</th>
+                    </tr>
+                % for attack, maps in [("ground", 3), ("airvair", 4), ("airvinfra", 4), ("airvsoldiers", 4), ("airvtanks", 4), ("airvships", 4), ("naval", 4), ("nuke", 12), ("missile", 8)]:
+                    <tr class="${attack}">
+                        <td>${attack.replace("rva", "r vs A").replace("rvi", "r vs I").replace("rvs", "r vs S").replace("rvt", "r vs T").title()}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_net"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_gas"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_mun"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_steel"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_alum"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_money"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_lost_infra_avg_value"]/maps))}</td>
+                    </tr>
+                % endfor
+                </tbody>
+            </table>
+            <table style="grid-area:${primary}_attacks_1">
+                <caption>${results[secondary]['nation_name']} (defender) stats per MAP</caption>
+                <tbody>
+                    <tr class="header">
+                        <th>Attack Type</th>
+                        <th>Net Damage</th>
+                        <th>Damage Dealt</th>
+                        <th>Damage Recieved</th>
+                        <th>Gasoline Consumed</th>
+                        <th>Munitions Consumed</th>
+                        <th>Steel Consumed</th>
+                        <th>Aluminum Consumed</th>
+                        <th>Money Used</th>
+                        <th>Infra Lost</th>
+                    </tr>
+                % for attack, maps in [("ground", 3), ("airvair", 4), ("airvinfra", 4), ("airvsoldiers", 4), ("airvtanks", 4), ("airvships", 4), ("naval", 4), ("nuke", 12), ("missile", 8)]:
+                    <tr class="${attack}">
+                        <td>${attack.replace("rva", "r vs A").replace("rvi", "r vs I").replace("rvs", "r vs S").replace("rvt", "r vs T").title()}</td>
+                        <td>${'${:,}'.format(-round(results[f"{primary}_{attack}_net"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_gas"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_mun"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_steel"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_alum"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_money"] - results[f"{primary}_{attack}_{secondary}_lost_infra_avg_value"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_lost_infra_avg_value"]/maps))}</td>
+                    </tr>
+                % endfor
+                </tbody>
+            </table>
+            <table style="grid-area:${primary}_attacks_2">
+            <caption>${results[primary]['nation_name']} (attacker) absolute stats</caption>
+                <tbody>
+                    <tr class="header">
+                        <th>Attack Type</th>
+                        <th>Net Damage</th>
+                        <th>Damage Dealt</th>
+                        <th>Damage Recieved</th>
+                        <th>Gasoline Consumed</th>
+                        <th>Munitions Consumed</th>
+                        <th>Steel Consumed</th>
+                        <th>Aluminum Consumed</th>
+                        <th>Money Used</th>
+                        <th>Infra Destroyed</th>
+                    </tr>
+                % for attack in ["ground", "airvair", "airvinfra", "airvsoldiers", "airvtanks", "airvships", "naval", "nuke", "missile"]:
+                    <tr class="${attack}">
+                        <td>${attack.replace("rva", "r vs A").replace("rvi", "r vs I").replace("rvs", "r vs S").replace("rvt", "r vs T").title()}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_net"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_gas"]))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_mun"]))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_steel"]))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_alum"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_money"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_lost_infra_avg_value"]))}</td>
+                    </tr>
+                % endfor
+                </tbody>
+            </table>
+            <table style="grid-area:${primary}_attacks_3">
+                <caption>${results[secondary]['nation_name']} (defender) absolute stats</caption>
+                <tbody>
+                    <tr class="header">
+                        <th>Attack Type</th>
+                        <th>Net Damage</th>
+                        <th>Damage Dealt</th>
+                        <th>Damage Recieved</th>
+                        <th>Gasoline Consumed</th>
+                        <th>Munitions Consumed</th>
+                        <th>Steel Consumed</th>
+                        <th>Aluminum Consumed</th>
+                        <th>Money Used</th>
+                        <th>Infra Lost</th>
+                    </tr>
+                % for attack in ["ground", "airvair", "airvinfra", "airvsoldiers", "airvtanks", "airvships", "naval", "nuke", "missile"]:
+                    <tr class="${attack}">
+                        <td>${attack.replace("rva", "r vs A").replace("rvi", "r vs I").replace("rvs", "r vs S").replace("rvt", "r vs T").title()}</td>
+                        <td>${'${:,}'.format(-round(results[f"{primary}_{attack}_net"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]/maps))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_gas"]))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_mun"]))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_steel"]))}</td>
+                        <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_alum"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_money"] - results[f"{primary}_{attack}_{secondary}_lost_infra_avg_value"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_lost_infra_avg_value"]))}</td>
+                    </tr>
+                % endfor
+                </tbody>
+            </table>
+        % endfor
+            <script>
+                const getCellValue = (tr, idx) => tr.children[idx].textContent.replace(/\$|,/g, '');
+
+                const comparer = (idx, asc) => (a, b) => ((v1, v2) => 
+                    v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
+                    )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
+
+                // do the work...
+                document.querySelectorAll('th').forEach(th => th.addEventListener('click', ((event) => {
+                    if (event.shiftKey) {
+                        var tables = document.querySelectorAll('table');
+                    }
+                    else {
+                        var tables = [th.closest('table')];
+                    }
+                    let howToSort = comparer(Array.from(th.parentNode.children).indexOf(th), this.asc = !this.asc);
+                    for (let i = 0; i < tables.length; i++) {
+                        let table = tables[i]
+                        Array.from(table.querySelectorAll('tr:nth-child(n+2)'))
+                            .sort(howToSort)
+                            .forEach(tr => table.appendChild(tr));
+                    }
+                })));
+
+                document.querySelectorAll('tr').forEach(tr => tr.addEventListener('click', (() => {
+                    if (tr.className !== "header") {
+                        document.querySelectorAll('tr').forEach(row => {
+                            if (tr.className === row.className){
+                                if (row.style.backgroundColor === "yellow"){
+                                    row.style.backgroundColor = null;
+                                }
+                                else {
+                                    row.style.backgroundColor = "yellow";
+                                }
+                            }
+                            else {
+                                row.style.backgroundColor = null;
+                            }
+                        })
+                    }
+                })));
+            </script>
+        </div>
+    </body>
+</html>
