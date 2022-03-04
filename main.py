@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-from pymongo.mongo_client import MongoClient
 import keep_alive
 import pymongo
 import aiohttp
@@ -77,7 +76,7 @@ async def verify(ctx, nation_id):
                 mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
                 await ctx.send("You have successfully verified your nation!")
             else:
-                await ctx.send(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Write `$verify {nation_id}` again.')
+                await ctx.send(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back here\n5. Write `$verify {nation_id}` again.')
 
 keep_alive.keep_alive()
 
