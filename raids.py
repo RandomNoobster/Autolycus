@@ -707,6 +707,7 @@ class TargetFinding(commands.Cog):
                 found = True
         if not found:
             await message.edit(content="I did not find a reminder for that nation!")
+            return
         await message.edit(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
 
     @commands.command(brief='Add a beige reminder', help='Supply the id, link, nation name, leader name or discord of the nation you want to add a reminder for. The bot will send you a DM when the nation exits beige.', aliases=['addrem', 'ar', 'remindme'])
