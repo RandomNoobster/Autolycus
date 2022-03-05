@@ -296,7 +296,7 @@ class TargetFinding(commands.Cog):
             
             if progress < tot_pages - 5:
                 rndm = random.choice(["", "2", "3"])
-                with open (pathlib.Path.cwd() / 'data' / 'attachments' / f'waiting{rndm}.gif', 'rb') as gif:
+                with open (pathlib.Path.cwd() / 'attachments' / f'waiting{rndm}.gif', 'rb') as gif:
                     gif = discord.File(gif)
                 await message.edit(file=gif)
 
