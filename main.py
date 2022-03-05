@@ -21,11 +21,14 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 @bot.event
 async def on_ready():
     print('Bot is ready')
+    for guild in bot.guilds:
+        print(guild)
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     print('We have logged in as {0.user}'.format(bot))
 
 @bot.event
 async def on_command_error(ctx, error):
+    debug_channel = bot.get_channel(949609712557637662)
     print(error)
     if isinstance(error, commands.CommandNotFound):
         return
@@ -34,23 +37,24 @@ async def on_command_error(ctx, error):
         await ctx.send(embed=em)
         return
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("You do not have the permission to use this command")
+        await ctx.send("You do not have the permission to use this command!")
     elif isinstance(error, commands.BadArgument):
-        await ctx.send("Something's wrong with your arguments")
+        await ctx.send("Something's wrong with your arguments!")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("You don't have the required arguments")
+        await ctx.send(f"You don't have the required arguments! Use `$help {ctx.command}` to see the required arguments.")
     elif isinstance(error, commands.PrivateMessageOnly):
-        await ctx.send("This command can only be used in private messages.")
+        await ctx.send("This command can only be used in private messages!")
     elif isinstance(error, commands.MissingAnyRole):
-        await ctx.send("You do not have the roles required to use this command.")
+        await ctx.send("You do not have the roles required to use this command!")
     elif isinstance(error, commands.DisabledCommand):
-        await ctx.send(f'{ctx.command} has been disabled.')
+        await ctx.send(f'{ctx.command} has been disabled!')
     elif isinstance(error, aiohttp.ClientOSError):
         await ctx.send("A really f***ing annoying error occurred, and there's no real way to fix it, so I'm pretty upset. You can just try again and it should work.\n-Randy")
     else:
         for variable in os.environ:
             error = str(error).replace(os.getenv(variable), "XXXCENSOREDXXX")
-        await ctx.send(f'An error occurred:\n```{error}```')
+        await ctx.send("Oh no! An unknown error occurred!")
+        await debug_channel.send(f'Author: {ctx.author}\nServer: {ctx.guild}\n\nCommand: {ctx.command}\n\nAn error occurred:```{error}```')
 
 if __name__ == "__main__": 
     bot.load_extension('raids')
@@ -59,7 +63,10 @@ if __name__ == "__main__":
 async def ping(ctx):
     await ctx.send(f'Pong! {round(bot.latency * 1000)}ms')
 
-@bot.command(brief='Link your nation with your discord account')
+@bot.command(
+    brief='Link your nation with your discord account',
+    help=f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type your discord username in the adjacent field\n4. Come back to discord\n5. Write "$verify your_nation_id_here"\n\nYour nation id can be found by going to "View" under "Nation" in the menus. Your nation id should be towards the top of the box titled "Basic Information".'
+    )
 async def verify(ctx, nation_id):
     user = mongo.global_users.find_one({"user": ctx.author.id})
     if user != None:
@@ -76,7 +83,12 @@ async def verify(ctx, nation_id):
                 mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
                 await ctx.send("You have successfully verified your nation!")
             else:
-                await ctx.send(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back here\n5. Write `$verify {nation_id}` again.')
+                await ctx.send(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `$verify {nation_id}` again.')
+@verify.error
+async def verify_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("You have to include your nation id or a link to your nation!")
+   
 
 keep_alive.keep_alive()
 
