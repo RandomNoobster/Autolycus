@@ -41,7 +41,11 @@ class TargetFinding(commands.Cog):
             winrate = 1
         return winrate
 
-    @commands.command(aliases=['raid'])
+    @commands.command(
+        aliases=['raid'],
+        breif="Find raid targets",
+        help="You go through a wizard, specifying what criteria the targets should fulfill. The bot will present all targets matching the criteria you specified."
+        )
     async def raids(self, ctx, *, arg=None):
         invoker = str(ctx.author.id)
         async with aiohttp.ClientSession() as session:
