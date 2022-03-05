@@ -4,6 +4,7 @@ import pymongo
 import aiohttp
 import os
 import ssl
+import traceback
 import re
 import discord
 from discord.ext import commands
@@ -52,10 +53,8 @@ async def on_command_error(ctx, error):
     elif isinstance(error, aiohttp.ClientOSError):
         await ctx.send("A really f***ing annoying error occurred, and there's no real way to fix it, so I'm pretty upset. You can just try again and it should work.\n-Randy")
     else:
-        for variable in os.environ:
-            error = str(error).replace(os.getenv(variable), "XXXCENSOREDXXX")
         await ctx.send("Oh no! An unknown error occurred!")
-        await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nArguments: {ctx.args}\n\nAn error occurred:```{error}```')
+        await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nArguments: {ctx.args}\n\nError:```{traceback.format_exc()}```')
 
 if __name__ == "__main__": 
     bot.load_extension('raids')
