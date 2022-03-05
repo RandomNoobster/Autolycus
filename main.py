@@ -54,7 +54,7 @@ async def on_command_error(ctx, error):
         for variable in os.environ:
             error = str(error).replace(os.getenv(variable), "XXXCENSOREDXXX")
         await ctx.send("Oh no! An unknown error occurred!")
-        await debug_channel.send(f'Author: {ctx.author}\nServer: {ctx.guild}\n\nCommand: {ctx.command}\n\nAn error occurred:```{error}```')
+        await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nArguments: {ctx.args}\n\nAn error occurred:```{error}```')
 
 if __name__ == "__main__": 
     bot.load_extension('raids')
