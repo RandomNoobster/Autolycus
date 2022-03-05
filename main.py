@@ -21,8 +21,9 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 @bot.event
 async def on_ready():
     print('Bot is ready')
+    print("I am in ", len(bot.guilds), " servers:")
     for guild in bot.guilds:
-        print(guild)
+        print(f"-> {guild} || {guild.member_count} members")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     print('We have logged in as {0.user}'.format(bot))
 
