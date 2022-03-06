@@ -1,13 +1,14 @@
+from datetime import datetime, timedelta
+import asyncio
 from dotenv import load_dotenv
 import keep_alive
 import pymongo
 import aiohttp
 import os
 import ssl
-import traceback
 import re
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
@@ -88,8 +89,37 @@ async def verify(ctx, nation_id):
 async def verify_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send("You have to include your nation id or a link to your nation!")
+
+@tasks.loop()
+async def alert_scanner():
+    debug_channel = bot.get_channel(949609712557637662)
+    while True:
+        minute = 0
+        now = datetime.utcnow()
+        future = datetime(now.year, now.month, now.day, now.hour, minute)
+        if now.minute >= minute:
+            future += timedelta(hours=1, seconds=1)
+        await asyncio.sleep((future-now).seconds)
+        try:
+            alerts = list(mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
+            for user in alerts:
+                for alert in user['beige_alerts']:
+                    if datetime.utcnow() >= alert['time']:
+                        disc_user = await bot.fetch_user(user['user'])
+                        try:
+                            await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is out of beige!")
+                        except:
+                            debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
+                        user['beige_alerts'].remove(alert)
+                        alert_list = user['beige_alerts']
+                        if not alert_list:
+                            alert_list = []
+                        mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
+        except Exception as error:
+            await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{error}```')
    
 
 keep_alive.keep_alive()
 
+bot.bg_task = bot.loop.create_task(alert_scanner())
 bot.run(os.getenv("bot_token"))
