@@ -8,7 +8,7 @@ import os
 import ssl
 import re
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
@@ -90,7 +90,6 @@ async def verify_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send("You have to include your nation id or a link to your nation!")
 
-@tasks.loop()
 async def alert_scanner():
     debug_channel = bot.get_channel(949609712557637662)
     while True:
@@ -117,7 +116,6 @@ async def alert_scanner():
                         mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
         except Exception as error:
             await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{error}```')
-   
 
 keep_alive.keep_alive()
 
