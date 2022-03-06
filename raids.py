@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord.commands import slash_command, Option
 import aiohttp
 import re
 from mako.template import Template
@@ -41,26 +42,22 @@ class TargetFinding(commands.Cog):
             winrate = 1
         return winrate
 
-    @commands.command(
-        aliases=['raid'],
-        breif="Find raid targets",
-        help="You go through a wizard, specifying what criteria the targets should fulfill. The bot will present all targets matching the criteria you specified."
+    @slash_command(
+        name="raids",
+        description="Find raid targets",
         )
-    async def raids(self, ctx, *, nation=None):
-        arg = nation
+    async def raids(self, ctx: discord.ApplicationContext):
+        await ctx.defer()
         invoker = str(ctx.author.id)
         async with aiohttp.ClientSession() as session:
-            message = await ctx.send('Finding person...')
-            if arg == None:
-                arg = ctx.author.id
-            attacker = utils.find_nation_plus(self, arg)
+            attacker = utils.find_nation_plus(self, ctx.author.id)
             if not attacker:
-                await message.edit(content='I could not find your nation, make sure that you are verified!')
+                await ctx.edit(content='I could not find your nation, make sure that you are verified!')
                 return
             async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{attacker['id']}){{data{{nation_name score id population soldiers tanks aircraft ships}}}}}}"}) as temp:
                 atck_ntn = (await temp.json())['data']['nations']['data'][0]
             if atck_ntn == None:
-                await message.edit(content='I did not find that person!')
+                await ctx.edit(content='I did not find that person!')
                 return
             minscore = round(atck_ntn['score'] * 0.75)
             maxscore = round(atck_ntn['score'] * 1.75)
@@ -89,7 +86,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
 
             beige = None
             class stage_five(discord.ui.View):
@@ -115,7 +112,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
 
             inactive_limit = None
             class stage_four(discord.ui.View):
@@ -155,7 +152,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
 
             max_wars = None
             class stage_three(discord.ui.View):
@@ -195,7 +192,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
                     
             who = None
             class stage_two(discord.ui.View):
@@ -228,7 +225,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
 
             webpage = None
             class stage_one(discord.ui.View):
@@ -254,7 +251,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
 
             target_list = []
             futures = []
@@ -290,25 +287,25 @@ class TargetFinding(commands.Cog):
             for embed, view in [(embed0, stage_one()), (embed1, stage_two()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six())]:
                 if embed == embed2:
                     fetching = asyncio.ensure_future(fetch_targets())
-                await message.edit(content="", embed=embed, view=view)
+                await ctx.edit(content="", embed=embed, view=view)
                 await view.wait()
 
-            await message.edit(content="Getting targets...", view=None, embed=None)
+            await ctx.edit(content="Getting targets...", view=None, embed=None)
             
             if progress < tot_pages - 5:
                 rndm = random.choice(["", "2", "3"])
                 with open (pathlib.Path.cwd() / 'attachments' / f'waiting{rndm}.gif', 'rb') as gif:
                     gif = discord.File(gif)
-                await message.edit(file=gif)
+                await ctx.edit(file=gif)
 
             await asyncio.gather(fetching)
             while progress < tot_pages:
-                await message.edit(content=f"Getting targets... ({progress}/{tot_pages})")
+                await ctx.edit(content=f"Getting targets... ({progress}/{tot_pages})")
                 await asyncio.sleep(1)
 
             done_jobs = await asyncio.gather(*futures)
 
-            await message.edit(content="Caching targets...")
+            await ctx.edit(content="Caching targets...")
             for done_job in done_jobs:
                 for x in done_job['data']['nations']['data']:
                     if beige:
@@ -334,7 +331,7 @@ class TargetFinding(commands.Cog):
                     target_list.append(x)
                     
             if len(target_list) == 0:
-                await message.edit(content="No targets matched your criteria!", attachments=[])
+                await ctx.edit(content="No targets matched your criteria!", attachments=[])
                 return
 
             filters = "No active filters"
@@ -359,9 +356,9 @@ class TargetFinding(commands.Cog):
                     filter_list.append(f"hide nations that logged in within the last {inactive_limit} days")
                 filters = filters + ", ".join(filter_list)
 
-            temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, message, query_for_nation=False, parsed_nation=atck_ntn)
+            temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=False, parsed_nation=atck_ntn)
 
-            await message.edit(content='Calculating best targets...')
+            await ctx.edit(content='Calculating best targets...')
 
             for target in target_list:
                 embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
@@ -416,7 +413,7 @@ class TargetFinding(commands.Cog):
                     embed.add_field(name="Previous nation loot", value="NaN")
                     target['nation_loot'] = "NaN"
 
-                rev_obj = await utils.revenue_calc(message, target, radiation, treasures, prices, colors, seasonal_mod)
+                rev_obj = await utils.revenue_calc(ctx, target, radiation, treasures, prices, colors, seasonal_mod)
 
                 target['monetary_net_num'] = rev_obj['monetary_net_num']
                 embed.add_field(name="Monetary Net Income", value=rev_obj['mon_net_txt'])
@@ -505,7 +502,7 @@ class TargetFinding(commands.Cog):
                         return True
                 target_list[:] = [target for target in target_list if determine(target)]
                 if len(target_list) == 0:
-                    await message.edit(content="No targets matched your criteria!", attachments=[])
+                    await ctx.edit(content="No targets matched your criteria!", attachments=[])
                     return
                 
         best_targets = sorted(target_list, key=lambda k: k['monetary_net_num'], reverse=True)
@@ -535,7 +532,7 @@ class TargetFinding(commands.Cog):
                     return "you good"
 
             app.add_url_rule(f"/raids/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-            await message.edit(content=f"Go to https://autolycus.politicsandwar.repl.co/raids/{endpoint}", attachments=[])
+            await ctx.edit(content=f"Go to https://autolycus.politicsandwar.repl.co/raids/{endpoint}", attachments=[])
             return
         
         pages = len(target_list)
@@ -554,7 +551,7 @@ class TargetFinding(commands.Cog):
 
         class embed_paginator(discord.ui.View):
             def __init__(self):
-                super().__init__(timeout=900)
+                super().__init__(timeout=890)
 
             def button_check(self, x):
                 beige_button = [x for x in self.children if x.custom_id == "beige"][0]
@@ -610,7 +607,7 @@ class TargetFinding(commands.Cog):
                 turns = cur_embed['beigeturns']
                 if turns == 0:
                     beige_button.disabled = True
-                    await message.edit(view=view)
+                    await ctx.edit(view=view)
                     await i.response.send_message(content=f"They are not in beige!", ephemeral=True)
                     return
                 time = datetime.utcnow()
@@ -627,12 +624,12 @@ class TargetFinding(commands.Cog):
                 for entry in user['beige_alerts']:
                     if reminder['id'] == entry['id']:
                         beige_button.disabled = True
-                        await message.edit(view=view)
+                        await ctx.edit(view=view)
                         await i.response.send_message(content=f"You already have a beige reminder for this nation!", ephemeral=True)
                         return
                 mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
                 beige_button.disabled = True
-                await message.edit(view=view)
+                await ctx.edit(view=view)
                 await i.response.send_message(content=f"A beige reminder for <https://politicsandwar.com/nation/id={cur_embed['id']}> was added!", ephemeral=True)
 
             @discord.ui.button(label='Type "page <number>" to go to that page', style=discord.ButtonStyle.gray, disabled=True)
@@ -647,57 +644,77 @@ class TargetFinding(commands.Cog):
                     return True
 
         view = embed_paginator()
-        await message.edit(content="", embed=msg_embd, attachments=[], view=view)
+        await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
 
         async def message_checker():
             while True:
                 try:
                     nonlocal cur_page
-                    command = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=900)
+                    command = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=890)
                     if "page" in command.content.lower():
                         try:
                             cur_page = int(re.sub("\D", "", command.content))
                             msg_embd = best_targets[cur_page-1]['embed']
                             msg_embd.set_footer(text=f"Page {cur_page}/{pages}")
-                            await message.edit(content="", embed=msg_embd, view=view)
-                            await command.delete()
+                            await ctx.edit(content="", embed=msg_embd, view=view)
+                            try:
+                                await command.delete()
+                            except:
+                                if random.random() * 15 < 1:
+                                    await ctx.respond(content=f"Pro tip: With the `Manage Messages` permission, I can delete the \"page x\"-messages!")
                         except:
                             msg_embd = best_targets[0]['embed']
                             msg_embd.set_footer(text=f"Page {1}/{pages}")
-                            await message.edit(content=f"<@{ctx.author.id}> Something went wrong with your input!", embed=msg_embd, view=view)
+                            await ctx.edit(content=f"<@{ctx.author.id}> Something went wrong with your input!", embed=msg_embd, view=view)
                 except asyncio.TimeoutError:
-                    await message.edit(content=f"<@{ctx.author.id}> Command timed out!")
+                    await ctx.edit(content=f"<@{ctx.author.id}> Command timed out!")
                     break
         
         msg_task = asyncio.create_task(message_checker())
         await asyncio.gather(msg_task)
     
-    @commands.command(brief='Show all your active beige reminders', help='', aliases=['alerts', 'rems'])
-    async def reminders(self, ctx):
-        message = await ctx.send('Let\'s see...')
+    @slash_command(
+        name="reminders",
+        description='Show all your active beige reminders',
+        )
+    async def reminders(self, ctx: discord.ApplicationContext):
+        await ctx.defer()
         person = mongo.global_users.find_one({"user": ctx.author.id})
         if person == None:
-            await message.edit(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
+            await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
             return
         insults = ['ha loser', 'what a nub', 'such a pleb', 'get gud', 'u suc lol']
         insult = random.choice(insults)
         if person['beige_alerts'] == []:
-            await message.edit(content=f"You have no beige reminders!\n\n||{insult}||")
+            await ctx.respond(content=f"You have no beige reminders!\n\n||{insult}||")
             return
         reminders = ""
         person['beige_alerts'] = sorted(person['beige_alerts'], key=lambda k: k['time'], reverse=True)
         for x in person['beige_alerts']:
             reminders += (f"\n<t:{round(x['time'].timestamp())}> (<t:{round(x['time'].timestamp())}:R>) - <https://politicsandwar.com/nation/id={x['id']}>")
-        await message.edit(content=f"Here are your reminders:\n{reminders}")
+        await ctx.respond(content=f"Here are your reminders:\n{reminders}")
     
-    @commands.command(brief='Delete a beige reminder', help='Supply the id or link of the nation whose beige reminder you want to delete.', aliases=['delrem', 'dr'])
-    async def delreminder(self, ctx, id):
-        message = await ctx.send('Let me think...')
-        id = str(re.sub("[^0-9]", "", id))
+    @slash_command(
+        name="delreminder",
+        description='Delete a beige reminder'
+        )
+    async def delreminder(
+        self,
+        ctx: discord.ApplicationContext,
+        nation: Option(str, "Nation name, nation link, discord username etc of the nation whose beige reminder you want to remove")
+    ):
+        await ctx.defer()
         person = mongo.global_users.find_one({"user": ctx.author.id})
         if person == None:
-            await message.edit(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
+            await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
             return
+        parsed_nation = utils.find_nation(nation)
+        if parsed_nation == None:
+            await ctx.respond("I could not find that nation!")
+            return
+        else:
+            id = parsed_nation['id']
+
         found = False
         for alert in person['beige_alerts']:
             if alert['id'] == id:
@@ -707,24 +724,29 @@ class TargetFinding(commands.Cog):
                 mongo.global_users.find_one_and_update({"user": person['user']}, {"$set": {"beige_alerts": alert_list}})
                 found = True
         if not found:
-            await message.edit(content="I did not find a reminder for that nation!")
+            await ctx.respond(content="I did not find a reminder for that nation!")
             return
-        await message.edit(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
+        await ctx.respond(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
 
-    @commands.command(brief='Add a beige reminder', help='Supply the id, link, nation name, leader name or discord of the nation you want to add a reminder for. The bot will send you a DM when the nation exits beige.', aliases=['addrem', 'ar', 'remindme'])
-    async def addreminder(self, ctx, arg):
-        message = await ctx.send('Hang on...')
+    @slash_command(
+        name="addreminder",
+        description='Add a reminder for when a nation exits beige'
+        )
+    async def addreminder(
+        self,
+        ctx: discord.ApplicationContext,
+        arg: Option(str, "Nation name, nation link, discord username etc of the nation you want to add a beige reminder for")
+    ):
+        await ctx.defer()
         nation = utils.find_nation(arg)
         if nation == None:
-            await message.edit(content='I could not find that nation!')
+            await ctx.respond(content='I could not find that nation!')
             return
-        #print(nation)
         res = requests.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nation['id']}){{data{{beigeturns}}}}}}"}).json()['data']['nations']['data'][0]
         if res['beigeturns'] == 0:
-            await message.edit(content="They are not beige!")
+            await ctx.respond(content="They are not beige!")
             return
         reminder = {}
-        #print(data)
         turns = int(res['beigeturns'])
         time = datetime.utcnow()
         if time.hour % 2 == 0:
@@ -735,31 +757,35 @@ class TargetFinding(commands.Cog):
         reminder['id'] = nation['id']
         user = mongo.global_users.find_one({"user": ctx.author.id})
         if user == None:
-            await message.edit(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
+            await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
             return
         for entry in user['beige_alerts']:
             if reminder['id'] == entry['id']:
-                await message.edit(content=f"You already have a beige reminder for this nation!")
+                await ctx.respond(content=f"You already have a beige reminder for this nation!")
                 return
         mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
-        await message.edit(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
+        await ctx.respond(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
 
-    @commands.command(
-        aliases=['bsim', 'bs'],
-        brief='Simulate battles between two nations',
-        help="Accepts up to two arguments. The first argument is the attacking nation, whilst the latter is the defending nation. If only one argument is provided, the bot will assume that you are the defender. If no arguments are provided, it will assume you are attacking yourself."
+    @slash_command(
+        name="battlesimulation",
+        description='Simulate battles between two nations'
         )
-    async def battlesim(self, ctx, nation1=None, nation2=None):
-        message = await ctx.send('Alright, give me a sec to calculate the winrates...')
+    async def battlesim(
+        self,
+        ctx: discord.ApplicationContext,
+        nation1: Option(str, "Nation name, leader name, nation id, nation link or discord username. Defaults to your nation.") = None,
+        nation2: Option(str, "Nation name, leader name, nation id, nation link or discord username. Defaults to your nation.") = None
+    ):
+        await ctx.defer()
         if nation1 == None:
             nation1 = ctx.author.id
         nation1_nation = utils.find_nation_plus(self, nation1)
         if not nation1_nation:
             if nation2 == None:
-                await message.edit(content='I could not find that nation!')
+                await ctx.respond(content='I could not find that nation!')
                 return
             else:
-                await message.edit(content='I could not find nation 1!')
+                await ctx.respond(content='I could not find nation 1!')
                 return 
         nation1_id = str(nation1_nation['id'])
 
@@ -768,10 +794,10 @@ class TargetFinding(commands.Cog):
         nation2_nation = utils.find_nation_plus(self, nation2)
         if not nation2_nation:
             if nation2 == None:
-                await message.edit(content='I was able to find the nation you linked, but I could not find *your* nation!')
+                await ctx.respond(content='I was able to find the nation you linked, but I could not find *your* nation!')
                 return
             else:
-                await message.edit(content='I could not find nation 2!')
+                await ctx.respond(content='I could not find nation 2!')
                 return 
         nation2_id = str(nation2_nation['id'])
         
@@ -832,17 +858,21 @@ class TargetFinding(commands.Cog):
                     return True
             
             async def on_timeout(self):
-                await message.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
                 
-        await message.edit(embed=embed, content="", view=switch())
+        await ctx.respond(embed=embed, content="", view=switch())
 
-    @commands.command(
-        aliases=["dmg"],
-        brief="Shows you how much damage each war attack would do",
-        help="You can supply arguments just like what you'd do for $battlesim. It links to a page with some tables showing the damage dealt for each kind of attack."
+    @slash_command(
+        name="damage",
+        description="Shows you how much damage each war attack would do",
         )
-    async def damage(self, ctx, nation1=None, nation2=None):
-        message = await ctx.send('Alright, give me a sec to calculate your mom...')
+    async def damage(
+        self,
+        ctx: discord.ApplicationContext,
+        nation1: Option(str, "Nation name, leader name, nation id, nation link or discord username. Defaults to your nation.") = None,
+        nation2: Option(str, "Nation name, leader name, nation id, nation link or discord username. Defaults to your nation.") = None
+    ):
+        await ctx.defer()
         if nation1 == None:
             nation1 = ctx.author.id
         nation1_nation = utils.find_user(self, nation1)
@@ -850,10 +880,10 @@ class TargetFinding(commands.Cog):
             nation1_nation = utils.find_nation(nation1)
             if not nation1_nation:
                 if nation2 == None:
-                    await message.edit(content='I could not find that nation!')
+                    await ctx.respond(content='I could not find that nation!')
                     return
                 else:
-                    await message.edit(content='I could not find nation 1!')
+                    await ctx.respond(content='I could not find nation 1!')
                     return 
             nation1_nation['id'] = nation1_nation['nationid']
         nation1_id = str(nation1_nation['id'])
@@ -865,10 +895,10 @@ class TargetFinding(commands.Cog):
             nation2_nation = utils.find_nation(nation2)
             if not nation2_nation:
                 if nation2 == None:
-                    await message.edit(content='I was able to find the nation you linked, but I could not find *your* nation!')
+                    await ctx.respond(content='I was able to find the nation you linked, but I could not find *your* nation!')
                     return
                 else:
-                    await message.edit(content='I could not find nation 2!')
+                    await ctx.respond(content='I could not find nation 2!')
                     return 
             nation2_nation['id'] = nation2_nation['nationid']
         nation2_id = str(nation2_nation['id'])
@@ -882,7 +912,7 @@ class TargetFinding(commands.Cog):
                 result = Template(template).render(results=results)
                 return str(result)
         app.add_url_rule(f"/damage/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-        await message.edit(content=f"Go to https://fuquiem.politicsandwar.repl.co/damage/{endpoint}", attachments=[])
+        await ctx.respond(content=f"Go to https://fuquiem.politicsandwar.repl.co/damage/{endpoint}", attachments=[])
 
         
     async def battle_calc(self, nation1_id, nation2_id):
