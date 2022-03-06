@@ -875,32 +875,26 @@ class TargetFinding(commands.Cog):
         await ctx.defer()
         if nation1 == None:
             nation1 = ctx.author.id
-        nation1_nation = utils.find_user(self, nation1)
+        nation1_nation = utils.find_nation_plus(self, nation1)
         if not nation1_nation:
-            nation1_nation = utils.find_nation(nation1)
-            if not nation1_nation:
-                if nation2 == None:
-                    await ctx.respond(content='I could not find that nation!')
-                    return
-                else:
-                    await ctx.respond(content='I could not find nation 1!')
-                    return 
-            nation1_nation['id'] = nation1_nation['nationid']
+            if nation2 == None:
+                await ctx.respond(content='I could not find that nation!')
+                return
+            else:
+                await ctx.respond(content='I could not find nation 1!')
+                return 
         nation1_id = str(nation1_nation['id'])
 
         if nation2 == None:
             nation2 = ctx.author.id
-        nation2_nation = utils.find_user(self, nation2)
+        nation2_nation = utils.find_nation_plus(self, nation2)
         if not nation2_nation:
-            nation2_nation = utils.find_nation(nation2)
-            if not nation2_nation:
-                if nation2 == None:
-                    await ctx.respond(content='I was able to find the nation you linked, but I could not find *your* nation!')
-                    return
-                else:
-                    await ctx.respond(content='I could not find nation 2!')
-                    return 
-            nation2_nation['id'] = nation2_nation['nationid']
+            if nation2 == None:
+                await ctx.respond(content='I was able to find the nation you linked, but I could not find *your* nation!')
+                return
+            else:
+                await ctx.respond(content='I could not find nation 2!')
+                return 
         nation2_id = str(nation2_nation['id'])
         
         results = await self.battle_calc(nation1_id, nation2_id)
