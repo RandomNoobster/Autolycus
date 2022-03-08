@@ -1,3 +1,5 @@
+import asyncio
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import keep_alive
 import pymongo
@@ -20,8 +22,9 @@ api_key = os.getenv("api_key")
 
 bot = commands.Bot(intents=intents)
 
-if __name__ == "__main__": 
-    bot.load_extension('raids')
+for filename in os.listdir('./cogs'):
+    if filename.endswith('.py'):
+        bot.load_extension(f'cogs.{filename[:-3]}')
 
 @bot.event
 async def on_ready():
@@ -77,8 +80,35 @@ async def verify(
                 await ctx.respond("You have successfully verified your nation!")
             else:
                 await ctx.respond(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `$verify {nation_id}` again.')
-   
+
+async def alert_scanner():
+    debug_channel = bot.get_channel(949609712557637662)
+    while True:
+        minute = 0
+        now = datetime.utcnow()
+        future = datetime(now.year, now.month, now.day, now.hour, minute)
+        if now.minute >= minute:
+            future += timedelta(hours=1, seconds=1)
+        await asyncio.sleep((future-now).seconds)
+        try:
+            alerts = list(mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
+            for user in alerts:
+                for alert in user['beige_alerts']:
+                    if datetime.utcnow() >= alert['time']:
+                        disc_user = await bot.fetch_user(user['user'])
+                        try:
+                            await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is out of beige!")
+                        except:
+                            await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
+                        user['beige_alerts'].remove(alert)
+                        alert_list = user['beige_alerts']
+                        if not alert_list:
+                            alert_list = []
+                        mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
+        except Exception as error:
+            await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{error}```')
 
 keep_alive.keep_alive()
 
+bot.bg_task = bot.loop.create_task(alert_scanner())
 bot.run(os.getenv("bot_token"))
