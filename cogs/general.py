@@ -42,12 +42,12 @@ class General(commands.Cog):
         now = datetime.now()
         yesterday = now + timedelta(days=-1)
         date = yesterday.strftime("%Y-%m-%d")
-        if os.path.isfile(pathlib.Path.cwd() / 'data' / 'dumps' / 'cities' / f'cities-{date}.csv'):
+        if os.path.isfile(pathlib.Path.cwd() / 'data' / f'cities-{date}.csv'):
             #print('That file already exists')
             pass
         else:
             dload.save_unzip(f"https://politicsandwar.com/data/cities/cities-{date}.csv.zip", str(
-                pathlib.Path.cwd() / 'data' / 'dumps' / 'cities'), True)
+                pathlib.Path.cwd() / 'data'), True)
         
         if person == None:
             person = ctx.author.id
@@ -100,7 +100,7 @@ class General(commands.Cog):
 
         await ctx.edit(content="Scanning cities...")
 
-        with open(pathlib.Path.cwd() / 'data' / 'dumps' / 'cities' / f'cities-{date}.csv', encoding='cp437') as f1:
+        with open(pathlib.Path.cwd() / 'data' / f'cities-{date}.csv', encoding='cp437') as f1:
             csv_dict_reader = DictReader(f1)
             nation_age = nation['date'][:nation['date'].index(" ")]
             for city in csv_dict_reader:
