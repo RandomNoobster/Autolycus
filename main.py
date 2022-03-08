@@ -5,6 +5,7 @@ import aiohttp
 import os
 import ssl
 from discord.commands import Option
+from discord.bot import ApplicationCommandMixin
 import re
 import discord
 from discord.ext import commands
@@ -24,10 +25,20 @@ if __name__ == "__main__":
 
 @bot.event
 async def on_ready():
-    print('Bot is ready')
     print("I am in ", len(bot.guilds), " servers:")
+    n = len(bot.guilds)
     for guild in bot.guilds:
-        print(f"-> {guild} || {guild.member_count} members")
+        extra = ""
+        try:
+            await ApplicationCommandMixin.get_desynced_commands(bot, guild.id)
+        except discord.errors.Forbidden:
+            owner = guild.owner
+            extra = f"|| Slash disallowed, DM {owner}"
+            n -= 1
+        print(f"-> {guild} || {guild.member_count} members {extra}")
+    print(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
+    m = len(list(bot.get_all_members()))
+    print(f"Serving {m} people")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     print('We have logged in as {0.user}'.format(bot))
 
@@ -38,12 +49,11 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
     await ctx.send("Oh no! An unknown error occurred! Contact RandomNoobster#0093, and he might be able to help you out.")
     await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\n\nError:```{error}```')
 
-@bot.slash_command(guild_ids=[729979781940248577], name="ping", description="Pong!")
+@bot.slash_command(name="ping", description="Pong!")
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
 @bot.slash_command(
-    guild_ids=[729979781940248577],
     name="verify",
     description='Link your nation with your discord account',
     )
