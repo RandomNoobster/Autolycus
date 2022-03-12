@@ -265,7 +265,7 @@ class TargetFinding(commands.Cog):
             async def fetch_targets():
                 nonlocal tot_pages, progress
                 url = f"https://api.politicsandwar.com/graphql?api_key={api_key}"
-                async with session.post(url, json={'query': f"{{nations(page:1 first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{paginatorInfo{{lastPage}}}}}}"}) as temp1:
+                async with session.post(url, json={'query': f"{{nations(page:1 first:50 min_score:{minscore} max_score:{maxscore} vmode:false {who}){{paginatorInfo{{lastPage}}}}}}"}) as temp1:
                     tot_pages += (await temp1.json())['data']['nations']['paginatorInfo']['lastPage']
 
                 for n in range(1, tot_pages+1):
@@ -283,7 +283,9 @@ class TargetFinding(commands.Cog):
                 if embed == embed2:
                     fetching = asyncio.ensure_future(fetch_targets())
                 await ctx.edit(content="", embed=embed, view=view)
-                await view.wait()
+                timed_out = await view.wait()
+                if timed_out:
+                    return
 
             await ctx.edit(content="Getting targets...", view=None, embed=None)
             
