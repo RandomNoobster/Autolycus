@@ -5,7 +5,6 @@ import keep_alive
 import pymongo
 import aiohttp
 import os
-import ssl
 from discord.commands import Option
 from discord.bot import ApplicationCommandMixin
 import re
@@ -15,7 +14,7 @@ intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
 
-client = pymongo.MongoClient(os.getenv("pymongolink"), ssl_cert_reqs=ssl.CERT_NONE)
+client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
 api_key = os.getenv("api_key")

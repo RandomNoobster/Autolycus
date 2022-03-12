@@ -1,6 +1,15 @@
 language = "python3"
-run = "git pull; python main.py"
-onBoot = "git pull;"
+run = "python main.py"
 
 [packager]
-ignoredPackages=["discord"]
+language = "python3"
+ignoredPackages = ["discord"]
+
+  [packager.features]
+  enabledForHosting = false
+
+  # Enable searching packages from the sidebar.
+  packageSearch = true
+  
+  # Enable guessing what packages are needed from the code.
+  guessImports = true

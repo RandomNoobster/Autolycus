@@ -15,12 +15,7 @@ from keep_alive import app
 from flask.views import MethodView
 from flask import request
 import requests
-import pymongo
-import ssl
-
-client = pymongo.MongoClient(os.getenv("pymongolink"), ssl_cert_reqs=ssl.CERT_NONE)
-version = os.getenv("version")
-mongo = client[str(version)]
+from main import mongo
 
 api_key = os.getenv("api_key")
 

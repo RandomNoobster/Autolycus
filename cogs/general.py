@@ -1,9 +1,7 @@
 import os
-import aiohttp
 from discord.ext import commands
 import discord
 import requests
-import asyncio
 from datetime import datetime, timedelta
 from main import mongo
 import pathlib

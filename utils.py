@@ -6,13 +6,9 @@ from datetime import datetime
 from typing import Union, Tuple
 import aiohttp
 import re
-import pymongo
-import ssl
 import os
+from main import mongo
 
-client = pymongo.MongoClient(os.getenv("pymongolink"), ssl_cert_reqs=ssl.CERT_NONE)
-version = os.getenv("version")
-mongo = client[str(version)]
 api_key = os.getenv("api_key")
 
 def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
