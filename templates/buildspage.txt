@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="https://i.ibb.co/2dX2WYW/atomism-ICONSSS.png">
+    <title>City builds</title>
+    <style>
+        .template {
+            width: 320px;
+            height: auto;
+            margin: 20px;
+            background-color: gainsboro;
+            border: 4px solid whitesmoke;
+            padding: 0px 5px 5px 5px;
+        }
+
+        .stat {
+            display: inline-block;
+            width: 100%;
+        }
+
+        .inline_block {
+            display: inline-block;
+            width: 30%;
+            text-align:center;
+        }
+
+        .alert {
+            padding: 20px;
+            border-radius: 20px;
+            background-color: darkred;
+            color: white;
+            font-size: small;
+        }
+
+        .closebtn {
+            margin-left: 15px;
+            color: white;
+            font-weight: bold;
+            float: right;
+            font-size: 22px;
+            line-height: 20px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        .closebtn:hover {
+            color: black;
+        }
+
+        button, input {
+            border: 2px groove whitesmoke;
+            border-radius: 5px;
+        }
+
+        button:hover, input:hover {
+            background-color: #59f4ff;
+            border: 2px solid #21b1ff;
+        }
+
+        .left, .right {
+            border: 2px groove whitesmoke;
+            border-radius: 5px;
+            padding: 3px 5px 3px 5px;
+            width: 45%
+        }
+
+        .left {
+            float: left;
+        }
+
+        .right {
+            float: right;
+        }
+
+        #flexbox{
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+        }
+
+        body {
+            background-color: darkgray;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 15px;
+        }
+
+        pre {
+            font-size: small;
+        }
+
+        h3 {
+            text-align: center;
+        }
+
+        #credits {
+            color: dimgray;
+            font-size: small;
+        }
+
+        .btnRow {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .count {
+            margin-top: 2px;
+            text-align: center;
+            width: 120px;
+            display: inline-block;
+        }
+        
+    </style>
+    <script>
+        function copyFunc(rs) {
+            var str = document.getElementById(rs).innerHTML;
+            const el = document.createElement('textarea');
+            el.value = str;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+        }
+    </script>
+</head>
+<body>
+
+<div>
+    <div class="alert">
+        <span class="closebtn" onclick="this.parentElement.style.display='none';">&times;</span> 
+        <strong>IMPORTANT!</strong> - This tool only shows builds that are currently being used somewhere in Orbis. This means that you may very well be able to improve upon these builds. It's worth mentioning that even though this shows the best builds for producing every type of resource (except for the ones you can't produce due to continent restrictions), the "best build for net income" is in reality best for every resource. This is because the higher monetary income lets you buy more of a resource than you could get by producing it. Another important thing to mention, is that the monetary net income is dependent on market prices. This means that in times of war, manufactured resources will increase in price, increasing the profitability of builds producing these resources. The "best" build for net income may therefore not always be the same.
+    </div>
+    <div id="flexbox">
+    % for rs in rss:
+        <div class="template" id="template ${rs}">
+        <h3>The best build for ${rs}</h3>
+        <pre id="${rs}">${builds[rs]['template']}</pre>
+            <div class="btnRow">
+                <button onclick="copyFunc('${rs}')">
+                    Copy build
+                </button>
+                <form action="https://politicsandwar.com/cities/" target="_blank" style="display: inline-block;">
+                    <input type="submit" value="Your city page" />
+                </form>
+                <form action="https://politicsandwar.com/city/improvements/bulk-import/" target="_blank" style="display: inline-block;">
+                    <input type="submit" value="Bulk import page" />
+                </form>
+            </div>
+            <div class="stat">
+                <div class="left">
+                    🤢 = ${round(builds[rs]['disease_rate'], 1)}% (${round(builds[rs]['real_disease_rate'], 1)}%)
+                </div>
+                <div class="right">
+                    🏭 = ${round(builds[rs]['pollution'])}pts (${round(builds[rs]['real_pollution'])}pts)
+                </div>
+                <br>
+                <div class="left">
+                    👮 = ${round(builds[rs]['crime_rate'], 1)}% (${round(builds[rs]['real_crime_rate'], 1)}%)
+                </div>
+                <div class="right">
+                    🛒 = ${round(builds[rs]['commerce'])}% (${round(builds[rs]['real_commerce'])}%)
+                </div>
+                <div class="left">
+                    MMR = ${f"{builds[rs]['barracks']}/{builds[rs]['factory']}/{builds[rs]['airforcebase']}/{builds[rs]['drydock']}"}
+                </div>
+                <div class="right">
+                    Land = ${land}
+                </div>
+                <div style="border:2px groove whitesmoke; border-radius: 5px; padding: 3px 5px 3px 5px; display: inline-block; width: 306px">
+                    Net income = $${f"{round(builds[rs]['net income']):,}"}
+                </div>
+                <div style="border:2px groove whitesmoke; border-radius: 5px;padding:5px;max-width:fit-content">
+                    <div class="inline_block"><img src="https://i.ibb.co/Jvc721Q/aluminum.png" alt="aluminum"></a> = ${round(builds[rs]['aluminum'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/MCX24BV/bauxite.png" alt="bauxite"></a> = ${round(builds[rs]['bauxite'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/0Q49PQW/coal.png" alt="coal"></a> = ${round(builds[rs]['coal'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/WyGLcnL/gasoline.png" alt="gasoline"></a> = ${round(builds[rs]['gasoline'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/27cjVPf/iron.png" alt="iron"></a> = ${round(builds[rs]['iron'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/r5KB1rS/lead.png" alt="lead"></a> = ${round(builds[rs]['lead'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/cgd2D7s/money.png" alt="money"></a> = ${round(builds[rs]['net_cash_num']/1000, 1)}k</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/LJLjL7g/munitions.png" alt="munitions"></a> = ${round(builds[rs]['munitions'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/861z21m/oil.png" alt="oil"></a> = ${round(builds[rs]['oil'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/PcbqzMS/steak-meat.png" alt="steak-meat"></a> = ${round(builds[rs]['food'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/JHVBnW7/steel.png" alt="steel"></a> = ${round(builds[rs]['steel'], 1)}</div>
+                    <div class="inline_block"><img src="https://i.ibb.co/JB3dhNQ/uranium.png" alt="uranium"></a> = ${round(builds[rs]['uranium'], 1)}</div>
+                </div>
+            </div>
+            <div class="left_btn" style="float: left;">
+                <button onclick="leftFunc('${rs}')" style="width: 100px;">
+                    <span class="tooltiptext" id="myTooltip">Previous</span>
+                </button>
+            </div>
+            <div class="count" id="count ${rs}">
+                #1
+            </div>
+            <div class="right_btn" style="float: right;">
+                <button onclick="rightFunc('${rs}')" style="width: 100px;">
+                    <span class="tooltiptext" id="myTooltip">Next</span>
+                </button>
+            </div>
+        </div>
+    % endfor
+    </div>
+    <p id="credits">Please report bugs to RandomNoobster#0093<br>Courtesy of Church of Atom</p>
+</div>
+</body>
+<script>
+    var builds = ${unique_builds}
+    var land = ${land}
+
+    function formatNumber(num) {
+        return num.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,')
+    }
+
+    function rightFunc(rs) {
+        console.log(rs)
+        builds.sort((firstItem, secondItem) => secondItem['net income'] - firstItem['net income']);
+        builds.sort((firstItem, secondItem) => secondItem[rs] - firstItem[rs]);
+        var index = parseInt(document.getElementById("count " + rs).textContent.replace(/\D/g,'')) + 1
+        var build = builds[index-1]
+        templateMaker(build, rs, index)
+    }
+
+    function leftFunc(rs) {
+        console.log(rs)
+        builds.sort((firstItem, secondItem) => secondItem['net income'] - firstItem['net income']);
+        builds.sort((firstItem, secondItem) => secondItem[rs] - firstItem[rs]);
+        var index = parseInt(document.getElementById("count " + rs).textContent.replace(/\D/g,'')) - 1
+        var build = builds[index-1]
+        templateMaker(build, rs, index)
+    }
+
+    function templateMaker(build, rs, index) {
+        var str = `
+        <div class="template" id="template <%text>$</%text>{rs}">
+        <h3>The best build for <%text>$</%text>{rs}</h3>
+    <pre id="<%text>$</%text>{rs}">
+{
+    "infra_needed": <%text>$</%text>{build['infrastructure']},
+    "imp_total": <%text>$</%text>{Math.floor(parseFloat(build['infrastructure'])/50)},
+    "imp_coalpower": <%text>$</%text>{build['coalpower']},
+    "imp_oilpower": <%text>$</%text>{build['oilpower']},
+    "imp_windpower": <%text>$</%text>{build['windpower']},
+    "imp_nuclearpower": <%text>$</%text>{build['nuclearpower']},
+    "imp_coalmine": <%text>$</%text>{build['coalmine']},
+    "imp_oilwell": <%text>$</%text>{build['oilwell']},
+    "imp_uramine": <%text>$</%text>{build['uramine']},
+    "imp_leadmine": <%text>$</%text>{build['leadmine']},
+    "imp_ironmine": <%text>$</%text>{build['ironmine']},
+    "imp_bauxitemine": <%text>$</%text>{build['bauxitemine']},
+    "imp_farm": <%text>$</%text>{build['farm']},
+    "imp_gasrefinery": <%text>$</%text>{build['gasrefinery']},
+    "imp_aluminumrefinery": <%text>$</%text>{build['aluminumrefinery']},
+    "imp_munitionsfactory": <%text>$</%text>{build['munitionsfactory']},
+    "imp_steelmill": <%text>$</%text>{build['steelmill']},
+    "imp_policestation": <%text>$</%text>{build['policestation']},
+    "imp_hospital": <%text>$</%text>{build['hospital']},
+    "imp_recyclingcenter": <%text>$</%text>{build['recyclingcenter']},
+    "imp_subway": <%text>$</%text>{build['subway']},
+    "imp_supermarket": <%text>$</%text>{build['supermarket']},
+    "imp_bank": <%text>$</%text>{build['bank']},
+    "imp_mall": <%text>$</%text>{build['mall']},
+    "imp_stadium": <%text>$</%text>{build['stadium']},
+    "imp_barracks": <%text>$</%text>{build['barracks']},
+    "imp_factory": <%text>$</%text>{build['factory']},
+    "imp_hangars": <%text>$</%text>{build['airforcebase']},
+    "imp_drydock": <%text>$</%text>{build['drydock']}
+}</pre>
+        <div class="btnRow">
+            <button onclick="copyFunc('<%text>$</%text>{rs}')">
+                Copy build
+            </button>
+            <form action="https://politicsandwar.com/cities/" target="_blank" style="display: inline-block;">
+                <input type="submit" value="Your city page" />
+            </form>
+            <form action="https://politicsandwar.com/city/improvements/bulk-import/" target="_blank" style="display: inline-block;">
+                <input type="submit" value="Bulk import page" />
+            </form>
+        </div>
+        <div class="stat">
+            <div class="left">
+                🤢 = <%text>$</%text>{Math.round(build['disease_rate'] * 10) / 10}% (<%text>$</%text>{Math.round(build['real_disease_rate'] * 10) / 10}%)
+            </div>
+            <div class="right">
+                🏭 = <%text>$</%text>{build['pollution']}pts (<%text>$</%text>{build['real_pollution']}pts)
+            </div>
+            <br>
+            <div class="left">
+                👮 = <%text>$</%text>{Math.round(build['crime_rate'] * 10) / 10}% (<%text>$</%text>{Math.round(build['real_crime_rate'] * 10) / 10}%)
+            </div>
+            <div class="right">
+                🛒 = <%text>$</%text>{build['commerce']}% (<%text>$</%text>{build['real_commerce']}%)
+            </div>
+            <div class="left">
+                MMR = <%text>$</%text>{build['barracks']}/<%text>$</%text>{build['factory']}/<%text>$</%text>{build['airforcebase']}/<%text>$</%text>{build['drydock']}
+            </div>
+            <div class="right">
+                Land = <%text>$</%text>{land}
+            </div>
+            <div style="border:2px groove whitesmoke; border-radius: 5px; padding: 3px 5px 3px 5px; display: inline-block; width: 306px">
+                Net income = <%text>$</%text><%text>$</%text>{formatNumber(build['net income'])}
+            </div>
+            <div style="border:2px groove whitesmoke; border-radius: 5px;padding:5px;max-width:fit-content">
+                <div class="inline_block"><img src="https://i.ibb.co/Jvc721Q/aluminum.png" alt="aluminum"></a> = <%text>$</%text>{parseFloat(build['aluminum']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/MCX24BV/bauxite.png" alt="bauxite"></a> = <%text>$</%text>{parseFloat(build['bauxite']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/0Q49PQW/coal.png" alt="coal"></a> = <%text>$</%text>{parseFloat(build['coal']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/WyGLcnL/gasoline.png" alt="gasoline"></a> = <%text>$</%text>{parseFloat(build['gasoline']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/27cjVPf/iron.png" alt="iron"></a> = <%text>$</%text>{parseFloat(build['iron']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/r5KB1rS/lead.png" alt="lead"></a> = <%text>$</%text>{parseFloat(build['lead']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/cgd2D7s/money.png" alt="money"></a> = <%text>$</%text>{parseFloat(build['net_cash_num']/1000).toFixed(1)}k</div>
+                <div class="inline_block"><img src="https://i.ibb.co/LJLjL7g/munitions.png" alt="munitions"></a> = <%text>$</%text>{parseFloat(build['munitions']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/861z21m/oil.png" alt="oil"></a> = <%text>$</%text>{parseFloat(build['oil']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/PcbqzMS/steak-meat.png" alt="steak-meat"></a> = <%text>$</%text>{parseFloat(build['food']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/JHVBnW7/steel.png" alt="steel"></a> = <%text>$</%text>{parseFloat(build['steel']).toFixed(1)}</div>
+                <div class="inline_block"><img src="https://i.ibb.co/JB3dhNQ/uranium.png" alt="uranium"></a> = <%text>$</%text>{parseFloat(build['uranium']).toFixed(1)}</div>
+            </div>
+        </div>
+        <div class="left_btn" style="float: left;">
+            <button onclick="leftFunc('<%text>$</%text>{rs}')" style="width: 100px;">
+                <span class="tooltiptext" id="myTooltip">Previous</span>
+            </button>
+        </div>
+        <div class="count" id="count <%text>$</%text>{rs}">
+            #<%text>$</%text>{index}
+        </div>
+        <div class="right_btn" style="float: right;">
+            <button onclick="rightFunc('<%text>$</%text>{rs}')" style="width: 100px;">
+                <span class="tooltiptext" id="myTooltip">Next</span>
+            </button>
+        </div>
+</div>`
+        console.log()
+        var Obj = document.getElementById(`template <%text>$</%text>{rs}`); //any element to be fully replaced
+        if(Obj.outerHTML) { //if outerHTML is supported
+            Obj.outerHTML=str; ///it's simple replacement of whole element with contents of str var
+        }
+        else { //if outerHTML is not supported, there is a weird but crossbrowsered trick
+            var tmpObj=document.createElement("div");
+            tmpObj.innerHTML='<!--THIS DATA SHOULD BE REPLACED-->';
+            ObjParent=Obj.parentNode; //Okey, element should be parented
+            ObjParent.replaceChild(tmpObj,Obj); //here we placing our temporary data instead of our target, so we can find it then and replace it into whatever we want to replace to
+            ObjParent.innerHTML=ObjParent.innerHTML.replace('<div><!--THIS DATA SHOULD BE REPLACED--></div>',str);
+        }
+
+    }
+</script>
+</html>
