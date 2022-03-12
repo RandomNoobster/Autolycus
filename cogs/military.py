@@ -878,17 +878,10 @@ class TargetFinding(commands.Cog):
         nation1_nation = utils.find_nation_plus(self, nation1)
         if not nation1_nation:
             if nation2 == None:
-<<<<<<< HEAD:raids.py
-                await message.edit(content='I could not find that nation!')
-                return
-            else:
-                await message.edit(content='I could not find nation 1!')
-=======
                 await ctx.respond(content='I could not find that nation!')
                 return
             else:
                 await ctx.respond(content='I could not find nation 1!')
->>>>>>> origin/slash:cogs/military.py
                 return 
         nation1_id = str(nation1_nation['id'])
 
@@ -897,17 +890,12 @@ class TargetFinding(commands.Cog):
         nation2_nation = utils.find_nation_plus(self, nation2)
         if not nation2_nation:
             if nation2 == None:
-<<<<<<< HEAD:raids.py
-                await message.edit(content='I was able to find the nation you linked, but I could not find *your* nation!')
-                return
-            else:
-                await message.edit(content='I could not find nation 2!')
-=======
+
                 await ctx.respond(content='I was able to find the nation you linked, but I could not find *your* nation!')
                 return
             else:
                 await ctx.respond(content='I could not find nation 2!')
->>>>>>> origin/slash:cogs/military.py
+
                 return 
         nation2_id = str(nation2_nation['id'])
         
@@ -920,11 +908,7 @@ class TargetFinding(commands.Cog):
                 result = Template(template).render(results=results)
                 return str(result)
         app.add_url_rule(f"/damage/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-<<<<<<< HEAD:raids.py
-        await message.edit(content=f"Go to https://autolycus.politicsandwar.repl.co/damage/{endpoint}", attachments=[])
-=======
         await ctx.respond(content=f"Go to https://autolycus.politicsandwar.repl.co/damage/{endpoint}")
->>>>>>> origin/slash:cogs/military.py
 
         
     async def battle_calc(self, nation1_id, nation2_id):

@@ -1,21 +1,13 @@
-<<<<<<< HEAD
-from datetime import datetime, timedelta
-import asyncio
-=======
 import asyncio
 from datetime import datetime, timedelta
->>>>>>> origin/slash
 from dotenv import load_dotenv
 import keep_alive
 import pymongo
 import aiohttp
 import os
 import ssl
-<<<<<<< HEAD
-=======
 from discord.commands import Option
 from discord.bot import ApplicationCommandMixin
->>>>>>> origin/slash
 import re
 import discord
 from discord.ext import commands
@@ -80,20 +72,6 @@ async def verify(
     async with aiohttp.ClientSession() as session:
         async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f'{{nations(first:1 id:{nation_id}){{data{{id nation_name leader_name discord}}}}}}'}) as temp:
             res = await temp.json()
-<<<<<<< HEAD
-            if len(res['data']['nations']['data']) == 0:
-                await ctx.send(f"I could not find the nation with an id of `{nation_id}`")
-                return
-            if res['data']['nations']['data'][0]['discord'] == str(ctx.author):
-                mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
-                await ctx.send("You have successfully verified your nation!")
-            else:
-                await ctx.send(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `$verify {nation_id}` again.')
-@verify.error
-async def verify_error(ctx: commands.Context, error: commands.CommandError):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("You have to include your nation id or a link to your nation!")
-=======
             try:
                 if res['data']['nations']['data'][0]['discord'] == str(ctx.author):
                     mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
@@ -102,7 +80,6 @@ async def verify_error(ctx: commands.Context, error: commands.CommandError):
                     await ctx.respond(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `$verify {nation_id}` again.')
             except KeyError:
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
->>>>>>> origin/slash
 
 async def alert_scanner():
     debug_channel = bot.get_channel(949609712557637662)
@@ -122,11 +99,7 @@ async def alert_scanner():
                         try:
                             await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is out of beige!")
                         except:
-<<<<<<< HEAD
-                            debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
-=======
                             await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
->>>>>>> origin/slash
                         user['beige_alerts'].remove(alert)
                         alert_list = user['beige_alerts']
                         if not alert_list:
