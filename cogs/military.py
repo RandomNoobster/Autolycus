@@ -258,8 +258,7 @@ class TargetFinding(commands.Cog):
                 async with session.post(url, json=json) as temp:
                     resp = await temp.json()
                     progress += 1
-                    print(f"Getting targets... ({progress}/{tot_pages})")
-                    #print("future recieved")
+                    #print(f"Getting targets... ({progress}/{tot_pages})")
                     return resp
            
             async def fetch_targets():
