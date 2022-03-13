@@ -43,6 +43,13 @@ class TargetFinding(commands.Cog):
         )
     async def raids(self, ctx: discord.ApplicationContext):
         await ctx.defer()
+
+        async def wait_for_timeout():
+            await asyncio.sleep(60*15-5)
+            await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+            return True
+        asyncio.ensure_future(wait_for_timeout())
+
         invoker = str(ctx.author.id)
         async with aiohttp.ClientSession() as session:
             attacker = utils.find_nation_plus(self, ctx.author.id)
@@ -544,6 +551,7 @@ class TargetFinding(commands.Cog):
             return embed
 
         msg_embd = get_embed(best_targets[0])
+        timed_out = False
 
         class embed_paginator(discord.ui.View):
             def __init__(self):
@@ -638,15 +646,15 @@ class TargetFinding(commands.Cog):
                     return False
                 else:
                     return True
-
+            
         view = embed_paginator()
         await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
 
         async def message_checker():
+            nonlocal cur_page
             while True:
                 try:
-                    nonlocal cur_page
-                    command = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=600)
+                    command = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=900)
                     if "page" in command.content.lower():
                         try:
                             cur_page = int(re.sub("\D", "", command.content))
@@ -663,7 +671,6 @@ class TargetFinding(commands.Cog):
                             msg_embd.set_footer(text=f"Page {1}/{pages}")
                             await ctx.edit(content=f"<@{ctx.author.id}> Something went wrong with your input!", embed=msg_embd, view=view)
                 except asyncio.TimeoutError:
-                    await ctx.edit(content=f"<@{ctx.author.id}> Command timed out!")
                     break
         
         msg_task = asyncio.create_task(message_checker())
