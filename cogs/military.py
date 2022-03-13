@@ -547,7 +547,7 @@ class TargetFinding(commands.Cog):
 
         class embed_paginator(discord.ui.View):
             def __init__(self):
-                super().__init__(timeout=890)
+                super().__init__(timeout=600)
 
             def button_check(self, x):
                 beige_button = [x for x in self.children if x.custom_id == "beige"][0]
@@ -646,7 +646,7 @@ class TargetFinding(commands.Cog):
             while True:
                 try:
                     nonlocal cur_page
-                    command = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=890)
+                    command = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=600)
                     if "page" in command.content.lower():
                         try:
                             cur_page = int(re.sub("\D", "", command.content))
