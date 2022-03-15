@@ -7,7 +7,8 @@ from typing import Union, Tuple
 import aiohttp
 import re
 import os
-from main import mongo
+if __name__ == "utils":
+    from main import mongo
 
 api_key = os.getenv("api_key")
 
