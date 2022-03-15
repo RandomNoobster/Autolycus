@@ -10,8 +10,6 @@ from discord.bot import ApplicationCommandMixin
 import re
 import discord
 from discord.ext import commands
-intents = discord.Intents.default()
-intents.members = True
 load_dotenv()
 
 client = pymongo.MongoClient(os.getenv("pymongolink"))
@@ -19,7 +17,7 @@ version = os.getenv("version")
 mongo = client[str(version)]
 api_key = os.getenv("api_key")
 
-bot = commands.Bot(intents=intents)
+bot = commands.Bot()
 
 for filename in os.listdir('./cogs'):
     if filename.endswith('.py'):
@@ -48,7 +46,7 @@ async def on_ready():
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
     debug_channel = bot.get_channel(949609712557637662)
     print(error)
-    if isinstance(error, discord.HTTPException):
+    if isinstance(error, discord.HTTPException) or isinstance(error, discord.errors.NotFound):
         await debug_channel.send(f'**Exception caught!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\n\nError:```{error}```')
     else:
         await ctx.send("Oh no! An unknown error occurred! Contact RandomNoobster#0093, and he might be able to help you out.")
