@@ -44,10 +44,13 @@ class TargetFinding(commands.Cog):
     async def raids(self, ctx: discord.ApplicationContext):
         await ctx.defer()
 
+        webpage = None
         async def wait_for_timeout():
             await asyncio.sleep(60*15-5)
-            await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-            return True
+            nonlocal webpage
+            if webpage == False:
+                await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+            return
         asyncio.ensure_future(wait_for_timeout())
 
         invoker = str(ctx.author.id)
@@ -229,7 +232,6 @@ class TargetFinding(commands.Cog):
                 async def on_timeout(self):
                     await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
 
-            webpage = None
             class stage_one(discord.ui.View):
                 @discord.ui.button(label="On discord", style=discord.ButtonStyle.primary)
                 async def callback(self, b: discord.Button, i: discord.Interaction):
@@ -555,7 +557,7 @@ class TargetFinding(commands.Cog):
 
         class embed_paginator(discord.ui.View):
             def __init__(self):
-                super().__init__(timeout=600)
+                super().__init__(timeout=900)
 
             def button_check(self, x):
                 beige_button = [x for x in self.children if x.custom_id == "beige"][0]
@@ -636,10 +638,6 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(view=view)
                 await i.response.send_message(content=f"A beige reminder for <https://politicsandwar.com/nation/id={cur_embed['id']}> was added!", ephemeral=True)
 
-            @discord.ui.button(label='Type "page <number>" to go to that page', style=discord.ButtonStyle.gray, disabled=True)
-            async def info_callback(self, b: discord.Button, i: discord.Interaction):
-                pass
-
             async def interaction_check(self, interaction) -> bool:
                 if interaction.user != ctx.author:
                     await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
@@ -649,32 +647,6 @@ class TargetFinding(commands.Cog):
             
         view = embed_paginator()
         await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
-
-        async def message_checker():
-            nonlocal cur_page
-            while True:
-                try:
-                    command = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=900)
-                    if "page" in command.content.lower():
-                        try:
-                            cur_page = int(re.sub("\D", "", command.content))
-                            msg_embd = best_targets[cur_page-1]['embed']
-                            msg_embd.set_footer(text=f"Page {cur_page}/{pages}")
-                            await ctx.edit(content="", embed=msg_embd, view=view)
-                            try:
-                                await command.delete()
-                            except:
-                                if random.random() * 15 < 1:
-                                    await ctx.respond(content=f"Pro tip: With the `Manage Messages` permission, I can delete the \"page x\"-messages!")
-                        except:
-                            msg_embd = best_targets[0]['embed']
-                            msg_embd.set_footer(text=f"Page {1}/{pages}")
-                            await ctx.edit(content=f"<@{ctx.author.id}> Something went wrong with your input!", embed=msg_embd, view=view)
-                except asyncio.TimeoutError:
-                    break
-        
-        msg_task = asyncio.create_task(message_checker())
-        await asyncio.gather(msg_task)
     
     @slash_command(
         name="reminders",
