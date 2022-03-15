@@ -23,7 +23,6 @@ class General(commands.Cog):
         self.bot = bot
 
     @slash_command(
-        guild_ids=[729979781940248577],
         name="builds",
         brief="Shows you the best city builds"
     )
