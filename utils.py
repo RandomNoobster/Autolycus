@@ -7,8 +7,11 @@ from typing import Union, Tuple
 import aiohttp
 import re
 import os
-if __name__ == "utils":
-    from main import mongo
+import pymongo
+
+client = pymongo.MongoClient(os.getenv("pymongolink"))
+version = os.getenv("version")
+mongo = client[str(version)]
 
 api_key = os.getenv("api_key")
 
