@@ -3,7 +3,6 @@ from discord.ext import commands
 import discord
 import requests
 from datetime import datetime, timedelta
-from main import mongo
 import pathlib
 import math
 from mako.template import Template
@@ -14,6 +13,11 @@ from discord.commands import slash_command, Option
 import dload
 from csv import DictReader
 import utils
+import pymongo
+
+client = pymongo.MongoClient(os.getenv("pymongolink"))
+version = os.getenv("version")
+mongo = client[str(version)]
 
 api_key = os.getenv("api_key")
 

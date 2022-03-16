@@ -15,7 +15,11 @@ from keep_alive import app
 from flask.views import MethodView
 from flask import request
 import requests
-from main import mongo
+import pymongo
+
+client = pymongo.MongoClient(os.getenv("pymongolink"))
+version = os.getenv("version")
+mongo = client[str(version)]
 
 api_key = os.getenv("api_key")
 
