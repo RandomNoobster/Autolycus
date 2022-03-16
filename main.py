@@ -16,6 +16,7 @@ client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
 api_key = os.getenv("api_key")
+channel_id = int(os.getenv("debug_channel"))
 
 bot = commands.Bot()
 
@@ -37,14 +38,12 @@ async def on_ready():
             n -= 1
         print(f"-> {guild} || {guild.member_count} members {extra}")
     print(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
-    m = len(list(bot.get_all_members()))
-    print(f"Serving {m} people")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     print('We have logged in as {0.user}'.format(bot))
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
-    debug_channel = bot.get_channel(949609712557637662)
+    debug_channel = bot.get_channel(channel_id)
     print(error)
     if isinstance(error, discord.HTTPException) or isinstance(error, discord.errors.NotFound):
         await debug_channel.send(f'**Exception caught!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\n\nError:```{error}```')
@@ -82,7 +81,7 @@ async def verify(
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
 
 async def alert_scanner():
-    debug_channel = bot.get_channel(949609712557637662)
+    debug_channel = bot.get_channel(channel_id)
     while True:
         minute = 0
         now = datetime.utcnow()
