@@ -45,6 +45,7 @@ async def on_ready():
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
     debug_channel = bot.get_channel(channel_id)
     print(error)
+    print(type(error))
     if isinstance(error, discord.HTTPException) or isinstance(error, discord.errors.NotFound):
         await debug_channel.send(f'**Exception caught!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\n\nError:```{error}```')
     else:
@@ -83,7 +84,7 @@ async def verify(
 async def alert_scanner():
     debug_channel = bot.get_channel(channel_id)
     while True:
-        minute = 0
+        minute = 50
         now = datetime.utcnow()
         future = datetime(now.year, now.month, now.day, now.hour, minute)
         if now.minute >= minute:
@@ -93,10 +94,10 @@ async def alert_scanner():
             alerts = list(mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
             for user in alerts:
                 for alert in user['beige_alerts']:
-                    if datetime.utcnow() >= alert['time']:
+                    if datetime.utcnow() >= alert['time'] - timedelta(minutes=10):
                         disc_user = await bot.fetch_user(user['user'])
                         try:
-                            await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is out of beige!")
+                            await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is leaving beige <t:{round(alert['time'].timestamp())}:R>!")
                         except:
                             await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
                         user['beige_alerts'].remove(alert)
