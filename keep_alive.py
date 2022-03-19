@@ -10,8 +10,4 @@ def main():
     return "It lives!!"
 
 def run():
-    app.run(host=ip, port=5000)
-
-def keep_alive():
-    server = Thread(target=run)
-    server.start()          
+    app.run(host=ip, port=5000)    

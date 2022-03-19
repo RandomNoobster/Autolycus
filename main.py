@@ -122,7 +122,7 @@ async def alert_scanner():
         except Exception as error:
             await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{error}```')
 
-keep_alive.keep_alive()
+keep_alive.run()
 
 bot.bg_task = bot.loop.create_task(alert_scanner())
 bot.run(os.getenv("bot_token"))
