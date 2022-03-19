@@ -77,9 +77,23 @@ async def verify(
                     mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
                     await ctx.respond("You have successfully verified your nation!")
                 else:
-                    await ctx.respond(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `$verify {nation_id}` again.')
+                    await ctx.respond(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `/verify {nation_id}` again.')
             except KeyError:
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
+
+@bot.slash_command(
+    name="unverify",
+    description='Unlink your nation from your discord account',
+    )
+async def unverify(
+    ctx: discord.ApplicationContext,
+):
+    user = mongo.global_users.find_one_and_delete({"user": ctx.author.id})
+    if user == None:
+        await ctx.respond("You are not verified!")
+        return
+    else:
+        await ctx.respond("Your discord account was successfully unlinked from your nation.")
 
 async def alert_scanner():
     debug_channel = bot.get_channel(channel_id)
