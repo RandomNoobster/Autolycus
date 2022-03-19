@@ -541,7 +541,7 @@ class TargetFinding(commands.Cog):
                     return "you good"
 
             app.add_url_rule(f"/raids/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-            await ctx.edit(content=f"Go to https://autolycus.politicsandwar.repl.co/raids/{endpoint}", attachments=[])
+            await ctx.edit(content=f"Go to http://132.145.71.195:5000/raids/{endpoint}", attachments=[])
             return
         
         pages = len(target_list)
@@ -887,7 +887,7 @@ class TargetFinding(commands.Cog):
                 result = Template(template).render(results=results)
                 return str(result)
         app.add_url_rule(f"/damage/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-        await ctx.respond(content=f"Go to https://autolycus.politicsandwar.repl.co/damage/{endpoint}")
+        await ctx.respond(content=f"Go to http://132.145.71.195:5000//damage/{endpoint}")
 
         
     async def battle_calc(self, nation1_id, nation2_id):

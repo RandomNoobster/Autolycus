@@ -234,7 +234,7 @@ class General(commands.Cog):
             mmr = "no military requirement"
         else:
             mmr = "a military requirement of " + '/'.join(mmr[i:i+1] for i in range(0, len(mmr), 1))
-        await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): https://autolycus.politicsandwar.repl.co/builds/{endpoint}")
+        await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): http://132.145.71.195:5000/builds/{endpoint}")
         return
     
 def setup(bot):
