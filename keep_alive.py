@@ -10,4 +10,4 @@ def main():
     return "It lives!!"
 
 def run():
-    app.run(host=ip, port=5000)    
+    app.run(host="0.0.0.0", port=5000)    
