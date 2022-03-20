@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "repl_python3_beta_Autolycus"
+version = "0.1.0"
+description = ""
+authors = ["PoliticsAndWar <<>>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pymongo = "^4.0.2"
+python-dotenv = "^0.19.1"
+aiohttp = "^3.8.1"
+Flask = "^2.0.3"
+Mako = "^1.2.0"
+dnspython = "^2.2.1"
+py-cord = "^2.0.0b5"
+dload = "^0.6"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
