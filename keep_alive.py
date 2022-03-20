@@ -10,4 +10,4 @@ def main():
     return "It lives!!"
 
 def run():
-    Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
+    Thread(target=lambda: app.run(host=ip, port=5000)).start()
