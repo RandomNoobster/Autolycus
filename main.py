@@ -156,7 +156,7 @@ async def nation_scanner():
             await debug_channel.send(f'**Exception raised!**\nWhere: Scanning nations\n\nError:```{error}```')
         #print(f"round done! that took {now - time.time()} seconds")
 
-keep_alive.keep_alive()
+keep_alive.run()
 
 bot.bg_task = bot.loop.create_task(alert_scanner())
 bot.bg_task = bot.loop.create_task(nation_scanner())

@@ -85,7 +85,7 @@
                 var to_parse = {turns: turns, invoker: "${invoker}", id: id, endpoint: "${endpoint}"}
 
                 $.ajax({
-                    url: 'https://autolycus.politicsandwar.repl.co/raids/${endpoint}',
+                    url: 'http://132.145.71.195:5000/raids/${endpoint}',
                     type: 'POST',
                     data: JSON.stringify(to_parse),
                     contentType: "application/json; charset=utf-8",
