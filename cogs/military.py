@@ -7,6 +7,7 @@ from mako.template import Template
 import asyncio
 import random
 import pathlib
+import json
 from typing import Union
 import os
 from datetime import datetime, timedelta
@@ -15,7 +16,11 @@ from keep_alive import app
 from flask.views import MethodView
 from flask import request
 import requests
-from main import mongo
+import pymongo
+
+client = pymongo.MongoClient(os.getenv("pymongolink"))
+version = os.getenv("version")
+mongo = client[str(version)]
 
 api_key = os.getenv("api_key")
 
@@ -67,45 +72,18 @@ class TargetFinding(commands.Cog):
             minscore = round(atck_ntn['score'] * 0.75)
             maxscore = round(atck_ntn['score'] * 1.75)
             
-            performace_filter = None
-            class stage_six(discord.ui.View):
-                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal performace_filter
-                    performace_filter = True
+            class stage_one(discord.ui.View):
+                @discord.ui.button(label="On discord", style=discord.ButtonStyle.primary)
+                async def callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal webpage
+                    webpage = False
                     await i.response.pong()
                     self.stop()
                 
-                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal performace_filter
-                    performace_filter = False
-                    await i.response.pong()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-
-            beige = None
-            class stage_five(discord.ui.View):
-                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal beige
-                    beige = True
-                    await i.response.pong()
-                    self.stop()
-                
-                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal beige
-                    beige = False
+                @discord.ui.button(label="As a webpage", style=discord.ButtonStyle.primary)
+                async def one_two_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal webpage
+                    webpage = True
                     await i.response.pong()
                     self.stop()
                 
@@ -118,34 +96,50 @@ class TargetFinding(commands.Cog):
                 
                 async def on_timeout(self):
                     await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-
-            inactive_limit = None
-            class stage_four(discord.ui.View):
-                @discord.ui.button(label="I don't care", style=discord.ButtonStyle.primary)
+            
+            fetch_fresh = None
+            class stage_two(discord.ui.View):
+                @discord.ui.button(label="Fetch fresh nation data", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 0
+                    nonlocal fetch_fresh
+                    fetch_fresh = True
                     await i.response.pong()
                     self.stop()
                 
-                @discord.ui.button(label="7+ days inactive", style=discord.ButtonStyle.primary)
+                @discord.ui.button(label="Use cached data", style=discord.ButtonStyle.primary)
                 async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 7
+                    nonlocal fetch_fresh
+                    fetch_fresh = False
                     await i.response.pong()
                     self.stop()
 
-                @discord.ui.button(label="14+ days inactive", style=discord.ButtonStyle.primary)
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+
+            who = None
+            class stage_three(discord.ui.View):
+                @discord.ui.button(label="All nations", style=discord.ButtonStyle.primary)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal who
+                    who = ""
+                    await i.response.pong()
+                    self.stop()
+                
+                @discord.ui.button(label="Applicants and nations not in alliances", style=discord.ButtonStyle.primary)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal who
+                    who = " alliance_id:[0,1]"
+                    await i.response.pong()
+                    self.stop()
+
+                @discord.ui.button(label="Nations not affiliated with any alliance", style=discord.ButtonStyle.primary)
                 async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 14
-                    await i.response.pong()
-                    self.stop()
-                
-                @discord.ui.button(label="30+ days inactive", style=discord.ButtonStyle.primary)
-                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 30
+                    nonlocal who
+                    who = " alliance_id:0"
                     await i.response.pong()
                     self.stop()
                 
@@ -155,12 +149,15 @@ class TargetFinding(commands.Cog):
                         return False
                     else:
                         return True
+                
+                async def on_timeout(self):
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
                 
                 async def on_timeout(self):
                     await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
 
             max_wars = None
-            class stage_three(discord.ui.View):
+            class stage_four(discord.ui.View):
                 @discord.ui.button(label="0", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal max_wars
@@ -198,27 +195,34 @@ class TargetFinding(commands.Cog):
                 
                 async def on_timeout(self):
                     await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-                    
-            who = None
-            class stage_two(discord.ui.View):
-                @discord.ui.button(label="All nations", style=discord.ButtonStyle.primary)
+           
+            inactive_limit = None
+            class stage_five(discord.ui.View):
+                @discord.ui.button(label="I don't care", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal who
-                    who = ""
+                    nonlocal inactive_limit
+                    inactive_limit = 0
                     await i.response.pong()
                     self.stop()
                 
-                @discord.ui.button(label="Applicants and nations not in alliances", style=discord.ButtonStyle.primary)
+                @discord.ui.button(label="7+ days inactive", style=discord.ButtonStyle.primary)
                 async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal who
-                    who = " alliance_id:[0,1]"
+                    nonlocal inactive_limit
+                    inactive_limit = 7
                     await i.response.pong()
                     self.stop()
 
-                @discord.ui.button(label="Nations not affiliated with any alliance", style=discord.ButtonStyle.primary)
+                @discord.ui.button(label="14+ days inactive", style=discord.ButtonStyle.primary)
                 async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal who
-                    who = " alliance_id:0"
+                    nonlocal inactive_limit
+                    inactive_limit = 14
+                    await i.response.pong()
+                    self.stop()
+                
+                @discord.ui.button(label="30+ days inactive", style=discord.ButtonStyle.primary)
+                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal inactive_limit
+                    inactive_limit = 30
                     await i.response.pong()
                     self.stop()
                 
@@ -231,19 +235,46 @@ class TargetFinding(commands.Cog):
                 
                 async def on_timeout(self):
                     await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-
-            class stage_one(discord.ui.View):
-                @discord.ui.button(label="On discord", style=discord.ButtonStyle.primary)
-                async def callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal webpage
-                    webpage = False
+            
+            beige = None
+            class stage_six(discord.ui.View):
+                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal beige
+                    beige = True
                     await i.response.pong()
                     self.stop()
                 
-                @discord.ui.button(label="As a webpage", style=discord.ButtonStyle.primary)
-                async def one_two_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal webpage
-                    webpage = True
+                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal beige
+                    beige = False
+                    await i.response.pong()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                                
+            performace_filter = None
+            class stage_seven(discord.ui.View):
+                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal performace_filter
+                    performace_filter = True
+                    await i.response.pong()
+                    self.stop()
+                
+                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal performace_filter
+                    performace_filter = False
                     await i.response.pong()
                     self.stop()
                 
@@ -279,40 +310,53 @@ class TargetFinding(commands.Cog):
                 for n in range(1, tot_pages+1):
                     json = {'query': f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount war_type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}
                     futures.append(asyncio.ensure_future(call_api(url, json)))
+            
+            with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
+                file_content = json.load(json_file)
+                last_fetched = file_content['last_fetched']
                 
             embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?", color=0xff5100)
-            embed1 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
-            embed2 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
-            embed3 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
-            embed4 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
-            embed5 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
+            embed1 = discord.Embed(title=f"Fetching", description=f"Do you want to fetch fresh nation information (slow) or use cached information (quick)? Nation information was last cached <t:{last_fetched}:R>", color=0xff5100)
+            embed2 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
+            embed3 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
+            embed4 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
+            embed5 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
+            embed6 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
 
-            for embed, view in [(embed0, stage_one()), (embed1, stage_two()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six())]:
-                if embed == embed2:
-                    fetching = asyncio.ensure_future(fetch_targets())
+            for embed, view in [(embed0, stage_one()), (embed1, stage_two()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six()), (embed6, stage_seven())]:
+                if embed == embed3:
+                    if fetch_fresh:
+                        fetching = asyncio.ensure_future(fetch_targets())   
+                    else:
+                        pass
                 await ctx.edit(content="", embed=embed, view=view)
                 timed_out = await view.wait()
                 if timed_out:
                     return
 
             await ctx.edit(content="Getting targets...", view=None, embed=None)
-            
-            if progress < tot_pages - 5:
-                rndm = random.choice(["", "2", "3"])
-                with open (pathlib.Path.cwd() / 'attachments' / f'waiting{rndm}.gif', 'rb') as gif:
-                    gif = discord.File(gif)
-                await ctx.edit(file=gif)
+            if fetch_fresh:
+                
+                if progress < tot_pages - 5:
+                    rndm = random.choice(["", "2", "3"])
+                    with open (pathlib.Path.cwd() / 'attachments' / f'waiting{rndm}.gif', 'rb') as gif:
+                        gif = discord.File(gif)
+                    await ctx.edit(file=gif)
 
-            await asyncio.gather(fetching)
-            while progress < tot_pages:
-                await ctx.edit(content=f"Getting targets... ({progress}/{tot_pages})")
-                await asyncio.sleep(1)
+                await asyncio.gather(fetching)
+                while progress < tot_pages:
+                    await ctx.edit(content=f"Getting targets... ({progress}/{tot_pages})")
+                    await asyncio.sleep(1)
 
-            done_jobs = await asyncio.gather(*futures)
+                done_jobs = await asyncio.gather(*futures)
+            else:
+                done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
 
             await ctx.edit(content="Caching targets...")
             for done_job in done_jobs:
                 for x in done_job['data']['nations']['data']:
+                    if not minscore < x['score'] < maxscore:
+                        continue
                     if beige:
                         pass
                     else:
@@ -570,6 +614,14 @@ class TargetFinding(commands.Cog):
                     beige_button.disabled = False
                 else:
                     beige_button.disabled = True
+            
+            @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
+            async def far_left_callback(self, b: discord.Button, i: discord.Interaction):
+                nonlocal cur_page
+                cur_page = 1
+                msg_embd = get_embed(best_targets[cur_page-1])
+                self.button_check(best_targets[cur_page-1])
+                await i.response.edit_message(content="", embed=msg_embd, view=view)
 
             @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
             async def left_callback(self, b: discord.Button, i: discord.Interaction):
@@ -598,6 +650,14 @@ class TargetFinding(commands.Cog):
                     msg_embd = get_embed(best_targets[cur_page-1])
                     self.button_check(best_targets[cur_page-1])
                     await i.response.edit_message(content="", embed=msg_embd, view=view)
+
+            @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
+            async def far_right_callback(self, b: discord.Button, i: discord.Interaction):
+                nonlocal cur_page
+                cur_page = pages
+                msg_embd = get_embed(best_targets[cur_page-1])
+                self.button_check(best_targets[cur_page-1])
+                await i.response.edit_message(content="", embed=msg_embd, view=view)
         
             if best_targets[0]['beigeturns'] > 0:
                 disabled = False

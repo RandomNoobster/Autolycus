@@ -8,6 +8,9 @@ import os
 from discord.commands import Option
 from discord.bot import ApplicationCommandMixin
 import re
+import json
+import pathlib
+import time
 import discord
 from discord.ext import commands
 load_dotenv()
@@ -45,6 +48,7 @@ async def on_ready():
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
     debug_channel = bot.get_channel(channel_id)
     print(error)
+    print(type(error))
     if isinstance(error, discord.HTTPException) or isinstance(error, discord.errors.NotFound):
         await debug_channel.send(f'**Exception caught!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\n\nError:```{error}```')
     else:
@@ -81,6 +85,7 @@ async def verify(
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
 
 async def alert_scanner():
+    await bot.wait_until_ready()
     debug_channel = bot.get_channel(channel_id)
     while True:
         minute = 0
@@ -107,7 +112,38 @@ async def alert_scanner():
         except Exception as error:
             await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{error}```')
 
+async def nation_scanner():
+    await bot.wait_until_ready()
+    debug_channel = bot.get_channel(channel_id)
+    while True:
+        now = time.time()
+        try:
+            async with aiohttp.ClientSession() as session:
+                more_pages = True
+                n = 1
+                first = 50
+                new_nations = {"last_fetched": None, "nations": []}
+                while more_pages:
+                    #print(f"call: {n}, nations: {len(new_nations['nations'])}")
+                    try:
+                        await asyncio.sleep(1)
+                        async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(page:{n} first:{first} vmode:false orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name flag last_active continent dompolicy population alliance_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount war_type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}) as temp:
+                            resp = await temp.json()
+                            new_nations['nations'] += resp['data']['nations']['data']
+                            more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
+                    except (aiohttp.client_exceptions.ContentTypeError, TypeError) as e:
+                        print("error: ", str(type(e)))
+                        continue
+                    n += 1
+                new_nations['last_fetched'] = round(datetime.utcnow().timestamp())
+                with open(pathlib.Path.cwd() / 'nations.json', 'w') as json_file:
+                    json.dump(new_nations, json_file)
+        except Exception as error:
+            await debug_channel.send(f'**Exception raised!**\nWhere: Scanning nations\n\nError:```{error}```')
+        #print(f"round done! that took {now - time.time()} seconds")
+
 keep_alive.keep_alive()
 
 bot.bg_task = bot.loop.create_task(alert_scanner())
+bot.bg_task = bot.loop.create_task(nation_scanner())
 bot.run(os.getenv("bot_token"))
