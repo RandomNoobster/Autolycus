@@ -1,7 +1,9 @@
 pymongo
+dnspython
 Mako
 python-dotenv
 cryptography
 Flask
 aiohttp
+requests
 py-cord
