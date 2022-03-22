@@ -155,8 +155,55 @@ async def yes_or_no(self, ctx) -> Union[bool, None]:
         return None
 
 def militarization_checker(nation: dict) -> float:
-    cities = nation['num_cities']
-    milt = (nation['soldiers'] / (cities * 5 * 3000) + nation['tanks'] / (cities * 5 * 250) + nation['aircraft'] / (cities * 5 * 15) + nation['ships'] / (cities * 3 * 5)) / 4
+    """
+    Requires `cities` with `barracks`, `factory`, `airforcebase` and `drydock`. Also `soldiers`, `tanks`, `aircraft`, `ships` and `population`
+    """
+    milt = {}
+    cities = len(nation['cities'])
+    barracks = 0
+    factories = 0
+    hangars = 0
+    drydocks = 0
+    
+    for city in nation['cities']:
+        barracks += city['barracks']
+        factories += city['factory']
+        hangars += city['airforcebase']
+        drydocks += city['drydock']
+    
+    milt['barracks_mmr'] = round(barracks / cities, 1)
+    milt['factory_mmr'] = round(factories / cities, 1)
+    milt['hangar_mmr'] = round(hangars / cities, 1)
+    milt['drydock_mmr'] = round(drydocks / cities, 1)
+
+    milt['max_soldiers'] = min(3000 * barracks, nation['population']/6.67)
+    milt['max_tanks'] = min(250 * factories, nation['population']/66.67)
+    milt['max_aircraft'] = min(15 * hangars, nation['population']/1000)
+    milt['max_ships'] = min(5 * drydocks, nation['population']/10000)
+
+    try:
+        milt['soldiers_days'] = math.ceil((milt['max_soldiers'] - nation['soldiers']) / (milt['max_soldiers']/3))
+    except ZeroDivisionError:
+        milt['soldiers_days'] = 0
+    try:
+        milt['tanks_days'] = math.ceil((milt['max_tanks'] - nation['tanks']) / (milt['max_tanks']/5))
+    except ZeroDivisionError:
+        milt['tanks_days'] = 0
+    try:
+        milt['aircraft_days'] = math.ceil((milt['max_aircraft'] - nation['aircraft']) / (milt['max_aircraft']/5))
+    except ZeroDivisionError:
+        milt['aircraft_days'] = 0
+    try:
+        milt['ships_days'] = math.ceil((milt['max_ships'] - nation['ships']) / (milt['max_ships']/5))
+    except ZeroDivisionError:
+        milt['ships_days'] = 0
+
+    milt['total_milt'] = (nation['soldiers'] / (cities * 5 * 3000) + nation['tanks'] / (cities * 5 * 250) + nation['aircraft'] / (cities * 5 * 15) + nation['ships'] / (cities * 3 * 5)) / 4
+    milt['soldiers_milt'] = nation['soldiers'] / (cities * 5 * 3000)
+    milt['tanks_milt'] = nation['tanks'] / (cities * 5 * 250)
+    milt['aircraft_milt'] = nation['aircraft'] / (cities * 5 * 15)
+    milt['ships_milt'] = nation['ships'] / (cities * 3 * 5)
+
     return milt
 
 def score_range(score: float) -> Tuple[float, float]:
