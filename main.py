@@ -8,7 +8,6 @@ import os
 from discord.commands import Option, permissions
 from discord.bot import ApplicationCommandMixin
 import re
-from threading import Thread
 import json
 import math
 import pathlib
@@ -266,7 +265,6 @@ async def nation_scanner():
 
 keep_alive.run()
 
+bot.bg_task = bot.loop.create_task(alert_scanner())
+bot.bg_task = bot.loop.create_task(nation_scanner())
 bot.run(os.getenv("bot_token"))
-
-Thread(target=asyncio.run, args=(nation_scanner(),)).start()
-Thread(target=asyncio.run, args=(alert_scanner(),)).start()
