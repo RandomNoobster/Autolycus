@@ -51,7 +51,7 @@ class TargetFinding(commands.Cog):
 
         webpage = None
         async def wait_for_timeout():
-            await asyncio.sleep(60*15-5)
+            await asyncio.sleep(60*15-8)
             nonlocal webpage
             if webpage == False:
                 await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
@@ -62,7 +62,7 @@ class TargetFinding(commands.Cog):
         async with aiohttp.ClientSession() as session:
             attacker = utils.find_nation_plus(self, ctx.author.id)
             if not attacker:
-                await ctx.edit(content='I could not find your nation, make sure that you are verified!')
+                await ctx.edit(content='I could not find your nation, make sure that you are verified by using `/verify`!')
                 return
             async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{attacker['id']}){{data{{nation_name score id population soldiers tanks aircraft ships}}}}}}"}) as temp:
                 atck_ntn = (await temp.json())['data']['nations']['data'][0]
