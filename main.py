@@ -65,7 +65,6 @@ async def ping(ctx: discord.ApplicationContext):
 @bot.slash_command(
     name="who",
     description="Get more information about someone's nation",
-    guild_ids=[729979781940248577]
 )
 async def who(
     ctx: discord.ApplicationContext,
