@@ -6,4 +6,4 @@ cryptography
 Flask
 aiohttp
 requests
-py-cord
+py-cord==2.0.0b5
