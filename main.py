@@ -11,7 +11,6 @@ import re
 import json
 import math
 import pathlib
-import utils
 import discord
 from discord.ext import commands
 load_dotenv()
