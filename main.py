@@ -12,11 +12,11 @@ import json
 import math
 import pathlib
 import utils
-import time
 import discord
 from discord.ext import commands
 load_dotenv()
 
+print(os.getenv("pymongolink"))
 client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
