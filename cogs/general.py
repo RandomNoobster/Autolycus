@@ -14,6 +14,7 @@ import dload
 from csv import DictReader
 import utils
 from main import mongo
+import aiohttp
 
 api_key = os.getenv("api_key")
 
@@ -21,6 +22,97 @@ class General(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+
+    @slash_command(
+        name="who",
+        description="Get more information about someone's nation"
+    )
+    async def who(
+        self,
+        ctx: discord.ApplicationContext,
+        person: Option(str, "") = None,
+    ):
+        await ctx.defer()
+        if person == None:
+            person = ctx.author.id
+        nation = utils.find_nation_plus(self, person)
+        if nation == None:
+            await ctx.respond(content="I did not find that nation!")
+            return
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={"query": f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beigeturns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{id}}}}}}}}}}"}) as temp:
+                nation = (await temp.json())['data']['nations']['data'][0]
+
+        embed = discord.Embed(title=nation['nation_name'], url=f"https://politicsandwar.com/nation/id={nation['id']}", color=0xff5100)
+        user = utils.find_user(self, nation['id'])
+        if not user:
+            discord_info = "> Autolycus Verified: <:redcross:862669500977905694>"
+            if nation['discord']:
+                discord_info += f"\n> Discord Username: {nation['discord']}"
+        else:
+            username = await self.fetch_user(user['user'])
+            discord_info = f"> Verified: ✅\n> Discord Username: {username} `({username.id})`"
+        embed.add_field(name="Discord Info", value=discord_info, inline=False)
+
+        nation_info = f"> Nation Name: [{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})\n> Leader Name: {nation['leader_name']}\n> Cities: [{nation['num_cities']}](https://politicsandwar.com/city/manager/n={nation['nation_name'].replace(' ', '%20')})\n> War Policy: [{nation['warpolicy']}](https://politicsandwar.com/pwpedia/war-policy/)\n> Dom. Policy: [{nation['dompolicy']}](https://politicsandwar.com/pwpedia/domestic-policy/)"
+        embed.add_field(name="Nation Info", value=nation_info)
+
+        nation_info_2 = f"> Score: `{nation['score']}`\n> Def. Range: `{round(nation['score']/1.75)}`-`{round(nation['score']/0.75)}`\n> Off. Range: `{round(nation['score']*0.75)}`-`{round(nation['score']*1.75)}`\n> Color: {nation['color'].capitalize()}\n> Turns of VM: `{nation['vmode']}`"
+        embed.add_field(name="\u200b", value=nation_info_2)
+
+        if nation['alliance']:
+            alliance_info = f"> Alliance: [{nation['alliance']['name']}](https://politicsandwar.com/alliance/id={nation['alliance']['id']})\n> Position: {nation['alliance_position'].capitalize()}\n> Seniority: {nation['alliance_seniority']:,} days\n> Score: `{nation['alliance']['score']:,}`\n> Color: {nation['alliance']['color'].capitalize()}\n> Members: `{len(nation['alliance']['nations'])}`"
+        else:
+            alliance_info = f"> Alliance: None"
+        embed.add_field(name="Alliance Info", value=alliance_info, inline=False)
+
+        spy_count = await utils.spy_calc(nation)
+        if nation['spy_satellite']:
+            daily_rebuy = 3
+        else:
+            daily_rebuy = 2
+        if nation['cia']:
+            max_spies = 60
+        else:
+            max_spies = 50
+        spies = f"`{spy_count}`/`{max_spies}`/`{math.ceil((max_spies-spy_count)/daily_rebuy)}`"
+
+        milt = utils.militarization_checker(nation)
+        military_info = f"> Format: `Current`/`Cap`/`Days`\n> Soldiers: `{nation['soldiers']:,}`/`{milt['max_soldiers']:,}`/`{milt['soldiers_days']:,}`\n> Tanks: `{nation['tanks']:,}`/`{milt['max_tanks']:,}`/`{milt['tanks_days']:,}`\n> Aircraft: `{nation['aircraft']:,}`/`{milt['max_aircraft']:,}`/`{milt['aircraft_days']:,}`\n> Ships: `{nation['ships']:,}`/`{milt['max_ships']:,}`/`{milt['ships_days']:,}`\n> Spies: {spies}\n> MMR: `{milt['barracks_mmr']}`/`{milt['factory_mmr']}`/`{milt['hangar_mmr']}`/`{milt['drydock_mmr']}`"
+        embed.add_field(name="Military Info", value=military_info)
+
+        missiles = str(nation['missiles'])
+        if not nation['mlp']:
+            missiles += " (No Project)"
+        nukes = str(nation['nukes'])
+        if not nation['nrf']:
+            nukes += " (No Project)"
+
+        o_wars = 0
+        d_wars = 0
+        for war in nation['wars']:
+            if war['turnsleft'] > 0:
+                if war['attid'] == nation['id']:
+                    o_wars += 1
+                else:
+                    d_wars += 1
+
+        if nation['irond']:
+            dome = "Yes"
+        else:
+            dome = "No"
+        if nation['vds']:
+            vital = "Yes"
+        else:
+            vital = "No"
+
+        military_info_2 = f"> Offensive Wars: `{o_wars}`/`5`\n> Defensive Wars: `{d_wars}`/`3`\n> Missiles: `{missiles}`\n> Nukes: `{nukes}`\n> Iron Dome: {dome}\n> Vital Defense: {vital}\n> Turns of Beige: `{nation['beigeturns']}`"
+        embed.add_field(name="\u200b", value=military_info_2)
+
+        embed.set_thumbnail(url=nation['flag'])
+
+        await ctx.respond(embed=embed)
 
     @slash_command(
         name="builds",

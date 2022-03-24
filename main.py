@@ -9,7 +9,6 @@ from discord.commands import Option, permissions
 from discord.bot import ApplicationCommandMixin
 import re
 import json
-import math
 import pathlib
 import discord
 from discord.ext import commands
@@ -60,11 +59,11 @@ async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
 @bot.slash_command(
-    name="bot_info",
+    name="botinfo",
     description="Information about the guilds I am in"
 )
 @permissions.is_user(465463547200012298)
-async def bot_info(ctx: discord.ApplicationContext):
+async def botinfo(ctx: discord.ApplicationContext):
     await ctx.defer()
     content = ""
     for guild in bot.guilds:
