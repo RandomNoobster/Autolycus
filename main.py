@@ -61,11 +61,11 @@ async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
 @bot.slash_command(
-    name="status",
+    name="bot_info",
     description="Information about the guilds I am in"
 )
 @permissions.is_user(465463547200012298)
-async def status(ctx: discord.ApplicationContext):
+async def bot_info(ctx: discord.ApplicationContext):
     await ctx.defer()
     content = ""
     for guild in bot.guilds:
