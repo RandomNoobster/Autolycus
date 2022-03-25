@@ -51,7 +51,7 @@ class General(commands.Cog):
             if nation['discord']:
                 discord_info += f"\n> Discord Username: {nation['discord']}"
         else:
-            username = await self.fetch_user(user['user'])
+            username = await self.bot.fetch_user(user['user'])
             discord_info = f"> Verified: ✅\n> Discord Username: {username} `({username.id})`"
         embed.add_field(name="Discord Info", value=discord_info, inline=False)
 
@@ -116,7 +116,7 @@ class General(commands.Cog):
 
     @slash_command(
         name="builds",
-        brief="Shows you the best city builds"
+        description="Shows you the best city builds"
     )
     async def build(
         self,
@@ -191,7 +191,7 @@ class General(commands.Cog):
 
         with open(pathlib.Path.cwd() / 'data' / f'cities-{date}.csv', encoding='cp437') as f1:
             csv_dict_reader = DictReader(f1)
-            nation_age = nation['date'][:nation['date'].index(" ")]
+            nation_age = nation['date'][:nation['date'].index("T")]
             for city in csv_dict_reader:
                 if str(infra).lower() not in "any":
                     if float(city['infrastructure']) != float(infra):
