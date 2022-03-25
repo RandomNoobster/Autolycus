@@ -116,6 +116,17 @@ async def unverify(
     else:
         await ctx.respond("Your discord account was successfully unlinked from your nation.")
 
+@bot.slash_command(
+    name="help",
+    description="Returns all commands available",
+)
+async def help(ctx):
+    help_text = ""
+    for command in bot._application_commands.values():
+        help_text += f"`{command}` - {command.description}\n"
+    embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
+    await ctx.respond(embed=embed)
+
 async def alert_scanner():
     await bot.wait_until_ready()
     debug_channel = bot.get_channel(channel_id)
