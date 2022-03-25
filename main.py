@@ -127,6 +127,8 @@ async def help(ctx):
     embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
     await ctx.respond(embed=embed)
 
+bot.help_command = None
+
 async def alert_scanner():
     await bot.wait_until_ready()
     debug_channel = bot.get_channel(channel_id)
