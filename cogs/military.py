@@ -371,7 +371,7 @@ class TargetFinding(commands.Cog):
                         continue
                     if used_slots > max_wars:
                         continue
-                    if (datetime.utcnow() - datetime.strptime(x['last_active'], "%Y-%m-%d %H:%M:%S%z").replace(tzinfo=None)).days < inactive_limit:
+                    if (datetime.utcnow() - datetime.strptime(x['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days < inactive_limit:
                         continue
                     target_list.append(x)
                     
@@ -423,7 +423,7 @@ class TargetFinding(commands.Cog):
                     wars = sorted(target['wars'], key=lambda k: k['date'], reverse=True)
                     war = wars[0]
                     if target['def_slots'] == 0:
-                        target['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%d %H:%M:%S%z").replace(tzinfo=None)).days
+                        target['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
                     else:
                         target['time_since_war'] = "Ongoing"
                     if war['winner'] in ["0", target['id']]:
@@ -475,7 +475,7 @@ class TargetFinding(commands.Cog):
                 if target['last_active'] == '-0001-11-30 00:00:00':
                     days_inactive = 0
                 else:
-                    days_inactive = (datetime.utcnow() - datetime.strptime(target['last_active'], "%Y-%m-%d %H:%M:%S%z").replace(tzinfo=None)).days
+                    days_inactive = (datetime.utcnow() - datetime.strptime(target['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
 
                 for city in target['cities']:
                     target['infrastructure'] += city['infrastructure']
