@@ -60,22 +60,24 @@ async def ping(ctx: discord.ApplicationContext):
 
 @bot.slash_command(
     name="botinfo",
-    description="Information about the guilds I am in"
+    description="Information about the bot"
 )
-@permissions.is_user(465463547200012298)
 async def botinfo(ctx: discord.ApplicationContext):
     await ctx.defer()
+    n = len(bot.guilds)
     content = ""
     for guild in bot.guilds:
         extra = ""
         try:
             await ApplicationCommandMixin.get_desynced_commands(bot, guild.id)
         except discord.errors.Forbidden:
-            extra = f"|| Slash disallowed"
+            extra = f"| Slash disallowed"
             n -= 1
-        content += f"\n-> {guild} || {guild.member_count} members {extra}"
-    content += f"\nSlash commands are allowed in {n}/{len(bot.guilds)} guilds"
-    await ctx.respond()
+        content += f"> {guild} | {guild.member_count} members {extra}\n"
+    content += f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds"
+    embed = discord.Embed(title="My guilds:", description=content[:2000], color=0xff5100)
+    embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+    await ctx.respond(embed=embed)
 
 @bot.slash_command(
     name="verify",
@@ -118,16 +120,15 @@ async def unverify(
 
 @bot.slash_command(
     name="help",
-    description="Returns all commands available",
+    description="Returns all commands",
 )
 async def help(ctx):
     help_text = ""
-    for command in bot._application_commands.values():
+    for command in list(bot._application_commands.values())[1:]:
         help_text += f"`{command}` - {command.description}\n"
     embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
+    embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
     await ctx.respond(embed=embed)
-
-bot.help_command = None
 
 async def alert_scanner():
     await bot.wait_until_ready()
