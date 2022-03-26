@@ -64,18 +64,16 @@ async def ping(ctx: discord.ApplicationContext):
 )
 async def botinfo(ctx: discord.ApplicationContext):
     await ctx.defer()
-    n = len(bot.guilds)
-    content = ""
+    slash_guilds = len(bot.guilds)
+    total_people = 0
     for guild in bot.guilds:
-        extra = ""
+        total_people += guild.member_count
         try:
             await ApplicationCommandMixin.get_desynced_commands(bot, guild.id)
         except discord.errors.Forbidden:
-            extra = f"| Slash disallowed"
-            n -= 1
-        content += f"> {guild} | {guild.member_count} members {extra}\n"
-    content += f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds"
-    embed = discord.Embed(title="My guilds:", description=content[:2000], color=0xff5100)
+            slash_guilds -= 1
+    content = f"I am serving {total_people} people across {len(bot.guilds)} servers.\nSlash commands are allowed in {slash_guilds}/{len(bot.guilds)} guilds."
+    embed = discord.Embed(title="My guilds:", description=content, color=0xff5100)
     embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
     await ctx.respond(embed=embed)
 
