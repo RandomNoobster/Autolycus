@@ -304,7 +304,7 @@ class TargetFinding(commands.Cog):
                     tot_pages += (await temp1.json())['data']['nations']['paginatorInfo']['lastPage']
 
                 for n in range(1, tot_pages+1):
-                    json = {'query': f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount war_type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}
+                    json = {'query': f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}
                     futures.append(asyncio.ensure_future(call_api(url, json)))
             
             with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
@@ -510,9 +510,9 @@ class TargetFinding(commands.Cog):
                 # target['bounty_txt'] = "0"
                 # bounty_info = {"ATTRITION": 0, "RAID": 0, "ORDINARY": 0, "NUCLEAR": 0}
                 # for bounty in target['bounties']:
-                #     if bounty['war_type'] == None:
-                #         bounty['war_type'] = "NUCLEAR"
-                #     bounty_info[bounty['war_type']] += bounty['amount']   
+                #     if bounty['type'] == None:
+                #         bounty['type'] = "NUCLEAR"
+                #     bounty_info[bounty['type']] += bounty['amount']   
                 # temp_list = []
                 # for k, v in bounty_info.items():
                 #     if v != 0:
