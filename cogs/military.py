@@ -48,9 +48,14 @@ class TargetFinding(commands.Cog):
         webpage = None
         async def wait_for_timeout():
             await asyncio.sleep(60*15-8)
-            nonlocal webpage
-            if webpage == False:
-                await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+            await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+            try:
+                nonlocal view
+                for x in view.children:
+                    x.disabled = True
+                await ctx.edit(view=view)
+            except:
+                pass
             return
         asyncio.ensure_future(wait_for_timeout())
 
@@ -91,7 +96,9 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
             
             fetch_fresh = None
             class stage_two(discord.ui.View):
@@ -115,6 +122,11 @@ class TargetFinding(commands.Cog):
                         return False
                     else:
                         return True
+
+                async def on_timeout(self):
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
 
             who = None
             class stage_three(discord.ui.View):
@@ -147,11 +159,10 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)                
                 
-                async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-
             max_wars = None
             class stage_four(discord.ui.View):
                 @discord.ui.button(label="0", style=discord.ButtonStyle.primary)
@@ -190,7 +201,9 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
            
             inactive_limit = None
             class stage_five(discord.ui.View):
@@ -230,7 +243,9 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
             
             beige = None
             class stage_six(discord.ui.View):
@@ -256,7 +271,9 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
                                 
             performace_filter = None
             class stage_seven(discord.ui.View):
@@ -282,7 +299,9 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
 
             target_list = []
             futures = []
@@ -553,7 +572,29 @@ class TargetFinding(commands.Cog):
         best_targets = sorted(target_list, key=lambda k: k['monetary_net_num'], reverse=True)
 
         if webpage:
+            webpage_embed = discord.Embed(title=f"Targets successfully gathered", description=f"{filters}\n\nYou can view your targets by pressing the button below.", color=0xff5100)
             endpoint = datetime.utcnow().strftime('%d%H%M%S')
+            class webpage_view(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=900)
+
+                @discord.ui.button(label=f"See your targets", style=discord.ButtonStyle.primary)
+                async def targets_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal endpoint
+                    await i.response.send_message(ephemeral=True, content=f"Go to http://132.145.71.195:5000/raids/{endpoint}")
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    for x in self.children:
+                        x.disabled = True
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+
             class webraid(MethodView):
                 def get(raidclass):
                     beige_alerts = mongo.global_users.find_one({"user": int(invoker)})['beige_alerts']
@@ -577,7 +618,8 @@ class TargetFinding(commands.Cog):
                     return "you good"
 
             app.add_url_rule(f"/raids/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-            await ctx.edit(content=f"Go to http://132.145.71.195:5000/raids/{endpoint}", attachments=[])
+            view = webpage_view()
+            await ctx.edit(content="", embed=webpage_embed, view=view)
             return
         
         pages = len(target_list)
