@@ -140,7 +140,7 @@ class TargetFinding(commands.Cog):
                 @discord.ui.button(label="Applicants and nations not in alliances", style=discord.ButtonStyle.primary)
                 async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal who
-                    who = " alliance_id:[0,1]"
+                    who = " alliance_position:[0,1]"
                     await i.response.pong()
                     self.stop()
 
@@ -319,11 +319,11 @@ class TargetFinding(commands.Cog):
             async def fetch_targets():
                 nonlocal tot_pages, progress
                 url = f"https://api.politicsandwar.com/graphql?api_key={api_key}"
-                async with session.post(url, json={'query': f"{{nations(page:1 first:50 min_score:{minscore} max_score:{maxscore} vmode:false {who}){{paginatorInfo{{lastPage}}}}}}"}) as temp1:
+                async with session.post(url, json={'query': f"{{nations(page:1 first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{paginatorInfo{{lastPage}}}}}}"}) as temp1:
                     tot_pages += (await temp1.json())['data']['nations']['paginatorInfo']['lastPage']
 
                 for n in range(1, tot_pages+1):
-                    json = {'query': f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}
+                    json = {'query': f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id alliance_position_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}
                     futures.append(asyncio.ensure_future(call_api(url, json)))
             
             with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
@@ -370,6 +370,13 @@ class TargetFinding(commands.Cog):
             await ctx.edit(content="Caching targets...")
             for done_job in done_jobs:
                 for x in done_job['data']['nations']['data']:
+                    if not fetch_fresh:
+                        if "alliance_position" in who:
+                            if x['alliance_position_id'] not in ["0", "1"]:
+                                continue
+                        elif "alliance_id" in who:
+                            if x['alliance_id'] != "0":
+                                continue
                     if not minscore < x['score'] < maxscore:
                         continue
                     if beige:
