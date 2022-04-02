@@ -626,7 +626,7 @@ class TargetFinding(commands.Cog):
 
             app.add_url_rule(f"/raids/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
             view = webpage_view()
-            await ctx.edit(content="", embed=webpage_embed, view=view)
+            await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
             return
         
         pages = len(target_list)
