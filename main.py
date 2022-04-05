@@ -99,7 +99,7 @@ async def verify(
                     await ctx.respond("You have successfully verified your nation!")
                 else:
                     await ctx.respond(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `/verify {nation_id}` again.')
-            except KeyError:
+            except (KeyError, IndexError):
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
 
 @bot.slash_command(
