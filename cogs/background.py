@@ -1,4 +1,5 @@
 import os
+import traceback
 from discord.ext import commands
 from datetime import datetime, timedelta
 import pathlib
@@ -48,7 +49,7 @@ class General(commands.Cog):
                                 alert_list = []
                             mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
             except Exception as error:
-                await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{error}```')
+                await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```')
 
     async def nation_scanner(self):
         await self.bot.wait_until_ready()
@@ -75,7 +76,7 @@ class General(commands.Cog):
                     print("done fetching")
                     #await asyncio.sleep(600)
             except Exception as error:
-                await debug_channel.send(f'**Exception raised!**\nWhere: Scanning nations\n\nError:```{error}```')
+                await debug_channel.send(f'**Exception raised!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()}```')
                 await asyncio.sleep(300)
 
 def setup(bot):
