@@ -6,7 +6,7 @@ import os
 from discord.commands import Option
 from discord.bot import ApplicationCommandMixin
 import re
-import utils
+import asyncio
 import discord
 from discord.ext import commands
 load_dotenv()
@@ -87,7 +87,7 @@ async def verify(
         await ctx.respond("You are already verified!")
         return
     nation_id = re.sub("[^0-9]", "", nation_id)
-    res = await utils.call(f'{{nations(first:1 id:{nation_id}){{data{{id nation_name leader_name discord}}}}}}')
+    res = await call(f'{{nations(first:1 id:{nation_id}){{data{{id nation_name leader_name discord}}}}}}')
     try:
         if res['data']['nations']['data'][0]['discord'] == str(ctx.author):
             mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
@@ -122,6 +122,20 @@ async def help(ctx):
     embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
     embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
     await ctx.respond(embed=embed)
+
+async def call(data: dict = None, key: str = api_key):
+    async with aiohttp.ClientSession() as session:
+        while True:
+            async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
+                if response.headers['X-RateLimit-Remaining'] == 0:
+                    await asyncio.sleep(response.headers['X-RateLimit-Reset-After'])
+                    continue
+                json_response = await response.json()
+                try:
+                    errors = json_response['errors']
+                except:
+                    errors = None
+                return json_response
 
 
 keep_alive.run()
