@@ -65,8 +65,7 @@ class TargetFinding(commands.Cog):
             if not attacker:
                 await ctx.edit(content='I could not find your nation, make sure that you are verified by using `/verify`!')
                 return
-            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{attacker['id']}){{data{{nation_name score id population soldiers tanks aircraft ships}}}}}}"}) as temp:
-                atck_ntn = (await temp.json())['data']['nations']['data'][0]
+            atck_ntn = (await utils.call(f"{{nations(first:1 id:{attacker['id']}){{data{{nation_name score id population soldiers tanks aircraft ships}}}}}}"))['data']['nations']['data'][0]
             if atck_ntn == None:
                 await ctx.edit(content='I did not find that person!')
                 return
@@ -308,23 +307,20 @@ class TargetFinding(commands.Cog):
             tot_pages = 0
             progress = 0
             
-            async def call_api(url, json):
+            async def call_api(json):
                 nonlocal progress
-                async with session.post(url, json=json) as temp:
-                    resp = await temp.json()
-                    progress += 1
-                    #print(f"Getting targets... ({progress}/{tot_pages})")
-                    return resp
+                resp = await utils.call(json)
+                progress += 1
+                #print(f"Getting targets... ({progress}/{tot_pages})")
+                return resp
            
             async def fetch_targets():
                 nonlocal tot_pages, progress
-                url = f"https://api.politicsandwar.com/graphql?api_key={api_key}"
-                async with session.post(url, json={'query': f"{{nations(page:1 first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{paginatorInfo{{lastPage}}}}}}"}) as temp1:
-                    tot_pages += (await temp1.json())['data']['nations']['paginatorInfo']['lastPage']
+                tot_pages += (await utils.call(f"{{nations(page:1 first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{paginatorInfo{{lastPage}}}}}}"))['data']['nations']['paginatorInfo']['lastPage']
 
                 for n in range(1, tot_pages+1):
-                    json = {'query': f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id alliance_position_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"}
-                    futures.append(asyncio.ensure_future(call_api(url, json)))
+                    json = f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id alliance_position_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"
+                    futures.append(asyncio.ensure_future(call_api(json)))
             
             with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
                 file_content = json.load(json_file)
@@ -822,7 +818,7 @@ class TargetFinding(commands.Cog):
         if nation == None:
             await ctx.respond(content='I could not find that nation!')
             return
-        res = requests.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nation['id']}){{data{{beigeturns}}}}}}"}).json()['data']['nations']['data'][0]
+        res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{beigeturns}}}}}}"))['data']['nations']['data'][0]
         if res['beigeturns'] == 0:
             await ctx.respond(content="They are not beige!")
             return
@@ -994,11 +990,8 @@ class TargetFinding(commands.Cog):
     async def battle_calc(self, nation1_id, nation2_id):
         results = {}
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nation1_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"}) as temp:
-                results['nation1'] = (await temp.json())['data']['nations']['data'][0]
-            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nation2_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}}}}}}}}"}) as temp:
-                results['nation2'] = (await temp.json())['data']['nations']['data'][0]
+        results['nation1'] = (await utils.call(f"{{nations(first:1 id:{nation1_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
+        results['nation2'] = (await utils.call(f"{{nations(first:1 id:{nation2_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}}}}}}}}"))['data']['nations']['data'][0]
 
         results['nation1_append'] = ""
         results['nation2_append'] = ""

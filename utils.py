@@ -15,6 +15,20 @@ mongo = client[str(version)]
 
 api_key = os.getenv("api_key")
 
+async def call(data: dict = None, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
+    async with aiohttp.ClientSession() as session:
+        while True:
+            async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
+                if response.headers['X-RateLimit-Remaining'] == 0:
+                    await asyncio.sleep(response.headers['X-RateLimit-Reset-After'])
+                    continue
+                json_response = await response.json()
+                try:
+                    errors = json_response['errors']
+                except:
+                    errors = None
+                return json_response
+
 def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
     embeds = []
     for i in range(math.ceil(len(fields)/24)):

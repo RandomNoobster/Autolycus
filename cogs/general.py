@@ -1,7 +1,6 @@
 import os
 from discord.ext import commands
 import discord
-import requests
 from datetime import datetime, timedelta
 import pathlib
 import math
@@ -14,11 +13,10 @@ import dload
 from csv import DictReader
 import utils
 from main import mongo
-import aiohttp
 
 api_key = os.getenv("api_key")
 
-class General(commands.Cog):
+class Background(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
@@ -40,9 +38,7 @@ class General(commands.Cog):
             await ctx.respond(content="I did not find that nation!")
             return
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={"query": f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beigeturns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{id}}}}}}}}}}"}) as temp:
-                nation = (await temp.json())['data']['nations']['data'][0]
+        nation = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beigeturns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{id}}}}}}}}}}"))['data']['nations']['data'][0]
 
         embed = discord.Embed(title=nation['nation_name'], url=f"https://politicsandwar.com/nation/id={nation['id']}", color=0xff5100)
         user = utils.find_user(self, nation['id'])
@@ -145,7 +141,7 @@ class General(commands.Cog):
             await ctx.edit(content="I could not find the specified person!")
             return
 
-        nation = requests.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{db_nation['id']}){{data{{id continent date color dompolicy alliance{{name}} alliance_id num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap}}}}}}"}).json()['data']['nations']['data']
+        nation = (await utils.call(f"{{nations(first:1 id:{db_nation['id']}){{data{{id continent date color dompolicy alliance{{name}} alliance_id num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap}}}}}}"))['data']['nations']['data']
         if len(nation) == 0:
             await ctx.edit(content="That person was not in the API!")
             return
@@ -326,4 +322,4 @@ class General(commands.Cog):
         return
     
 def setup(bot):
-    bot.add_cog(General(bot))
+    bot.add_cog(Background(bot))
