@@ -127,9 +127,11 @@ async def call(data: dict = None, key: str = api_key):
     async with aiohttp.ClientSession() as session:
         while True:
             async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
-                if response.headers['X-RateLimit-Remaining'] == 0:
-                    await asyncio.sleep(response.headers['X-RateLimit-Reset-After'])
+                try:
+                    await asyncio.sleep(int(response.headers['Retry-After']))
                     continue
+                except:
+                    pass
                 json_response = await response.json()
                 try:
                     errors = json_response['errors']
