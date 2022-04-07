@@ -47,9 +47,9 @@ class TargetFinding(commands.Cog):
 
         webpage = None
         async def wait_for_timeout():
-            await asyncio.sleep(60*15-8)
-            await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+            await asyncio.sleep(60*15-10)
             try:
+                await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
                 nonlocal view
                 for x in view.children:
                     x.disabled = True
@@ -344,8 +344,10 @@ class TargetFinding(commands.Cog):
                 timed_out = await view.wait()
                 if timed_out:
                     return
+            
+            view = None
 
-            await ctx.edit(content="Getting targets...", view=None, embed=None)
+            await ctx.edit(content="Getting targets...", view=view, embed=None)
             if fetch_fresh:
                 
                 if progress < tot_pages - 5:
