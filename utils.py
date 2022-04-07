@@ -17,6 +17,7 @@ api_key = os.getenv("api_key")
 
 async def call(data: dict = None, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
     async with aiohttp.ClientSession() as session:
+        retry = True
         while True:
             async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
                 try:
@@ -25,6 +26,12 @@ async def call(data: dict = None, key: str = api_key) -> Union[dict, aiohttp.Cli
                 except:
                     pass
                 json_response = await response.json()
+                try:
+                    json_response['data']
+                except:
+                    if retry:
+                        retry = False
+                        continue
                 try:
                     errors = json_response['errors']
                 except:
