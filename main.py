@@ -45,7 +45,7 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
     debug_channel = bot.get_channel(channel_id)
     print(error)
     print(type(error))
-    if isinstance(error, (discord.HTTPException, discord.errors.NotFound, discord.ApplicationCommandInvokeError)):
+    if isinstance(error, (discord.HTTPException, discord.errors.NotFound)):
         await debug_channel.send(f'**Exception __caught__!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```')
     else:
         await ctx.send("Oh no! An unknown error occurred! Contact RandomNoobster#0093, and he might be able to help you out.")
