@@ -57,7 +57,6 @@ class TargetFinding(commands.Cog):
             except:
                 pass
             return
-        asyncio.ensure_future(wait_for_timeout())
 
         invoker = str(ctx.author.id)
         async with aiohttp.ClientSession() as session:
@@ -69,6 +68,9 @@ class TargetFinding(commands.Cog):
             if atck_ntn == None:
                 await ctx.edit(content='I did not find that person!')
                 return
+            
+            asyncio.ensure_future(wait_for_timeout())
+            
             minscore = round(atck_ntn['score'] * 0.75)
             maxscore = round(atck_ntn['score'] * 1.75)
             
