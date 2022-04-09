@@ -321,5 +321,21 @@ class Background(commands.Cog):
         await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): http://132.145.71.195:5000/builds/{endpoint}")
         return
     
+    @slash_command(
+        name="infracost",
+        description="Cost to purchase infrastructure",
+        guild_ids=[729979781940248577],
+    )
+    async def infra_cost(
+        self,
+        ctx: discord.ApplicationContext,
+        starting_infra: Option(int, "The starting amount of infrastructure"),
+        ending_infra: Option(str, "The ending amount of infrastructure"),
+        person: Option(str, "The person purchasing infra. Defaults to you.") = None
+    ):
+        cost = utils.infra_cost(int(starting_infra), int(ending_infra))
+        await ctx.respond(f"Going from {starting_infra} to {ending_infra} infrastructure, will cost ${cost:,}")
+    
+    
 def setup(bot):
     bot.add_cog(Background(bot))
