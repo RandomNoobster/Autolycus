@@ -327,7 +327,7 @@ class Background(commands.Cog):
     @slash_command(
         name="infracost",
         description="Cost to purchase infrastructure",
-        guild_ids=[729979781940248577]
+        guild_ids=[729979781940248577, 434071714893398016]
     )
     async def infra_cost(
         self,
@@ -351,7 +351,7 @@ class Background(commands.Cog):
     @slash_command(
         name="landcost",
         description="Cost to purchase land.",
-        guild_ids=[729979781940248577]
+        guild_ids=[729979781940248577, 434071714893398016]
     )
     async def land_cost(
         self,
@@ -375,7 +375,7 @@ class Background(commands.Cog):
     @slash_command(
         name="citycost",
         description="Cost to purchase city.",
-        guild_ids=[729979781940248577]
+        guild_ids=[729979781940248577, 434071714893398016]
     )
     async def city_cost(
         self,
@@ -395,7 +395,7 @@ class Background(commands.Cog):
     @slash_command(
         name="expansioncost",
         description="Cost to purchase infra, land and cities",
-        guild_ids=[729979781940248577]
+        guild_ids=[729979781940248577, 434071714893398016]
     )
     async def expansion_cost(
         self,
