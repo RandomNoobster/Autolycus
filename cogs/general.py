@@ -117,8 +117,8 @@ class Background(commands.Cog):
     async def build(
         self,
         ctx: discord.ApplicationContext,
-        infra: Option(int, "How much infra the builds should be for"),
-        land: Option(int, "How much land the builds should be for"),
+        infra: Option(str, "How much infra the builds should be for"),
+        land: Option(str, "How much land the builds should be for"),
         mmr: Option(str, "The minimum military requirement for the builds. Defaults to 0/0/0/0.") = "0/0/0/0",
         person: Option(str, "The person the builds should be for. Defaults to you.") = None
     ):
@@ -147,6 +147,9 @@ class Background(commands.Cog):
             return
         else:
             nation = nation[0]
+        
+        infra = utils.str_to_int(infra)
+        land = utils.str_to_int(land)
         
         try:
             if mmr.lower() == "any":
@@ -324,17 +327,95 @@ class Background(commands.Cog):
     @slash_command(
         name="infracost",
         description="Cost to purchase infrastructure",
-        guild_ids=[729979781940248577],
+        guild_ids=[729979781940248577]
     )
     async def infra_cost(
         self,
         ctx: discord.ApplicationContext,
-        starting_infra: Option(int, "The starting amount of infrastructure"),
+        starting_infra: Option(str, "The starting amount of infrastructure"),
         ending_infra: Option(str, "The ending amount of infrastructure"),
         person: Option(str, "The person purchasing infra. Defaults to you.") = None
     ):
-        cost = utils.infra_cost(int(starting_infra), int(ending_infra))
-        await ctx.respond(f"Going from {starting_infra} to {ending_infra} infrastructure, will cost ${cost:,}")
+        if not person:
+            person = ctx.author.id
+        db_person = utils.find_nation_plus(self, person)
+        nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy advanced_engineering_corps center_for_civil_engineering government_support_agency}}}}}}"))['data']['nations']['data'][0]
+
+        starting_infra = utils.str_to_int(starting_infra)
+        ending_infra = utils.str_to_int(ending_infra)
+        
+        cost = utils.infra_cost(int(starting_infra), int(ending_infra), nation)
+
+        await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_infra}` to `{ending_infra}` infrastructure, will cost `${cost:,}`.")
+    
+    @slash_command(
+        name="landcost",
+        description="Cost to purchase land.",
+        guild_ids=[729979781940248577]
+    )
+    async def land_cost(
+        self,
+        ctx: discord.ApplicationContext,
+        starting_land: Option(str, "The starting amount of land."),
+        ending_land: Option(str, "The ending amount of land."),
+        person: Option(str, "The person purchasing land. Defaults to you.") = None
+    ):
+        if not person:
+            person = ctx.author.id
+        db_person = utils.find_nation_plus(self, person)
+        nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy advanced_engineering_corps arable_land_agency government_support_agency}}}}}}"))['data']['nations']['data'][0]
+
+        starting_land = utils.str_to_int(starting_land)
+        ending_land = utils.str_to_int(ending_land)
+
+        cost = utils.land_cost(int(starting_land), int(ending_land), nation)
+
+        await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_land}` to `{ending_land}` land will cost `${cost:,}`.")
+
+    @slash_command(
+        name="citycost",
+        description="Cost to purchase city.",
+        guild_ids=[729979781940248577]
+    )
+    async def city_cost(
+        self,
+        ctx: discord.ApplicationContext,
+        city: Option(int, "The city to buy."),
+        person: Option(str, "The person purchasing a city. Defaults to you.") = None
+    ):
+        if not person:
+            person = ctx.author.id
+        db_person = utils.find_nation_plus(self, person)
+        nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy urban_planning advanced_urban_planning government_support_agency}}}}}}"))['data']['nations']['data'][0]
+
+        cost = utils.city_cost(int(city), nation)
+
+        await ctx.respond(f"For `{db_person['leader_name']}`, purchasing city `{city}` will cost `${cost:,}`.")
+    
+    @slash_command(
+        name="expansioncost",
+        description="Cost to purchase infra, land and cities",
+        guild_ids=[729979781940248577]
+    )
+    async def expansion_cost(
+        self,
+        ctx: discord.ApplicationContext,
+        city: Option(int, "The city to expand to."),
+        infra: Option(str, "The amount of infrastructure"),
+        land: Option(str, "The amount of land"),
+        person: Option(str, "The person expanding. Defaults to you.") = None
+    ):
+        if not person:
+            person = ctx.author.id
+        db_person = utils.find_nation_plus(self, person)
+        nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy num_cities advanced_engineering_corps center_for_civil_engineering government_support_agency arable_land_agency urban_planning advanced_urban_planning}}}}}}"))['data']['nations']['data'][0]
+
+        infra = utils.str_to_int(infra)
+        land = utils.str_to_int(land)
+        
+        cost = utils.expansion_cost(nation['num_cities'], int(city), infra, land, nation)
+
+        await ctx.respond(f"For {db_person['leader_name']}, going from city `{nation['num_cities']}` to city `{city}` (with `{infra}` infra and `{land}` land) will cost `${cost:,}`.")
     
     
 def setup(bot):
