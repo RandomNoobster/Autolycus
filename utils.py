@@ -21,10 +21,15 @@ async def call(data: dict = None, key: str = api_key) -> Union[dict, aiohttp.Cli
         while True:
             async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
                 try:
-                    await asyncio.sleep(int(response.headers['Retry-After']))
-                    continue
+                    if response.headers['X-Ratelimit-Remaining'] == '0':
+                        await asyncio.sleep(int(response.headers['X-Ratelimit-Reset']))
+                        continue
                 except:
-                    pass
+                    try:
+                        await asyncio.sleep(int(response.headers['Retry-After']))
+                        continue
+                    except:
+                        pass
                 json_response = await response.json()
                 try:
                     json_response['data']
