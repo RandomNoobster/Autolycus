@@ -325,9 +325,47 @@ class Background(commands.Cog):
         return
     
     @slash_command(
-        name="infracost",
-        description="Cost to purchase infrastructure",
-        guild_ids=[729979781940248577, 434071714893398016]
+        name="revenue",
+        description="The revenue of a nation"
+    )
+    async def revenue(
+        self,
+        ctx: discord.ApplicationContext,
+        person: Option(str, "The person you want to see the revenue of. Defaults to you.") = None
+    ):
+        await ctx.respond('Stay with me...')
+        if person == None:
+            person = ctx.author.id
+        db_nation = utils.find_user(self, person)
+
+        if db_nation == {}:
+            db_nation = utils.find_nation(person)
+            if not db_nation:
+                await ctx.edit(content='I could not find that person!')
+                return
+            db_nation['nationid'] = db_nation['id']
+
+        nation, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=True, nationid=db_nation['id'])
+
+        build_txt = "daily revenue"
+        single_city = False
+
+        rev_obj = await utils.revenue_calc(ctx, nation, radiation, treasures, prices, colors, seasonal_mod, None, single_city, True)
+
+        embed = discord.Embed(
+            title=f"{nation['leader_name']}'s {build_txt}:", url=f"https://politicsandwar.com/nation/id={db_nation['id']}", description="", color=0xff5100)
+        
+        embed.add_field(name="Incomes", value=rev_obj['income_txt'])
+        embed.add_field(name="Expenses", value=rev_obj['expenses_txt'])
+        embed.add_field(name="Net Revenue", value=rev_obj['net_rev_txt'])
+        embed.add_field(name="Monetary Net Income", inline=False, value=rev_obj['mon_net_txt'])
+        embed.set_footer(text=rev_obj['footer'])
+
+        await ctx.edit(content="", embed=embed)
+
+    @slash_command(
+        name="infra_cost",
+        description="Cost to purchase infrastructure"
     )
     async def infra_cost(
         self,
@@ -349,9 +387,8 @@ class Background(commands.Cog):
         await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_infra}` to `{ending_infra}` infrastructure, will cost `${cost:,}`.")
     
     @slash_command(
-        name="landcost",
-        description="Cost to purchase land.",
-        guild_ids=[729979781940248577, 434071714893398016]
+        name="land_cost",
+        description="Cost to purchase land."
     )
     async def land_cost(
         self,
@@ -373,9 +410,8 @@ class Background(commands.Cog):
         await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_land}` to `{ending_land}` land will cost `${cost:,}`.")
 
     @slash_command(
-        name="citycost",
-        description="Cost to purchase city.",
-        guild_ids=[729979781940248577, 434071714893398016]
+        name="city_cost",
+        description="Cost to purchase city."
     )
     async def city_cost(
         self,
@@ -393,9 +429,8 @@ class Background(commands.Cog):
         await ctx.respond(f"For `{db_person['leader_name']}`, purchasing city `{city}` will cost `${cost:,}`.")
     
     @slash_command(
-        name="expansioncost",
-        description="Cost to purchase infra, land and cities",
-        guild_ids=[729979781940248577, 434071714893398016]
+        name="expansion_cost",
+        description="Cost to purchase infra, land and cities"
     )
     async def expansion_cost(
         self,
@@ -415,7 +450,7 @@ class Background(commands.Cog):
         
         cost = utils.expansion_cost(nation['num_cities'], int(city), infra, land, nation)
 
-        await ctx.respond(f"For {db_person['leader_name']}, going from city `{nation['num_cities']}` to city `{city}` (with `{infra}` infra and `{land}` land) will cost `${cost:,}`.")
+        await ctx.respond(f"For `{db_person['leader_name']}`, going from city `{nation['num_cities']}` to city `{city}` (with `{infra}` infra and `{land}` land) will cost `${cost:,}`.")
     
     
 def setup(bot):
