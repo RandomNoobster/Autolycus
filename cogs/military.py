@@ -46,17 +46,20 @@ class TargetFinding(commands.Cog):
         await ctx.defer()
 
         webpage = None
+        no_timeout = False
+        
         async def wait_for_timeout():
             await asyncio.sleep(60*15-10)
-            try:
-                await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-                nonlocal view
-                for x in view.children:
-                    x.disabled = True
-                await ctx.edit(view=view)
-            except:
-                pass
-            return
+            nonlocal view, no_timeout
+            if not no_timeout:
+                try:
+                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    for x in view.children:
+                        x.disabled = True
+                    await ctx.edit(view=view)
+                except:
+                    pass
+                return
 
         invoker = str(ctx.author.id)
         async with aiohttp.ClientSession() as session:
@@ -70,7 +73,7 @@ class TargetFinding(commands.Cog):
                 return
             
             asyncio.ensure_future(wait_for_timeout())
-            
+
             minscore = round(atck_ntn['score'] * 0.75)
             maxscore = round(atck_ntn['score'] * 1.75)
             
@@ -574,6 +577,7 @@ class TargetFinding(commands.Cog):
                 target_list[:] = [target for target in target_list if determine(target)]
                 if len(target_list) == 0:
                     await ctx.edit(content="No targets matched your criteria!", attachments=[])
+                    no_timeout = True
                     return
                 
         best_targets = sorted(target_list, key=lambda k: k['monetary_net_num'], reverse=True)
