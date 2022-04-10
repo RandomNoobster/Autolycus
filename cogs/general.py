@@ -364,7 +364,7 @@ class Background(commands.Cog):
         await ctx.edit(content="", embed=embed)
 
     @slash_command(
-        name="infra_cost",
+        name="infracost",
         description="Cost to purchase infrastructure"
     )
     async def infra_cost(
@@ -387,7 +387,7 @@ class Background(commands.Cog):
         await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_infra}` to `{ending_infra}` infrastructure, will cost `${cost:,}`.")
     
     @slash_command(
-        name="land_cost",
+        name="landcost",
         description="Cost to purchase land."
     )
     async def land_cost(
@@ -410,7 +410,7 @@ class Background(commands.Cog):
         await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_land}` to `{ending_land}` land will cost `${cost:,}`.")
 
     @slash_command(
-        name="city_cost",
+        name="citycost",
         description="Cost to purchase city."
     )
     async def city_cost(
@@ -429,7 +429,7 @@ class Background(commands.Cog):
         await ctx.respond(f"For `{db_person['leader_name']}`, purchasing city `{city}` will cost `${cost:,}`.")
     
     @slash_command(
-        name="expansion_cost",
+        name="expansioncost",
         description="Cost to purchase infra, land and cities"
     )
     async def expansion_cost(
