@@ -15,7 +15,7 @@ import utils
 from keep_alive import app
 from flask.views import MethodView
 from flask import request
-import requests
+import traceback
 from main import mongo
 
 api_key = os.getenv("api_key")
@@ -41,25 +41,22 @@ class TargetFinding(commands.Cog):
     @slash_command(
         name="raids",
         description="Find raid targets",
-        )
+    )
     async def raids(self, ctx: discord.ApplicationContext):
         await ctx.defer()
-
-        webpage = None
-        no_timeout = False
         
-        async def wait_for_timeout():
-            await asyncio.sleep(60*15-10)
-            nonlocal view, no_timeout
-            if not no_timeout:
-                try:
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-                    for x in view.children:
-                        x.disabled = True
-                    await ctx.edit(view=view)
-                except:
-                    pass
-                return
+        debug_channel = self.bot.get_channel(int(os.getenv("debug_channel")))
+        webpage = None
+        when_to_timeout = datetime.utcnow() + timedelta(minutes=14)
+        
+        async def run_timeout(ctx, view):
+            try:
+                await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                for x in view.children:
+                    x.disabled = True
+                await ctx.edit(view=view)
+            except:
+                debug_channel.send(f"**Exception raised!**\nWhere: raids -> run_timeout()\n\nError:```{traceback.format_exc()}```")
 
         invoker = str(ctx.author.id)
         async with aiohttp.ClientSession() as session:
@@ -72,12 +69,13 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(content='I did not find that person!')
                 return
             
-            asyncio.ensure_future(wait_for_timeout())
-
             minscore = round(atck_ntn['score'] * 0.75)
             maxscore = round(atck_ntn['score'] * 1.75)
             
             class stage_one(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
                 @discord.ui.button(label="On discord", style=discord.ButtonStyle.primary)
                 async def callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal webpage
@@ -100,12 +98,13 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+                    await run_timeout(ctx, view)
             
             fetch_fresh = None
             class stage_two(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
                 @discord.ui.button(label="Fetch fresh nation data", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal fetch_fresh
@@ -128,12 +127,13 @@ class TargetFinding(commands.Cog):
                         return True
 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+                    await run_timeout(ctx, view)
 
             who = None
             class stage_three(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
                 @discord.ui.button(label="All nations", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal who
@@ -163,12 +163,13 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)                
+                    await run_timeout(ctx, view)               
                 
             max_wars = None
             class stage_four(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
                 @discord.ui.button(label="0", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal max_wars
@@ -205,12 +206,13 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+                    await run_timeout(ctx, view)
            
             inactive_limit = None
             class stage_five(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
                 @discord.ui.button(label="I don't care", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal inactive_limit
@@ -247,12 +249,13 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+                    await run_timeout(ctx, view)
             
             beige = None
             class stage_six(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
                 @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal beige
@@ -275,12 +278,13 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+                    await run_timeout(ctx, view)
                                 
             performace_filter = None
             class stage_seven(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
                 @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal performace_filter
@@ -303,9 +307,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+                    await run_timeout(ctx, view)
 
             target_list = []
             futures = []
@@ -587,7 +589,7 @@ class TargetFinding(commands.Cog):
             endpoint = datetime.utcnow().strftime('%d%H%M%S')
             class webpage_view(discord.ui.View):
                 def __init__(self):
-                    super().__init__(timeout=900)
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
                 @discord.ui.button(label=f"See your targets", style=discord.ButtonStyle.primary)
                 async def targets_callback(self, b: discord.Button, i: discord.Interaction):
@@ -602,9 +604,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    for x in self.children:
-                        x.disabled = True
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!", view=view)
+                    await run_timeout(ctx, view)
 
             class webraid(MethodView):
                 def get(raidclass):
@@ -650,7 +650,7 @@ class TargetFinding(commands.Cog):
 
         class embed_paginator(discord.ui.View):
             def __init__(self):
-                super().__init__(timeout=900)
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
             def button_check(self, x):
                 beige_button = [x for x in self.children if x.custom_id == "beige"][0]
@@ -753,6 +753,9 @@ class TargetFinding(commands.Cog):
                     return False
                 else:
                     return True
+            
+            async def on_timeout(self):
+                await run_timeout(ctx, view)
             
         view = embed_paginator()
         await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
