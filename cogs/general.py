@@ -323,12 +323,14 @@ class Background(commands.Cog):
             mmr = "a military requirement of " + '/'.join(mmr[i:i+1] for i in range(0, len(mmr), 1))
         await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): http://132.145.71.195:5000/builds/{endpoint}")
         return
+
+    revenue_group = SlashCommandGroup("revenue", "Revenue calculators.")
     
-    @slash_command(
-        name="revenue",
+    @revenue_group.command(
+        name="nation",
         description="The revenue of a nation"
     )
-    async def revenue(
+    async def nation_revenue(
         self,
         ctx: discord.ApplicationContext,
         person: Option(str, "The person you want to see the revenue of. Defaults to you.") = None
@@ -361,6 +363,47 @@ class Background(commands.Cog):
         embed.add_field(name="Monetary Net Income", inline=False, value=rev_obj['mon_net_txt'])
         embed.set_footer(text=rev_obj['footer'])
 
+        await ctx.edit(content="", embed=embed)
+    
+    @revenue_group.command(
+        name="alliance",
+        description="The revenue of an alliance"
+    )
+    async def alliance_revenue(
+        self,
+        ctx: discord.ApplicationContext,
+        alliance_id: Option(int, "The alliance you want to see the revenue of."),
+        include_grey: Option(bool, "Do you want to include gray nations? Defaults to no.") = False
+    ):
+        await ctx.respond('Calling the API...')
+
+        nations = await utils.paginate_call(f"{{nations(alliance_id:{alliance_id} page:page_number alliance_position:[2,3,4,5]){{paginatorInfo{{hasMorePages}} data{{id continent color warpolicy cia dompolicy alliance_id alliance{{name id}} num_cities soldiers tanks aircraft ships missiles nukes wars{{turnsleft}} ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}", "nations")
+
+        nation, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx)
+
+        income = {}
+        RSS = ['coal', 'oil', 'uranium', 'iron', 'bauxite', 'lead', 'gasoline', 'munitions', 'steel', 'aluminum', 'food', 'net_cash_num', 'monetary_net_num']
+        for rs in RSS:
+            income[rs] = 0
+
+        for nation in nations:
+            if nation['color'] == "gray" and not include_grey:
+                continue
+            rev_obj = await utils.revenue_calc(ctx, nation, radiation, treasures, prices, colors, seasonal_mod, None, False, False)
+            for rs in RSS:
+                try:
+                    income[rs] += rev_obj[rs]
+                except:
+                    pass
+        
+        embed = discord.Embed(title=f"{nation['alliance']['name']}'s daily revenue:", url=f"https://politicsandwar.com/alliance/id={alliance_id}", description="", color=0xff5100)
+
+        for rs in RSS[:-2]:
+            embed.add_field(name=f"{rs.capitalize()}", value=f"{income[rs]:,.2f}\n")
+        
+        embed.add_field(name="Money", value=f"{income[RSS[-2]]:,.2f}\n")
+        embed.add_field(name="Net income", value=f"{income[RSS[-1]]:,.2f}\n")
+        
         await ctx.edit(content="", embed=embed)
 
     cost_group = SlashCommandGroup("cost", "Various cost calculators.")

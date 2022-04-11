@@ -15,7 +15,20 @@ mongo = client[str(version)]
 
 api_key = os.getenv("api_key")
 
-async def call(data: dict = None, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
+async def paginate_call(data: str, path: str, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
+    n = 0
+    has_more_pages = True
+    data_to_return = []
+
+    while has_more_pages:
+        n += 1
+        response = await call(data.replace("page_number", str(n), 1))
+        data_to_return += response['data'][path]['data']
+        has_more_pages = response['data'][path]['paginatorInfo']['hasMorePages']
+
+    return data_to_return
+
+async def call(data: str, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
     async with aiohttp.ClientSession() as session:
         retry = True
         while True:
@@ -786,19 +799,19 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
     rev_obj['monetary_net_num'] = round(money_income * policy_bonus * new_player_bonus * nation_treasure_bonus + color_bonus - power_upkeep - rss_upkeep - military_upkeep * mil_cost - civil_upkeep + coal * prices['coal'] + oil * prices['oil'] + uranium * prices['uranium'] + lead * prices['lead'] + iron * prices['iron'] + bauxite * prices['bauxite'] + gasoline * prices['gasoline'] + munitions * prices['munitions'] + steel * prices['steel'] + aluminum * prices['aluminum'] + food * prices['food'])
     rev_obj['net_cash_num'] = round(money_income * policy_bonus * new_player_bonus * nation_treasure_bonus + color_bonus - power_upkeep - rss_upkeep - military_upkeep * mil_cost - civil_upkeep)
     rev_obj['food'] = food
+    rev_obj['aluminum'] = aluminum
+    rev_obj['bauxite'] = bauxite
+    rev_obj['coal'] = coal
+    rev_obj['gasoline'] = gasoline
+    rev_obj['iron'] = iron
+    rev_obj['lead'] = lead
+    rev_obj['munitions'] = munitions
+    rev_obj['oil'] = oil
+    rev_obj['steel'] = steel
+    rev_obj['uranium'] = uranium
     if single_city and not build:
         rev_obj['money'] = rev_obj['net_cash_num']
         rev_obj['net income'] = rev_obj['monetary_net_num']
-        rev_obj['aluminum'] = aluminum
-        rev_obj['bauxite'] = bauxite
-        rev_obj['coal'] = coal
-        rev_obj['gasoline'] = gasoline
-        rev_obj['iron'] = iron
-        rev_obj['lead'] = lead
-        rev_obj['munitions'] = munitions
-        rev_obj['oil'] = oil
-        rev_obj['steel'] = steel
-        rev_obj['uranium'] = uranium
         rev_obj['disease_rate'] = disease_rate
         rev_obj['crime_rate'] = crime_rate
         rev_obj['commerce'] = commerce
