@@ -8,7 +8,7 @@ from mako.template import Template
 import re
 from keep_alive import app
 from flask.views import MethodView
-from discord.commands import slash_command, Option
+from discord.commands import slash_command, Option, CommandPermission, SlashCommandGroup
 import dload
 from csv import DictReader
 import utils
@@ -363,8 +363,10 @@ class Background(commands.Cog):
 
         await ctx.edit(content="", embed=embed)
 
-    @slash_command(
-        name="infracost",
+    cost_group = SlashCommandGroup("cost", "Various cost calculators.")
+
+    @cost_group.command(
+        name="infra",
         description="Cost to purchase infrastructure"
     )
     async def infra_cost(
@@ -384,10 +386,10 @@ class Background(commands.Cog):
         
         cost = utils.infra_cost(int(starting_infra), int(ending_infra), nation)
 
-        await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_infra}` to `{ending_infra}` infrastructure, will cost `${cost:,}`.")
+        await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_infra}` to `{ending_infra}` infrastructure, will cost `${cost:,.2f}`.")
     
-    @slash_command(
-        name="landcost",
+    @cost_group.command(
+        name="land",
         description="Cost to purchase land."
     )
     async def land_cost(
@@ -407,10 +409,10 @@ class Background(commands.Cog):
 
         cost = utils.land_cost(int(starting_land), int(ending_land), nation)
 
-        await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_land}` to `{ending_land}` land will cost `${cost:,}`.")
+        await ctx.respond(f"For `{db_person['leader_name']}`, going from `{starting_land}` to `{ending_land}` land will cost `${cost:,.2f}`.")
 
-    @slash_command(
-        name="citycost",
+    @cost_group.command(
+        name="city",
         description="Cost to purchase city."
     )
     async def city_cost(
@@ -426,10 +428,10 @@ class Background(commands.Cog):
 
         cost = utils.city_cost(int(city), nation)
 
-        await ctx.respond(f"For `{db_person['leader_name']}`, purchasing city `{city}` will cost `${cost:,}`.")
+        await ctx.respond(f"For `{db_person['leader_name']}`, purchasing city `{city}` will cost `${cost:,.2f}`.")
     
-    @slash_command(
-        name="expansioncost",
+    @cost_group.command(
+        name="expansion",
         description="Cost to purchase infra, land and cities"
     )
     async def expansion_cost(
@@ -450,8 +452,7 @@ class Background(commands.Cog):
         
         cost = utils.expansion_cost(nation['num_cities'], int(city), infra, land, nation)
 
-        await ctx.respond(f"For `{db_person['leader_name']}`, going from city `{nation['num_cities']}` to city `{city}` (with `{infra}` infra and `{land}` land) will cost `${cost:,}`.")
-    
+        await ctx.respond(f"For `{db_person['leader_name']}`, going from city `{nation['num_cities']}` to city `{city}` (with `{infra}` infra and `{land}` land) will cost `${cost:,.2f}`.")    
     
 def setup(bot):
     bot.add_cog(Background(bot))
