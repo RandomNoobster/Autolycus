@@ -56,7 +56,7 @@ class TargetFinding(commands.Cog):
                     x.disabled = True
                 await ctx.edit(view=view)
             except:
-                debug_channel.send(f"**Exception raised!**\nWhere: raids -> run_timeout()\n\nError:```{traceback.format_exc()}```")
+                debug_channel.send(f"**Exception caught!**\nWhere: raids -> run_timeout()\n\nError:```{traceback.format_exc()}```")
 
         invoker = str(ctx.author.id)
         async with aiohttp.ClientSession() as session:
