@@ -217,12 +217,25 @@
 
             const table = document.querySelector('table');
             //const working = document.querySelector('#working');
-
-            document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {
-                //working.style.display = "block";
+            
+            function sortArrayTable(th) {
                 Array.from(table.querySelectorAll('tr:nth-child(n+2)'))
                     .sort(comparer(Array.from(th.parentNode.children).indexOf(th), this.asc = !this.asc))
-                    .forEach(tr => table.appendChild(tr));
+                    .forEach(tr => {
+                        table.appendChild(tr);
+                    });
+            };
+
+            document.querySelectorAll('th').forEach(th => th.addEventListener('click', (function () {
+                //working.style.display = "block";
+
+                console.time();
+
+                sortArrayTable(th);
+                $(window).trigger('resize');
+
+                console.timeEnd();
+                
                 //working.style.display = "block";
             })));
         </script>
