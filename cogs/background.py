@@ -37,7 +37,7 @@ class General(commands.Cog):
                 alerts = list(mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
                 for user in alerts:
                     for alert in user['beige_alerts']:
-                        if datetime.utcnow() >= alert['time'] - timedelta(minutes=10):
+                        if datetime.utcnow() >= alert['time'] - timedelta(minutes=11):
                             disc_user = await self.bot.fetch_user(user['user'])
                             try:
                                 await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is leaving beige <t:{round(alert['time'].timestamp())}:R>!")
@@ -48,7 +48,7 @@ class General(commands.Cog):
                             if not alert_list:
                                 alert_list = []
                             mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
-            except Exception as error:
+            except:
                 await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```')
 
     async def nation_scanner(self):
@@ -75,7 +75,7 @@ class General(commands.Cog):
                         json.dump(new_nations, json_file)
                     print("done fetching")
                     #await asyncio.sleep(600)
-            except Exception as error:
+            except:
                 await debug_channel.send(f'**Exception raised!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()}```')
                 await asyncio.sleep(300)
 
