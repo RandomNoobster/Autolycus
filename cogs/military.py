@@ -950,9 +950,82 @@ class TargetFinding(commands.Cog):
         await ctx.respond(embed=embed, content="", view=switch())
 
     @slash_command(
+        name="counters",
+        description="Find counters",
+        guild_ids=[729979781940248577]
+    )
+    async def counters(
+        self,
+        ctx: discord.ApplicationContext,
+        nation: Option(str, "The nation you want to counter"),
+    ):
+        await ctx.defer()
+
+        result = utils.find_nation_plus(self, nation)
+        if result is None:
+            await ctx.respond(f"I could not find that nation!")
+            return
+
+        config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+
+        fail = False
+        if not config:
+            fail = True
+        else:
+            try:
+                alliance_ids = config['counters_alliance_ids']
+                if len(alliance_ids) == 0:
+                    fail = True
+            except:
+                fail = True
+        if fail:
+            await ctx.respond("This command has not been configured for this server! Someone with the `manage_server` permission must use `/config`!")
+            return
+
+        embed = discord.Embed(title="Counters", description=f"[Explore counters against {result['nation_name']} on Slotter](https://slotter.bsnk.dev/search?nation={result['id']}&alliances={','.join(alliance_ids)}&countersMode=true&threatsMode=false&vm=false&grey=true&beige=false)", color=0xff5100)
+        embed.set_footer(text="Slotter was made by Bann and is not affiliated with Autolycus")
+        await ctx.respond(embed=embed)
+    
+    @slash_command(
+        name="targets",
+        description="Find alliance war targets",
+        guild_ids=[729979781940248577]
+    )
+    async def targets(
+        self,
+        ctx: discord.ApplicationContext
+    ):
+        await ctx.defer()
+        
+        nation = utils.find_nation_plus(self, ctx.author.id)
+        if not nation:
+            await ctx.respond("Make sure that you are verified with `/verify`!")
+            return
+
+        config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+
+        fail = False
+        if not config:
+            fail = True
+        else:
+            try:
+                alliance_ids = config['targets_alliance_ids']
+                if len(alliance_ids) == 0:
+                    fail = True
+            except:
+                fail = True
+        if fail:
+            await ctx.respond("This command has not been configured for this server! Someone with the `manage_server` permission must use `/config`!")
+            return
+
+        embed = discord.Embed(title="Targets", description=f"[Explore your targets on slotter](https://slotter.bsnk.dev/search?nation={nation['id']}&alliances={','.join(alliance_ids)}&countersMode=false&threatsMode=false&vm=false&grey=true&beige=false)", color=0xff5100)
+        embed.set_footer(text="Slotter was made by Bann and is not affiliated with Autolycus")
+        await ctx.respond(embed=embed)
+    
+    @slash_command(
         name="damage",
         description="Shows you how much damage each war attack would do",
-        )
+    )
     async def damage(
         self,
         ctx: discord.ApplicationContext,
