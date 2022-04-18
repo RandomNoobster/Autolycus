@@ -15,19 +15,19 @@ class Config(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    def str_to_id_list(self, string: str) -> tuple[list, str]:
-        string = re.sub("[^0-9]", " ", string)
-        string = string.strip().replace(" ", ",")
+    def str_to_id_list(self, str_var: str) -> tuple[list, str]:
+        str_var = re.sub("[^0-9]", " ", str_var)
+        str_var = str_var.strip().replace(" ", ",")
         index = 0
         while True:
             try:
-                if string[index] == string[index+1] and not string[index].isdigit():
-                    string = string[:index] + string[index+1:]
+                if str_var[index] == str_var[index+1] and not str_var[index].isdigit():
+                    str_var = str_var[:index] + str_var[index+1:]
                     index -= 1
                 index += 1
             except Exception as e: 
                 break
-        return string.split(","), string
+        return str_var.split(","), str_var
 
     config_group = SlashCommandGroup("config", "Configure commands that need configuration")
 
