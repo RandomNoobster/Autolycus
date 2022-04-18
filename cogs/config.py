@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord.commands import slash_command, Option, SlashCommandGroup
+from discord.commands import Option, SlashCommandGroup
 import re
 import os
 from main import mongo
@@ -12,7 +12,7 @@ class Config(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    def str_to_id_list(self, str_var: str) -> tuple[list, str]:
+    def str_to_id_list(self, str_var):
         str_var = re.sub("[^0-9]", " ", str_var)
         str_var = str_var.strip().replace(" ", ",")
         index = 0
