@@ -16,21 +16,27 @@ mongo = client[str(version)]
 api_key = os.getenv("api_key")
 
 async def paginate_call(data: str, path: str, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
+    """
+    Paginates a call to the API. Must incude `page:page_number` in the query.
+    `data` is the GraphQL query.
+    `path` is the path to the information (`alliances`, `nations` etc).
+    `key` is the API key.
+    """
     n = 0
     has_more_pages = True
     data_to_return = []
 
     while has_more_pages:
         n += 1
-        response = await call(data.replace("page_number", str(n), 1))
+        response = await call(data.replace("page_number", str(n), 1), key)
         data_to_return += response['data'][path]['data']
         has_more_pages = response['data'][path]['paginatorInfo']['hasMorePages']
 
     return data_to_return
 
-async def call(data: str, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
+async def call(data: str, key: str = api_key, retry_limit: int = 2) -> Union[dict, aiohttp.ClientResponse]:
     async with aiohttp.ClientSession() as session:
-        retry = True
+        retry = 0
         while True:
             async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
                 try:
@@ -47,13 +53,15 @@ async def call(data: str, key: str = api_key) -> Union[dict, aiohttp.ClientRespo
                 try:
                     json_response['data']
                 except:
-                    if retry:
-                        retry = False
+                    if retry < retry_limit:
+                        retry += 1
+                        await asyncio.sleep(1)
                         continue
                 try:
                     errors = json_response['errors']
+                    print(errors)
                 except:
-                    errors = None
+                    pass
                 return json_response
 
 def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
