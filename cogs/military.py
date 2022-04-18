@@ -105,14 +105,14 @@ class TargetFinding(commands.Cog):
                 def __init__(self):
                     super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
-                @discord.ui.button(label="Fetch fresh nation data", style=discord.ButtonStyle.primary)
+                @discord.ui.button(label="Fetch fresh data (really slow)", style=discord.ButtonStyle.primary)
                 async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal fetch_fresh
                     fetch_fresh = True
                     await i.response.pong()
                     self.stop()
                 
-                @discord.ui.button(label="Use cached data", style=discord.ButtonStyle.primary)
+                @discord.ui.button(label="Use cached data (way faster)", style=discord.ButtonStyle.primary)
                 async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal fetch_fresh
                     fetch_fresh = False
@@ -334,7 +334,7 @@ class TargetFinding(commands.Cog):
                 last_fetched = file_content['last_fetched']
                 
             embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?", color=0xff5100)
-            embed1 = discord.Embed(title=f"Fetching", description=f"Do you want to fetch fresh nation information (slow) or use cached information (quick)? Nation information was last cached <t:{last_fetched}:R>", color=0xff5100)
+            embed1 = discord.Embed(title=f"Fetching", description=f"Do you want to fetch fresh nation information or use cached information? Nation information was last cached <t:{last_fetched}:R>", color=0xff5100)
             embed2 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
             embed3 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
             embed4 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
