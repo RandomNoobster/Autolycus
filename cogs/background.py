@@ -49,7 +49,7 @@ class General(commands.Cog):
                                 alert_list = []
                             mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
             except:
-                await debug_channel.send(f'**Exception raised!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```')
+                await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```')
 
     async def nation_scanner(self):
         await self.bot.wait_until_ready()
@@ -76,7 +76,7 @@ class General(commands.Cog):
                     print("done fetching")
                     #await asyncio.sleep(600)
             except:
-                await debug_channel.send(f'**Exception raised!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()}```')
+                await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()}```')
                 await asyncio.sleep(300)
 
 def setup(bot):
