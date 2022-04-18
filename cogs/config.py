@@ -1,11 +1,8 @@
 import discord
 from discord.ext import commands
-from discord.commands import slash_command, Option, SlashCommandGroup, permissions
+from discord.commands import slash_command, Option, SlashCommandGroup
 import re
-from typing import Union
 import os
-import utils
-import traceback
 from main import mongo
 
 api_key = os.getenv("api_key")
