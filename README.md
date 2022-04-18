@@ -4,7 +4,7 @@ Autolycus is an open source bot for finding raid targets in PnW. It was initiall
 
 ## Self hosting
 
-It it designed to be run on [replit.com](https://replit.com). You can simply fork the [repl](https://replit.com/@PoliticsAndWar/Autolycus). For it to function, you will need to add the required environment variables. A tutorial about environment variables on replit can be found [here](https://docs.replit.com/programming-ide/storing-sensitive-information-environment-variables). The following variables are required:
+This branch is no longer in active development! Consequently it will probably not work... The branch in active development can be found [here](https://github.com/RandomNoobster/Autolycus/tree/oracle). Anyhow, this branch is designed to be run on [replit.com](https://replit.com). You can simply fork the [repl](https://replit.com/@PoliticsAndWar/Autolycus). For it to function, you will need to add the required environment variables. A tutorial about environment variables on replit can be found [here](https://docs.replit.com/programming-ide/storing-sensitive-information-environment-variables). The following variables are required:
 - `api_key` (your pnw api key)
 - `bot_token` (your discord bot key)
 - `pymongolink` (the [connection string](https://docs.mongodb.com/manual/reference/connection-string/) to your mongoDB)
