@@ -16,7 +16,7 @@ from keep_alive import app
 from flask.views import MethodView
 from flask import request
 import traceback
-from main import mongo
+from main import mongo, logger
 
 api_key = os.getenv("api_key")
 
@@ -100,35 +100,6 @@ class TargetFinding(commands.Cog):
                 async def on_timeout(self):
                     await run_timeout(ctx, view)
             
-            fetch_fresh = None
-            class stage_two(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="Fetch fresh data (really slow)", style=discord.ButtonStyle.primary)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal fetch_fresh
-                    fetch_fresh = True
-                    await i.response.pong()
-                    self.stop()
-                
-                @discord.ui.button(label="Use cached data (way faster)", style=discord.ButtonStyle.primary)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal fetch_fresh
-                    fetch_fresh = False
-                    await i.response.pong()
-                    self.stop()
-
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-
-                async def on_timeout(self):
-                    await run_timeout(ctx, view)
-
             who = None
             class stage_three(discord.ui.View):
                 def __init__(self):
@@ -310,43 +281,19 @@ class TargetFinding(commands.Cog):
                     await run_timeout(ctx, view)
 
             target_list = []
-            futures = []
-            tot_pages = 0
-            progress = 0
-            
-            async def call_api(json):
-                nonlocal progress
-                resp = await utils.call(json)
-                progress += 1
-                #print(f"Getting targets... ({progress}/{tot_pages})")
-                return resp
-           
-            async def fetch_targets():
-                nonlocal tot_pages, progress
-                tot_pages += (await utils.call(f"{{nations(page:1 first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{paginatorInfo{{lastPage}}}}}}"))['data']['nations']['paginatorInfo']['lastPage']
-
-                for n in range(1, tot_pages+1):
-                    json = f"{{nations(page:{n} first:50 min_score:{minscore} max_score:{maxscore} vmode:false{who}){{data{{id flag nation_name last_active leader_name continent dompolicy population alliance_id alliance_position_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}"
-                    futures.append(asyncio.ensure_future(call_api(json)))
             
             with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
                 file_content = json.load(json_file)
                 last_fetched = file_content['last_fetched']
                 
             embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?", color=0xff5100)
-            embed1 = discord.Embed(title=f"Fetching", description=f"Do you want to fetch fresh nation information or use cached information? Nation information was last cached <t:{last_fetched}:R>", color=0xff5100)
             embed2 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
             embed3 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
             embed4 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
             embed5 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
             embed6 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
 
-            for embed, view in [(embed0, stage_one()), (embed1, stage_two()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six()), (embed6, stage_seven())]:
-                if embed == embed3:
-                    if fetch_fresh:
-                        fetching = asyncio.ensure_future(fetch_targets())   
-                    else:
-                        pass
+            for embed, view in [(embed0, stage_one()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six()), (embed6, stage_seven())]:
                 await ctx.edit(content="", embed=embed, view=view)
                 timed_out = await view.wait()
                 if timed_out:
@@ -355,33 +302,17 @@ class TargetFinding(commands.Cog):
             view = None
 
             await ctx.edit(content="Getting targets...", view=view, embed=None)
-            if fetch_fresh:
-                
-                if progress < tot_pages - 5:
-                    rndm = random.choice(["", "2", "3"])
-                    with open (pathlib.Path.cwd() / 'attachments' / f'waiting{rndm}.gif', 'rb') as gif:
-                        gif = discord.File(gif)
-                    await ctx.edit(file=gif)
-
-                await asyncio.gather(fetching)
-                while progress < tot_pages:
-                    await ctx.edit(content=f"Getting targets... ({progress}/{tot_pages})")
-                    await asyncio.sleep(1)
-
-                done_jobs = await asyncio.gather(*futures)
-            else:
-                done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
+            done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
 
             await ctx.edit(content="Caching targets...")
             for done_job in done_jobs:
                 for x in done_job['data']['nations']['data']:
-                    if not fetch_fresh:
-                        if "alliance_position" in who:
-                            if x['alliance_position_id'] not in ["0", "1"]:
-                                continue
-                        elif "alliance_id" in who:
-                            if x['alliance_id'] != "0":
-                                continue
+                    if "alliance_position" in who:
+                        if x['alliance_position_id'] not in ["0", "1"]:
+                            continue
+                    elif "alliance_id" in who:
+                        if x['alliance_id'] != "0":
+                            continue
                     if not minscore < x['score'] < maxscore:
                         continue
                     if beige:
@@ -410,10 +341,10 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(content="No targets matched your criteria!", attachments=[])
                 return
 
-            filters = "No active filters"
+            filters = f"Nation information was last fetched <t:{last_fetched}:R>\n"
             filter_list = []
             if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0:
-                filters = "Active filters: "
+                filters += "Active filters: "
                 if not beige:
                     filter_list.append("hide beige nations")
                 if who != "":
@@ -431,6 +362,8 @@ class TargetFinding(commands.Cog):
                 if inactive_limit != 0:
                     filter_list.append(f"hide nations that logged in within the last {inactive_limit} days")
                 filters = filters + ", ".join(filter_list)
+            else:
+                filters += "No active filters"
 
             temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=False, parsed_nation=atck_ntn)
 
@@ -637,7 +570,7 @@ class TargetFinding(commands.Cog):
         cur_page = 1
 
         def get_embed(nation):
-            nonlocal tot_pages, cur_page
+            nonlocal pages, cur_page
             embed = nation['embed']
             if "*" in nation['money_txt']:
                 embed.set_footer(text=f"Page {cur_page}/{pages}  |  * the income if the nation is out of food.")
@@ -951,8 +884,7 @@ class TargetFinding(commands.Cog):
 
     @slash_command(
         name="counters",
-        description="Find counters",
-        guild_ids=[729979781940248577]
+        description="Find counters"
     )
     async def counters(
         self,
@@ -988,8 +920,7 @@ class TargetFinding(commands.Cog):
     
     @slash_command(
         name="targets",
-        description="Find alliance war targets",
-        guild_ids=[729979781940248577]
+        description="Find alliance war targets"
     )
     async def targets(
         self,
