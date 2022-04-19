@@ -8,6 +8,7 @@ from discord.bot import ApplicationCommandMixin
 import re
 import asyncio
 import discord
+import logging
 from discord.ext import commands
 load_dotenv()
 
@@ -17,6 +18,9 @@ mongo = client[str(version)]
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
+logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', encoding='utf-8', level=logging.INFO)
+logger = logging.getLogger()
+
 bot = commands.Bot()
 
 for filename in os.listdir('./cogs'):
@@ -25,7 +29,7 @@ for filename in os.listdir('./cogs'):
 
 @bot.event
 async def on_ready():
-    print("I am in ", len(bot.guilds), " servers:")
+    logger.info(f"I am in {len(bot.guilds)} servers:")
     n = len(bot.guilds)
     for guild in bot.guilds:
         extra = ""
@@ -35,14 +39,15 @@ async def on_ready():
             owner = guild.owner
             extra = f"|| Slash disallowed, DM {owner}"
             n -= 1
-        print(f"-> {guild} || {guild.member_count} members {extra}")
-    print(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
+        logger.info(f"-> {guild} || {guild.member_count} members {extra}")
+    logger.info(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
-    print('We have logged in as {0.user}'.format(bot))
+    logger.info('We have logged in as {0.user}'.format(bot))
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
     debug_channel = bot.get_channel(channel_id)
+    logger.error(error)
     print(error)
     print(type(error))
     if "MissingPermissions" in str(error):
@@ -125,20 +130,34 @@ async def help(ctx):
     embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
     await ctx.respond(embed=embed)
 
-async def call(data: dict = None, key: str = api_key):
+async def call(data: str, key: str = api_key, retry_limit: int = 2):
     async with aiohttp.ClientSession() as session:
+        retry = 0
         while True:
             async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
                 try:
-                    await asyncio.sleep(int(response.headers['Retry-After']))
-                    continue
+                    if response.headers['X-Ratelimit-Remaining'] == '0':
+                        await asyncio.sleep(int(response.headers['X-Ratelimit-Reset-After']))
+                        continue
                 except:
-                    pass
+                    try:
+                        await asyncio.sleep(int(response.headers['Retry-After']))
+                        continue
+                    except:
+                        pass
                 json_response = await response.json()
                 try:
-                    errors = json_response['errors']
+                    json_response['data']
                 except:
-                    errors = None
+                    if retry < retry_limit:
+                        retry += 1
+                        await asyncio.sleep(1)
+                        continue
+                try:
+                    errors = json_response['errors']
+                    print(errors)
+                except:
+                    pass
                 return json_response
 
 
