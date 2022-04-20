@@ -58,6 +58,7 @@ class General(commands.Cog):
         while True:
             try:
                 async with aiohttp.ClientSession() as session:
+                    series_start = time.time()
                     more_pages = True
                     n = 1
                     first = 75
@@ -65,6 +66,7 @@ class General(commands.Cog):
                     while more_pages:
                         start = time.time()
                         try:
+                            await asyncio.sleep(1)
                             resp = await utils.call(f"{{nations(page:{n} first:{first} vmode:false min_score:15 orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name flag last_active alliance_position_id continent dompolicy population alliance_id beigeturns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name}} wars{{date winner defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}")
                             new_nations['nations'] += resp['data']['nations']['data']
                             more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
@@ -72,11 +74,11 @@ class General(commands.Cog):
                             logger.info("Retrying fetch")
                             continue
                         n += 1
-                        logger.info(f"Fetched page {n}, took {time.time() - start:.2f} seconds")
+                        logger.debug(f"Fetched page {n}, took {time.time() - start:.2f} seconds")
                     new_nations['last_fetched'] = round(datetime.utcnow().timestamp())
                     with open(pathlib.Path.cwd() / 'nations.json', 'w') as json_file:
                         json.dump(new_nations, json_file)
-                    logger.info("Done fetching nation data")
+                    logger.info(f"Done fetching nation data. {n} pages, took {time.time() - series_start:.2f} seconds")
             except:
                 await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()}```')
                 await asyncio.sleep(300)
