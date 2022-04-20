@@ -1,14 +1,10 @@
 from dotenv import load_dotenv
 import keep_alive
 import pymongo
-import aiohttp
 import os
-from discord.commands import Option
-from discord.bot import ApplicationCommandMixin
-import re
-import asyncio
 import discord
 import logging
+from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
 load_dotenv()
 
@@ -61,105 +57,6 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 @bot.slash_command(name="ping", description="Pong!")
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
-
-@bot.slash_command(
-    name="botinfo",
-    description="Information about the bot"
-)
-async def botinfo(ctx: discord.ApplicationContext):
-    await ctx.defer()
-    slash_guilds = len(bot.guilds)
-    total_people = 0
-    for guild in bot.guilds:
-        total_people += guild.member_count
-        try:
-            await ApplicationCommandMixin.get_desynced_commands(bot, guild.id)
-        except discord.errors.Forbidden:
-            slash_guilds -= 1
-    content = f"I am serving {total_people} people across {len(bot.guilds)} servers.\nSlash commands are allowed in {slash_guilds}/{len(bot.guilds)} guilds."
-    embed = discord.Embed(title="My guilds:", description=content, color=0xff5100)
-    embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
-    await ctx.respond(embed=embed)
-
-@bot.slash_command(
-    name="verify",
-    description='Link your nation with your discord account',
-)
-async def verify(
-    ctx: discord.ApplicationContext,
-    nation_id: Option(str, "Your nation id or nation link"),
-):
-    user = mongo.global_users.find_one({"user": ctx.author.id})
-    if user != None:
-        await ctx.respond("You are already verified!")
-        return
-    nation_id = re.sub("[^0-9]", "", nation_id)
-    res = await call(f'{{nations(first:1 id:{nation_id}){{data{{id nation_name leader_name discord}}}}}}')
-    try:
-        if res['data']['nations']['data'][0]['discord'] == str(ctx.author):
-            mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
-            await ctx.respond("You have successfully verified your nation!")
-        else:
-            await ctx.respond(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `/verify {nation_id}` again.')
-    except (KeyError, IndexError):
-        await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
-
-@bot.slash_command(
-    name="unverify",
-    description='Unlink your nation from your discord account',
-)
-async def unverify(
-    ctx: discord.ApplicationContext,
-):
-    user = mongo.global_users.find_one_and_delete({"user": ctx.author.id})
-    if user == None:
-        await ctx.respond("You are not verified!")
-        return
-    else:
-        await ctx.respond("Your discord account was successfully unlinked from your nation.")
-
-@bot.slash_command(
-    name="help",
-    description="Returns all commands",
-)
-async def help(ctx):
-    help_text = ""
-    for command in list(bot._application_commands.values())[1:]:
-        help_text += f"`{command}` - {command.description}\n"
-    embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
-    embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
-    await ctx.respond(embed=embed)
-
-async def call(data: str, key: str = api_key, retry_limit: int = 2):
-    async with aiohttp.ClientSession() as session:
-        retry = 0
-        while True:
-            async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
-                try:
-                    if response.headers['X-Ratelimit-Remaining'] == '0':
-                        await asyncio.sleep(int(response.headers['X-Ratelimit-Reset-After']))
-                        continue
-                except:
-                    try:
-                        await asyncio.sleep(int(response.headers['Retry-After']))
-                        continue
-                    except:
-                        pass
-                json_response = await response.json()
-                try:
-                    json_response['data']
-                except:
-                    if retry < retry_limit:
-                        retry += 1
-                        await asyncio.sleep(1)
-                        continue
-                try:
-                    errors = json_response['errors']
-                    print(errors)
-                except:
-                    pass
-                return json_response
-
 
 keep_alive.run()
 bot.run(os.getenv("bot_token"))
