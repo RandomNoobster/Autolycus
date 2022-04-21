@@ -441,6 +441,9 @@ class Background(commands.Cog):
             if not person:
                 person = ctx.author.id
             db_person = utils.find_nation_plus(self, person)
+            if not db_person:
+                await ctx.respond("I could not find that person!")
+                return
             nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy advanced_engineering_corps center_for_civil_engineering government_support_agency}}}}}}"))['data']['nations']['data'][0]
 
             starting_infra = utils.str_to_int(starting_infra)
@@ -468,6 +471,9 @@ class Background(commands.Cog):
             if not person:
                 person = ctx.author.id
             db_person = utils.find_nation_plus(self, person)
+            if not db_person:
+                await ctx.respond("I could not find that person!")
+                return
             nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy advanced_engineering_corps arable_land_agency government_support_agency}}}}}}"))['data']['nations']['data'][0]
 
             starting_land = utils.str_to_int(starting_land)
@@ -494,6 +500,9 @@ class Background(commands.Cog):
             if not person:
                 person = ctx.author.id
             db_person = utils.find_nation_plus(self, person)
+            if not db_person:
+                await ctx.respond("I could not find that person!")
+                return
             nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy urban_planning advanced_urban_planning government_support_agency}}}}}}"))['data']['nations']['data'][0]
 
             cost = utils.city_cost(int(city), nation)
@@ -519,6 +528,9 @@ class Background(commands.Cog):
             if not person:
                 person = ctx.author.id
             db_person = utils.find_nation_plus(self, person)
+            if not db_person:
+                await ctx.respond("I could not find that person!")
+                return
             nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy num_cities advanced_engineering_corps center_for_civil_engineering government_support_agency arable_land_agency urban_planning advanced_urban_planning}}}}}}"))['data']['nations']['data'][0]
 
             infra = utils.str_to_int(infra)
