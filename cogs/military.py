@@ -346,7 +346,7 @@ class TargetFinding(commands.Cog):
                     await ctx.edit(content="No targets matched your criteria!", attachments=[])
                     return
 
-                filters = f"Nation information was last fetched <t:{last_fetched}:R>\n"
+                filters = f"Nation information was fetched <t:{last_fetched}:R>\n"
                 filter_list = []
                 if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0:
                     filters += "Active filters: "
