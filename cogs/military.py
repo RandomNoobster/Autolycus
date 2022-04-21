@@ -751,11 +751,10 @@ class TargetFinding(commands.Cog):
             found = False
             for alert in person['beige_alerts']:
                 if alert['id'] == id:
-                    alert_list = person['beige_alerts'].remove(alert)
-                    if not alert_list:
-                        alert_list = []
-                    mongo.global_users.find_one_and_update({"user": person['user']}, {"$set": {"beige_alerts": alert_list}})
+                    person['beige_alerts'].remove(alert)
+                    mongo.global_users.find_one_and_update({"user": person['user']}, {"$set": {"beige_alerts": person['beige_alerts']}})
                     found = True
+                    break
             if not found:
                 await ctx.respond(content="I did not find a reminder for that nation!")
                 return
