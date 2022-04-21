@@ -28,6 +28,7 @@
 
             th:hover {
                 background-color: #606060;
+                cursor: pointer;
             }
 
             td {
@@ -63,6 +64,10 @@
 
             .right {
                 text-align: right;
+            }
+
+            abbr:hover {
+                cursor: help;
             }
 
             /* #working {
@@ -209,7 +214,7 @@
             <p style="color:gray">Please report bugs to RandomNoobster#0093<br>Courtesy of Church of Atom</p>
         </div>
         <script>
-            const getCellValue = (tr, idx) => tr.children[idx].innerText.replace(/,/g, '') || tr.children[idx].textContent.replace(/,/g, '');
+            const getCellValue = (tr, idx) => tr.children[idx].innerText.replace(/,/g, '').replace('NaN', '0') || tr.children[idx].textContent.replace(/,/g, '').replace('NaN', '0');
 
             const comparer = (idx, asc) => (a, b) => ((v1, v2) => 
                 v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
