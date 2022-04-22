@@ -40,10 +40,14 @@ class Config(commands.Cog):
     async def config_counters(
         self,
         ctx: discord.ApplicationContext,
-        alliance_ids: Option(str, "The alliance id(s) to include in the counters command")
+        alliance_ids: Option(str, "The alliance id(s) to include in the counters command") = []
     ):      
         try:  
-            id_list, id_str = self.str_to_id_list(alliance_ids)
+            if alliance_ids != []:
+                id_list, id_str = self.str_to_id_list(alliance_ids)
+            else:
+                id_list = []
+                id_str = "None"
             mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"counters_alliance_ids": id_list}}, upsert=True)
             await ctx.respond(f"Alliance id(s) for `/counters` set to `{id_str}`")
         except Exception as e:
@@ -58,10 +62,14 @@ class Config(commands.Cog):
     async def config_targets(
         self,
         ctx: discord.ApplicationContext,
-        alliance_ids: Option(str, "The enemy alliance id(s) to include in the targets command")
+        alliance_ids: Option(str, "The enemy alliance id(s) to include in the targets command") = []
     ):        
         try:
-            id_list, id_str = self.str_to_id_list(alliance_ids)
+            if alliance_ids != []:
+                id_list, id_str = self.str_to_id_list(alliance_ids)
+            else:
+                id_list = []
+                id_str = "None"
             mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"targets_alliance_ids": id_list}}, upsert=True)
             await ctx.respond(f"Alliance id(s) for `/targets` set to `{id_str}`")
         except Exception as e:
