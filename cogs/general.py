@@ -411,7 +411,7 @@ class Background(commands.Cog):
                     except:
                         pass
             
-            embed = discord.Embed(title=f"{nation['alliance']['name']}'s daily revenue:", url=f"https://politicsandwar.com/alliance/id={alliance_id}", description="", color=0xff5100)
+            embed = discord.Embed(title=f"{nations[0]['alliance']['name']}'s daily revenue:", url=f"https://politicsandwar.com/alliance/id={alliance_id}", description="", color=0xff5100)
 
             for rs in RSS[:-2]:
                 embed.add_field(name=f"{rs.capitalize()}", value=f"{income[rs]:,.2f}\n")
