@@ -44,8 +44,7 @@ class General(commands.Cog):
                                 await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is leaving beige <t:{round(alert['time'].timestamp())}:R>!")
                             except:
                                 await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
-                            user['beige_alerts'].remove(alert)
-                            alert_list = user['beige_alerts']
+                            alert_list = user['beige_alerts'].copy().remove(alert)
                             if not alert_list:
                                 alert_list = []
                             mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
