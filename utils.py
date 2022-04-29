@@ -415,6 +415,7 @@ def str_to_int(string: str) -> int:
     :param string: String to be converted.
     :return: The integer value of the string.
     """
+    string = str(string)
     amount = string
     try:
         if "." in amount:
