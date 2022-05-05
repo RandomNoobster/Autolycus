@@ -398,7 +398,7 @@ def expansion_cost(current: int, end: int, infra: int, land: int, nation: dict =
     """
     diff = end - current
     if diff < 1:
-        return "Incorrect start and end input"
+        raise ValueError("Incorrect start and end input")
 
     cost = 0
     while current < end:
