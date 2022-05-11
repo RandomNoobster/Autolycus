@@ -449,7 +449,7 @@ class TargetFinding(commands.Cog):
                     for city in target['cities']:
                         target['infrastructure'] += city['infrastructure']
 
-                    embed.add_field(name="Beige", value=f"{target['beigeturns']} turns")
+                    embed.add_field(name="Beige", value=f"{target['beige_turns']} turns")
 
                     embed.add_field(name="Inactivity", value=f"{days_inactive} days")
 
@@ -597,7 +597,7 @@ class TargetFinding(commands.Cog):
                         if x['id'] == entry['id']:
                             beige_button.disabled = True
                             return
-                    if x['beigeturns'] > 0:
+                    if x['beige_turns'] > 0:
                         beige_button.disabled = False
                     else:
                         beige_button.disabled = True
@@ -646,7 +646,7 @@ class TargetFinding(commands.Cog):
                     self.button_check(best_targets[cur_page-1])
                     await i.response.edit_message(content="", embed=msg_embd, view=view)
             
-                if best_targets[0]['beigeturns'] > 0:
+                if best_targets[0]['beige_turns'] > 0:
                     disabled = False
                 else:
                     disabled = True
@@ -657,7 +657,7 @@ class TargetFinding(commands.Cog):
                     beige_button = [x for x in self.children if x.custom_id == "beige"][0]
                     reminder = {}
                     cur_embed = best_targets[cur_page-1]
-                    turns = cur_embed['beigeturns']
+                    turns = cur_embed['beige_turns']
                     if turns == 0:
                         beige_button.disabled = True
                         await ctx.edit(view=view)
@@ -778,12 +778,13 @@ class TargetFinding(commands.Cog):
             if nation == None:
                 await ctx.respond(content='I could not find that nation!')
                 return
-            res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{beigeturns}}}}}}"))['data']['nations']['data'][0]
-            if res['beigeturns'] == 0:
+            res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id beige_turns}}}}}}"))['data']['nations']['data'][0]
+            print(res)
+            if res['beige_turns'] == 0:
                 await ctx.respond(content="They are not beige!")
                 return
             reminder = {}
-            turns = int(res['beigeturns'])
+            turns = int(res['beige_turns'])
             time = datetime.utcnow()
             if time.hour % 2 == 0:
                 time += timedelta(hours=turns*2)

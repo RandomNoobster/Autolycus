@@ -41,7 +41,7 @@ class Background(commands.Cog):
                 await ctx.respond(content="I did not find that nation!")
                 return
 
-            nation = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beigeturns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{id}}}}}}}}}}"))['data']['nations']['data'][0]
+            nation = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beige_turns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{id}}}}}}}}}}"))['data']['nations']['data'][0]
 
             embed = discord.Embed(title=nation['nation_name'], url=f"https://politicsandwar.com/nation/id={nation['id']}", color=0xff5100)
             user = utils.find_user(self, nation['id'])
@@ -106,7 +106,7 @@ class Background(commands.Cog):
             else:
                 vital = "No"
 
-            military_info_2 = f"> Offensive Wars: `{o_wars}`/`5`\n> Defensive Wars: `{d_wars}`/`3`\n> Missiles: `{missiles}`\n> Nukes: `{nukes}`\n> Iron Dome: {dome}\n> Vital Defense: {vital}\n> Turns of Beige: `{nation['beigeturns']}`"
+            military_info_2 = f"> Offensive Wars: `{o_wars}`/`5`\n> Defensive Wars: `{d_wars}`/`3`\n> Missiles: `{missiles}`\n> Nukes: `{nukes}`\n> Iron Dome: {dome}\n> Vital Defense: {vital}\n> Turns of Beige: `{nation['beige_turns']}`"
             embed.add_field(name="\u200b", value=military_info_2)
 
             embed.set_thumbnail(url=nation['flag'])
