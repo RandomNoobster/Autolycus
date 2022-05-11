@@ -33,7 +33,7 @@ class General(commands.Cog):
             future = datetime(now.year, now.month, now.day, now.hour, minute)
             if now.minute >= minute:
                 future += timedelta(hours=1, seconds=1)
-            await asyncio.sleep((future-now).seconds)
+            await asyncio.sleep((future-now).seconds+1)
             try:
                 alerts = list(mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
                 nation_ids = []
