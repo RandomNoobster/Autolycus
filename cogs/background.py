@@ -62,6 +62,7 @@ class General(commands.Cog):
                         for nation in res:
                             if alert['id'] == nation['id']:
                                 if nation['beige_turns'] == 0:
+                                    disc_user = await self.bot.fetch_user(user['user'])
                                     try:
                                         await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} has left beige prematurely!")
                                     except:
