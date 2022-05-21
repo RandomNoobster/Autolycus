@@ -207,8 +207,8 @@
                     <tr class="${attack}">
                         <td>${attack.replace("rva", "r vs A").replace("rvi", "r vs I").replace("rvs", "r vs S").replace("rvt", "r vs T").title()}</td>
                         <td>${'${:,}'.format(round(results[f"{primary}_{attack}_net"]))}</td>
-                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]/maps))}</td>
-                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]))}</td>
                         <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_gas"]))}</td>
                         <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_mun"]))}</td>
                         <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{primary}_steel"]))}</td>
@@ -238,8 +238,8 @@
                     <tr class="${attack}">
                         <td>${attack.replace("rva", "r vs A").replace("rvi", "r vs I").replace("rvs", "r vs S").replace("rvt", "r vs T").title()}</td>
                         <td>${'${:,}'.format(-round(results[f"{primary}_{attack}_net"]))}</td>
-                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]/maps))}</td>
-                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]/maps))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{primary}_total"]))}</td>
+                        <td>${'${:,}'.format(round(results[f"{primary}_{attack}_{secondary}_total"]))}</td>
                         <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_gas"]))}</td>
                         <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_mun"]))}</td>
                         <td>${'{:,}'.format(round(results[f"{primary}_{attack}_{secondary}_steel"]))}</td>
