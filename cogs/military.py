@@ -1171,8 +1171,8 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_naval_fail'] = (1 - results[f'{attacker}_naval_win_rate'])**3
                 
                 if results['gc'] == results[attacker]:
-                    results[f'{attacker}_ground_{defender}_avg_aircraft'] = avg_air = min(results[f'{attacker}']['tanks'] * 0.0075 * results[f'{attacker}_ground_win_rate'] ** 3, results[defender]['aircraft'])
-                    results[defender]['aircas'] = f"Def. Plane: {avg_air} ± {round(results[f'{attacker}']['tanks'] * 0.0075 * (1 - results[f'{attacker}_ground_win_rate'] ** 3))}"
+                    results[f'{attacker}_ground_{defender}_avg_aircraft'] = avg_air = round(min(results[f'{attacker}']['tanks'] * 0.005 * results[f'{attacker}_ground_win_rate'] ** 3, results[defender]['aircraft']))
+                    results[defender]['aircas'] = f"Def. Plane: {avg_air} ± {round(results[f'{attacker}']['tanks'] * 0.005 * (1 - results[f'{attacker}_ground_win_rate'] ** 3))}"
                 else:
                     results[defender]['aircas'] = ""
                     results[f'{attacker}_ground_{defender}_avg_aircraft'] = 0
