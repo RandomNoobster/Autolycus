@@ -770,11 +770,11 @@ class TargetFinding(commands.Cog):
     async def addreminder(
         self,
         ctx: discord.ApplicationContext,
-        arg: Option(str, "Nation name, nation link, discord username etc of the nation you want to add a beige reminder for")
+        nation: Option(str, "Nation name, nation link, discord username etc of the nation you want to add a beige reminder for")
     ):
         try:
             await ctx.defer()
-            nation = utils.find_nation(arg)
+            nation = utils.find_nation(nation)
             if nation == None:
                 await ctx.respond(content='I could not find that nation!')
                 return
