@@ -51,7 +51,7 @@ class Background(commands.Cog):
                     discord_info += f"\n> Discord Username: {nation['discord']}"
             else:
                 username = await self.bot.fetch_user(user['user'])
-                discord_info = f"> Verified: ✅\n> Discord Username: {username} `({username.id})`"
+                discord_info = f"> Autolycus Verified: ✅\n> Discord Username: {username} `({username.id})`"
             embed.add_field(name="Discord Info", value=discord_info, inline=False)
 
             nation_info = f"> Nation Name: [{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})\n> Leader Name: {nation['leader_name']}\n> Cities: [{nation['num_cities']}](https://politicsandwar.com/city/manager/n={nation['nation_name'].replace(' ', '%20')})\n> War Policy: [{nation['warpolicy']}](https://politicsandwar.com/pwpedia/war-policy/)\n> Dom. Policy: [{nation['dompolicy']}](https://politicsandwar.com/pwpedia/domestic-policy/)"
