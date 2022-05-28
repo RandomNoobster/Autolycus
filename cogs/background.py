@@ -39,42 +39,37 @@ class General(commands.Cog):
                 nation_ids = []
                 for user in alerts:
                     for alert in user['beige_alerts']:
-                        nation_ids.append(alert['id'])
+                        nation_ids.append(alert)
                 unique_ids = list(set(nation_ids))
 
                 res = (await utils.call(f"{{nations(id:[{','.join(unique_ids)}]){{data{{id beige_turns}}}}}}"))['data']['nations']['data']
-                print(res)
 
                 for user in alerts:
                     for alert in user['beige_alerts']:
-                        if datetime.utcnow() >= alert['time'] - timedelta(minutes=11):
-                            disc_user = await self.bot.fetch_user(user['user'])
-                            try:
-                                await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} is leaving beige <t:{round(alert['time'].timestamp())}:R>!")
-                            except:
-                                await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
-                            alert_list = user['beige_alerts'].copy()
-                            alert_list.remove(alert)
-                            if not alert_list:
-                                alert_list = []
-                            mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
-                            continue
                         for nation in res:
-                            if alert['id'] == nation['id']:
-                                if nation['beige_turns'] == 0:
+                            if alert == nation['id']:
+                                if nation['beige_turns'] <= 1:
                                     disc_user = await self.bot.fetch_user(user['user'])
+                                    if nation['beige_turns'] == 1:
+                                        turns = int(nation['beige_turns'])
+                                        time = datetime.utcnow()
+                                        if time.hour % 2 == 0:
+                                            time += timedelta(hours=turns*2)
+                                        else:
+                                            time += timedelta(hours=turns*2-1)
+                                        time = datetime(time.year, time.month, time.day, time.hour, time.minute)
+                                        content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(time.timestamp())}:R>!"
+                                    else:
+                                        content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
                                     try:
-                                        await disc_user.send(f"Hey, https://politicsandwar.com/nation/id={alert['id']} has left beige prematurely!")
+                                        await disc_user.send(content)
                                     except:
                                         await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
-                                    alert_list = user['beige_alerts'].copy()
-                                    alert_list.remove(alert)
-                                    if not alert_list:
-                                        alert_list = []
-                                    mongo.global_users.find_one_and_update({"user": user['user']}, {"$set": {"beige_alerts": alert_list}})
+                                    mongo.global_users.find_one_and_update({"user": user['user']}, {"$pull": {"beige_alerts": alert}})
                                 break
-            except:
+            except Exception as e:
                 await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```')
+                logger.error(e, exc_info=True)
 
     async def nation_scanner(self):
         await self.bot.wait_until_ready()
@@ -102,7 +97,8 @@ class General(commands.Cog):
                 with open(pathlib.Path.cwd() / 'nations.json', 'w') as json_file:
                     json.dump(new_nations, json_file)
                 logger.info(f"Done fetching nation data. {n} pages, took {(time.time() - series_start) / 60 :.2f} minutes")
-            except:
+            except Exception as e:
+                logger.error(e, exc_info=True)
                 await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()}```')
                 await asyncio.sleep(300)
 

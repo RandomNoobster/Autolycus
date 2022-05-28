@@ -96,6 +96,13 @@ async def reaction_checker(self, message: discord.Message, embeds: list) -> None
             await message.edit(content="**Command timed out!**")
             break
 
+async def run_timeout(ctx, view):
+    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+    if view:
+        for x in view.children:
+            x.disabled = True
+        await ctx.edit(view=view)
+
 def weird_division(a, b):
     return a / b if b else 0
 

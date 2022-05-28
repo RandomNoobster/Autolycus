@@ -1,8 +1,8 @@
 import discord
 from discord.ext import commands
-from discord.commands import slash_command, Option
 import aiohttp
 import re
+from discord.commands import slash_command, Option, SlashCommandGroup
 from mako.template import Template
 import asyncio
 import random
@@ -50,18 +50,8 @@ class TargetFinding(commands.Cog):
         try:
             await ctx.defer()
             
-            debug_channel = self.bot.get_channel(int(os.getenv("debug_channel")))
             webpage = None
             when_to_timeout = datetime.utcnow() + timedelta(minutes=14)
-            
-            async def run_timeout(ctx, view):
-                try:
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-                    for x in view.children:
-                        x.disabled = True
-                    await ctx.edit(view=view)
-                except:
-                    debug_channel.send(f"**Exception __caught__!**\nWhere: raids -> run_timeout()\n\nError:```{traceback.format_exc()}```")
 
             invoker = str(ctx.author.id)
             async with aiohttp.ClientSession() as session:
@@ -103,7 +93,7 @@ class TargetFinding(commands.Cog):
                             return True
                     
                     async def on_timeout(self):
-                        await run_timeout(ctx, view)
+                        await utils.run_timeout(ctx, view)
                 
                 who = None
                 class stage_three(discord.ui.View):
@@ -139,7 +129,7 @@ class TargetFinding(commands.Cog):
                             return True
                     
                     async def on_timeout(self):
-                        await run_timeout(ctx, view)               
+                        await utils.run_timeout(ctx, view)               
                     
                 max_wars = None
                 class stage_four(discord.ui.View):
@@ -182,7 +172,7 @@ class TargetFinding(commands.Cog):
                             return True
                     
                     async def on_timeout(self):
-                        await run_timeout(ctx, view)
+                        await utils.run_timeout(ctx, view)
             
                 inactive_limit = None
                 class stage_five(discord.ui.View):
@@ -225,7 +215,7 @@ class TargetFinding(commands.Cog):
                             return True
                     
                     async def on_timeout(self):
-                        await run_timeout(ctx, view)
+                        await utils.run_timeout(ctx, view)
                 
                 beige = None
                 class stage_six(discord.ui.View):
@@ -254,7 +244,7 @@ class TargetFinding(commands.Cog):
                             return True
                     
                     async def on_timeout(self):
-                        await run_timeout(ctx, view)
+                        await utils.run_timeout(ctx, view)
                                     
                 performace_filter = None
                 class stage_seven(discord.ui.View):
@@ -283,7 +273,7 @@ class TargetFinding(commands.Cog):
                             return True
                     
                     async def on_timeout(self):
-                        await run_timeout(ctx, view)
+                        await utils.run_timeout(ctx, view)
 
                 target_list = []
                 
@@ -542,7 +532,7 @@ class TargetFinding(commands.Cog):
                             return True
                     
                     async def on_timeout(self):
-                        await run_timeout(ctx, view)
+                        await utils.run_timeout(ctx, view)
 
                 class webraid(MethodView):
                     def get(raidclass):
@@ -554,15 +544,7 @@ class TargetFinding(commands.Cog):
 
                     def post(raidclass):
                         data = request.json
-                        reminder = {}
-                        turns = int(data['turns'])
-                        time = datetime.utcnow()
-                        if time.hour % 2 == 0:
-                            time += timedelta(hours=turns*2)
-                        else:
-                            time += timedelta(hours=turns*2-1)
-                        reminder['time'] = datetime(time.year, time.month, time.day, time.hour)
-                        reminder['id'] = str(data['id'])
+                        reminder = str(data['id'])
                         mongo.global_users.find_one_and_update({"user": int(data['invoker'])}, {"$push": {"beige_alerts": reminder}})
                         return "you good"
 
@@ -594,7 +576,7 @@ class TargetFinding(commands.Cog):
                     beige_button = [x for x in self.children if x.custom_id == "beige"][0]
                     user = mongo.global_users.find_one({"user": ctx.author.id})
                     for entry in user['beige_alerts']:
-                        if x['id'] == entry['id']:
+                        if x['id'] == entry:
                             beige_button.disabled = True
                             return
                     if x['beige_turns'] > 0:
@@ -655,7 +637,6 @@ class TargetFinding(commands.Cog):
                 async def beige_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal cur_page
                     beige_button = [x for x in self.children if x.custom_id == "beige"][0]
-                    reminder = {}
                     cur_embed = best_targets[cur_page-1]
                     turns = cur_embed['beige_turns']
                     if turns == 0:
@@ -663,19 +644,13 @@ class TargetFinding(commands.Cog):
                         await ctx.edit(view=view)
                         await i.response.send_message(content=f"They are not in beige!", ephemeral=True)
                         return
-                    time = datetime.utcnow()
-                    if time.hour % 2 == 0:
-                        time += timedelta(hours=turns*2)
-                    else:
-                        time += timedelta(hours=turns*2-1)
-                    reminder['time'] = datetime(time.year, time.month, time.day, time.hour)
-                    reminder['id'] = cur_embed['id']
+                    reminder = cur_embed['id']
                     user = mongo.global_users.find_one({"user": ctx.author.id})
                     if user == None:
-                        await i.response.send_message(content=f"I didn't find you in the database! You better ping Randy I guess.", ephemeral=True)
+                        await i.response.send_message(content=f"I didn't find you in the database! Make sure to `/verify`!", ephemeral=True)
                         return
                     for entry in user['beige_alerts']:
-                        if reminder['id'] == entry['id']:
+                        if reminder == entry:
                             beige_button.disabled = True
                             await ctx.edit(view=view)
                             await i.response.send_message(content=f"You already have a beige reminder for this nation!", ephemeral=True)
@@ -693,7 +668,7 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await run_timeout(ctx, view)
+                    await utils.run_timeout(ctx, view)
                 
             view = embed_paginator()
             await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
@@ -701,35 +676,99 @@ class TargetFinding(commands.Cog):
             logger.error(e, exc_info=True)
             raise e
     
-    @slash_command(
-        name="reminders",
-        description='Show all your active beige reminders',
-        )
+    revenue_group = SlashCommandGroup("reminders", "Beige reminders")
+
+    @revenue_group.command(
+        name="show",
+        description="Show all your beige reminders"
+    )
     async def reminders(self, ctx: discord.ApplicationContext):
         try:
             await ctx.defer()
             person = mongo.global_users.find_one({"user": ctx.author.id})
+
             if person == None:
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
                 return
-            insults = ['ha loser', 'what a nub', 'such a pleb', 'get gud', 'u suc lol']
-            insult = random.choice(insults)
+
             if person['beige_alerts'] == []:
+                insults = ['ha loser', 'what a nub', 'such a pleb', 'get gud', 'u suc lol', 'ur useless lmao']
+                insult = random.choice(insults)
                 await ctx.respond(content=f"You have no beige reminders!\n\n||{insult}||")
                 return
-            reminders = ""
-            person['beige_alerts'] = sorted(person['beige_alerts'], key=lambda k: k['time'], reverse=True)
-            for x in person['beige_alerts']:
-                reminders += (f"\n<t:{round(x['time'].timestamp())}> (<t:{round(x['time'].timestamp())}:R>) - <https://politicsandwar.com/nation/id={x['id']}>")
-            await ctx.respond(content=f"Here are your reminders:\n{reminders}")
+
+            res = (await utils.call(f"{{nations(id:[{','.join(person['beige_alerts'])}]){{data{{id nation_name beige_turns}}}}}}"))['data']['nations']['data']
+
+            reminders = []
+            for alert in person['beige_alerts']:
+                for nation in res:
+                    if alert == nation['id']:
+                        turns = int(nation['beige_turns'])
+                        time = datetime.utcnow()
+                        if time.hour % 2 == 0:
+                            time += timedelta(hours=turns*2)
+                        else:
+                            time += timedelta(hours=turns*2-1)
+                        time = datetime(time.year, time.month, time.day, time.hour)
+                        reminders.append(f"\n<t:{round(time.timestamp())}> <t:{round(time.timestamp())}:R> - [{nation['nation_name']}](https://politicsandwar.com/nation/id={alert})")
+
+            reminders = sorted(reminders)
+            embeds = []
+
+            for n in range(0, len(reminders), 20):
+                embed = discord.Embed(title="Beige reminders", description="".join(reminders[n:n+30]), color=0xff5100)
+                embeds.append(embed)
+
+            if len(embeds) > 1:
+                cur_page = 0
+                pages = len(embeds)
+                class switch(discord.ui.View):
+                    @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
+                    async def callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal cur_page
+                        if cur_page == 1:
+                            cur_page = pages
+                            await i.response.edit_message(embed=embeds[cur_page])
+                        else:
+                            cur_page -= 1
+                            await i.response.edit_message(embed=embeds[cur_page])
+                    
+                    @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
+                    async def callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal cur_page
+                        if cur_page == pages:
+                            cur_page = 0
+                            await i.response.edit_message(embed=embeds[cur_page])
+                        else:
+                            cur_page += 1
+                            await i.response.edit_message(embed=embeds[cur_page])
+                    
+                    async def interaction_check(self, interaction) -> bool:
+                        if interaction.user != ctx.author:
+                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                            return False
+                        else:
+                            return True
+                    
+                    async def on_timeout(self):
+                        await utils.run_timeout(ctx, view)
+                
+                view = switch()
+            else:
+                view = None
+
+            await ctx.respond(embed=embeds[0])
+            if view != None:
+                await ctx.edit(view=view)
+
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
-    
-    @slash_command(
-        name="delreminder",
-        description='Delete a beige reminder'
-        )
+        
+    @revenue_group.command(
+        name="delete",
+        description="Delete a beige reminder"
+    )
     async def delreminder(
         self,
         ctx: discord.ApplicationContext,
@@ -750,23 +789,26 @@ class TargetFinding(commands.Cog):
 
             found = False
             for alert in person['beige_alerts']:
-                if alert['id'] == id:
+                if alert == id:
                     person['beige_alerts'].remove(alert)
-                    mongo.global_users.find_one_and_update({"user": person['user']}, {"$set": {"beige_alerts": person['beige_alerts']}})
                     found = True
                     break
+
             if not found:
                 await ctx.respond(content="I did not find a reminder for that nation!")
                 return
+
+            mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$pull": {"beige_alerts": id}})
             await ctx.respond(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
+
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
 
-    @slash_command(
-        name="addreminder",
-        description='Add a reminder for when a nation exits beige'
-        )
+    @revenue_group.command(
+        name="add",
+        description="Add a beige reminder"
+    )
     async def addreminder(
         self,
         ctx: discord.ApplicationContext,
@@ -775,33 +817,32 @@ class TargetFinding(commands.Cog):
         try:
             await ctx.defer()
             nation = utils.find_nation(nation)
+
             if nation == None:
                 await ctx.respond(content='I could not find that nation!')
                 return
+
             res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id beige_turns}}}}}}"))['data']['nations']['data'][0]
-            print(res)
+
             if res['beige_turns'] == 0:
                 await ctx.respond(content="They are not beige!")
                 return
-            reminder = {}
-            turns = int(res['beige_turns'])
-            time = datetime.utcnow()
-            if time.hour % 2 == 0:
-                time += timedelta(hours=turns*2)
-            else:
-                time += timedelta(hours=turns*2-1)
-            reminder['time'] = datetime(time.year, time.month, time.day, time.hour)
-            reminder['id'] = nation['id']
+
+            reminder = nation['id']
             user = mongo.global_users.find_one({"user": ctx.author.id})
+
             if user == None:
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
                 return
+
             for entry in user['beige_alerts']:
-                if reminder['id'] == entry['id']:
+                if reminder == entry:
                     await ctx.respond(content=f"You already have a beige reminder for this nation!")
                     return
+
             mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
             await ctx.respond(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
+
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e

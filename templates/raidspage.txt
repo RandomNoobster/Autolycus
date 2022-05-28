@@ -170,7 +170,7 @@
                             <td>${nation['beige_turns']}</td>
 
                             % if nation['beige_turns'] > 0:
-                                % if nation['id'] not in [alert['id'] for alert in beige_alerts]:
+                                % if nation['id'] not in beige_alerts:
                                     <td id="btn${nation['id']}">
                                         <button onclick="postreq(${nation['id']}, ${nation['beige_turns']}, '${nation['nation_name']}', 'btn${nation['id']}')">Remind me</button>
                                     </td>
