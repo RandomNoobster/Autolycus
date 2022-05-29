@@ -71,7 +71,7 @@ async def nation_scanner(self, mongo, logger):
             series_start = time.time()
             more_pages = True
             n = 1
-            first = 75
+            first = 50
             new_nations = {"last_fetched": None, "nations": []}
             while more_pages:
                 start = time.time()
