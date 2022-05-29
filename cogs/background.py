@@ -54,10 +54,10 @@ class General(commands.Cog):
                                         turns = int(nation['beige_turns'])
                                         time = datetime.utcnow()
                                         if time.hour % 2 == 0:
-                                            time += timedelta(hours=turns*2)
+                                            break
                                         else:
                                             time += timedelta(hours=turns*2-1)
-                                        time = datetime(time.year, time.month, time.day, time.hour, time.minute)
+                                        time = datetime(time.year, time.month, time.day, time.hour)
                                         content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(time.timestamp())}:R>!"
                                     else:
                                         content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
