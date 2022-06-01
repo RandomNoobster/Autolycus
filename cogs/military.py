@@ -302,10 +302,10 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(content="Caching targets...")
                 for done_job in done_jobs:
                     for x in done_job['data']['nations']['data']:
-                        if "alliance_position" in who:
-                            if x['alliance_position_id'] not in ["0", "1"]:
+                        if who == " alliance_position:[0,1]":
+                            if x['alliance_position'] not in ["NOALLIANCE", "APPLICANT"]:
                                 continue
-                        elif "alliance_id" in who:
+                        elif who == " alliance_id:0":
                             if x['alliance_id'] != "0":
                                 continue
                         if not minscore < x['score'] < maxscore:
@@ -343,9 +343,9 @@ class TargetFinding(commands.Cog):
                     if not beige:
                         filter_list.append("hide beige nations")
                     if who != "":
-                        if "1" not in who:
+                        if who == " alliance_position:[0,1]":
                             filter_list.append("hide full alliance members")
-                        else:
+                        elif who == " alliance_id:0":
                             filter_list.append("hide full alliance members and applicants")
                     if max_wars != 3:
                         if max_wars == 0:
