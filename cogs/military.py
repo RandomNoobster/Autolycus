@@ -51,7 +51,7 @@ class TargetFinding(commands.Cog):
             await ctx.defer()
             
             webpage = None
-            when_to_timeout = datetime.utcnow() + timedelta(minutes=14)
+            when_to_timeout = datetime.utcnow() + timedelta(minutes=10)
 
             invoker = str(ctx.author.id)
             async with aiohttp.ClientSession() as session:

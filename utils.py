@@ -7,11 +7,15 @@ from typing import Union, Tuple
 import aiohttp
 import re
 import os
+import logging
 import pymongo
 
 client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
+
+logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+logger = logging.getLogger()
 
 api_key = os.getenv("api_key")
 
@@ -97,11 +101,14 @@ async def reaction_checker(self, message: discord.Message, embeds: list) -> None
             break
 
 async def run_timeout(ctx, view):
-    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
-    if view:
-        for x in view.children:
-            x.disabled = True
-        await ctx.edit(view=view)
+    try:
+        await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+        if view:
+            for x in view.children:
+                x.disabled = True
+            await ctx.edit(view=view)
+    except Exception as e:
+        logger.error(str(e) + "|| This error was ignored", exc_info=False)
 
 def weird_division(a, b):
     return a / b if b else 0
