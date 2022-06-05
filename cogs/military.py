@@ -850,7 +850,7 @@ class TargetFinding(commands.Cog):
     @slash_command(
         name="battlesimulation",
         description='Simulate battles between two nations'
-        )
+    )
     async def battlesim(
         self,
         ctx: discord.ApplicationContext,
@@ -988,6 +988,77 @@ class TargetFinding(commands.Cog):
             raise e
     
     @slash_command(
+        name="nuketargets",
+        description='Find nations with juicy infra'
+    )
+    async def nuketargets(
+        self,
+        ctx: discord.ApplicationContext,
+    ):
+        try:
+            await ctx.defer()
+            
+            user = utils.find_nation_plus(self, ctx.author.id)
+            if not user:
+                await ctx.respond("Make sure that you are verified with `/verify`!")
+                return
+            
+            config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+
+            fail = False
+            if not config:
+                fail = True
+            else:
+                try:
+                    alliance_ids = config['targets_alliance_ids']
+                    if len(alliance_ids) == 0:
+                        fail = True
+                except:
+                    fail = True
+            if fail:
+                await ctx.respond("This command has not been configured for this server! Someone with the `manage_server` permission must use `/config`!")
+                return
+
+            res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
+            
+            user_nation = res['data']['nations']['data'][0]
+
+            nation_list = []
+            for alliance in res['data']['alliances']['data']:
+                for nation in alliance['nations']:
+                    nation['max_infra'] = sorted(nation['cities'], key=lambda x: x['infrastructure'], reverse=True)[0]['infrastructure']
+                    avg_infra = 0
+                    for city in nation['cities']:
+                        avg_infra += city['infrastructure']
+                    results = await self.battle_calc(nation1=user_nation, nation2=nation)
+                    nation['nuke_cost'] = results['nation1_nuke_nation2_total']
+                    nation['missile_cost'] = results['nation1_missile_nation2_total']
+                    nation["avg_infra"] = avg_infra / len(nation['cities'])
+                    nation_list.append(nation)
+
+            if len(nation_list) == 0:
+                await ctx.respond("No eligible targets found!")
+                return
+            
+            nation_list = sorted(nation_list, key=lambda x: x['nuke_cost'], reverse=True)
+
+            embed = discord.Embed(title="Nuke Targets", description="", color=0xff5100)
+            for n in range(min(8, len(nation_list))):
+                if n == 0:
+                    pass
+                elif n % 2 == 0:
+                    embed.add_field(name="\u200b", value="\u200b", inline=False)
+                else:
+                    embed.add_field(name="\u200b", value="\u200b", inline=True)
+                embed.add_field(name=f"{nation_list[n]['nation_name']}", value=f"[Link](https://politicsandwar.com/nation/id={nation_list[n]['id']})\nDamage/nuke: `${nation_list[n]['nuke_cost']:,.0f}`\nDamage/missile: `${nation_list[n]['missile_cost']:,.0f}`\nMax infra: `{nation_list[n]['max_infra']:.0f}`\nAvg. infra: `{nation_list[n]['avg_infra']:.0f}`\nVDS: `{nation_list[n]['vds']}`\nIron Dome: `{nation_list[n]['irond']}`")
+            
+            await ctx.respond(embed=embed)
+
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+    
+    @slash_command(
         name="targets",
         description="Find alliance war targets"
     )
@@ -1079,12 +1150,25 @@ class TargetFinding(commands.Cog):
             raise e
 
         
-    async def battle_calc(self, nation1_id, nation2_id):
+    async def battle_calc(self, nation1_id=None, nation2_id=None, nation1=None, nation2=None):
         try:
             results = {}
 
-            results['nation1'] = (await utils.call(f"{{nations(first:1 id:{nation1_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
-            results['nation2'] = (await utils.call(f"{{nations(first:1 id:{nation2_id}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}}}}}}}}"))['data']['nations']['data'][0]
+            if nation1 and nation2:
+                results['nation1'] = nation1
+                nation1_id = nation1['id']
+                results['nation2'] = nation2
+                nation2_id = nation2['id']
+            else:
+                nations = (await utils.call(f"{{nations(first:2 id:[{nation1_id},{nation2_id}] orderBy:{{column: ID, order: DESC}}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data']
+                if int(nation1_id) < int(nation2_id):
+                    results['nation1'] = nations[0]
+                    results['nation2'] = nations[1]
+                elif int(nation1_id) > int(nation2_id):
+                    results['nation1'] = nations[1]
+                    results['nation2'] = nations[0]
+                else:
+                    results['nation1'] = results['nation2'] = nations[0]
 
             results['nation1_append'] = ""
             results['nation2_append'] = ""
