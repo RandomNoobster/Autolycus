@@ -724,7 +724,7 @@ class TargetFinding(commands.Cog):
                 pages = len(embeds)
                 class switch(discord.ui.View):
                     @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
-                    async def callback(self, b: discord.Button, i: discord.Interaction):
+                    async def left_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal cur_page
                         if cur_page == 1:
                             cur_page = pages
@@ -734,7 +734,7 @@ class TargetFinding(commands.Cog):
                             await i.response.edit_message(embed=embeds[cur_page])
                     
                     @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
-                    async def callback(self, b: discord.Button, i: discord.Interaction):
+                    async def right_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal cur_page
                         if cur_page == pages:
                             cur_page = 0
