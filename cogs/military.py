@@ -50,7 +50,6 @@ class TargetFinding(commands.Cog):
         try:
             await ctx.defer()
             
-            webpage = None
             when_to_timeout = datetime.utcnow() + timedelta(minutes=10)
 
             invoker = str(ctx.author.id)
@@ -67,21 +66,33 @@ class TargetFinding(commands.Cog):
                 minscore = round(atck_ntn['score'] * 0.75)
                 maxscore = round(atck_ntn['score'] * 1.75)
                 
+                webpage = None
+                discord_embed = None
                 class stage_one(discord.ui.View):
                     def __init__(self):
                         super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
-                    @discord.ui.button(label="On discord", style=discord.ButtonStyle.primary)
-                    async def callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal webpage
+                    @discord.ui.button(label="Embed on discord", style=discord.ButtonStyle.primary)
+                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal webpage, discord_embed
                         webpage = False
+                        discord_embed = True
                         await i.response.pong()
                         self.stop()
                     
+                    @discord.ui.button(label="Message on discord", style=discord.ButtonStyle.primary)
+                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal webpage, discord_embed
+                        webpage = False
+                        discord_embed = False
+                        await i.response.pong()
+                        self.stop()
+
                     @discord.ui.button(label="As a webpage", style=discord.ButtonStyle.primary)
-                    async def one_two_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal webpage
+                    async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal webpage, discord_embed
                         webpage = True
+                        discord_embed = False
                         await i.response.pong()
                         self.stop()
                     
@@ -281,7 +292,7 @@ class TargetFinding(commands.Cog):
                     file_content = json.load(json_file)
                     last_fetched = file_content['last_fetched']
                     
-                embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?", color=0xff5100)
+                embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
                 embed2 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
                 embed3 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
                 embed4 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
@@ -410,12 +421,22 @@ class TargetFinding(commands.Cog):
                                             nation_loot += amount * price
                                     else:
                                         continue
+                            if war['attacker']['war_policy'] == "ATTRITION":
+                                nation_loot = nation_loot / 80 * 100
+                            elif war['attacker']['war_policy'] == "PIRATE":
+                                nation_loot = nation_loot / 140 * 100
+                            if war['war_type'] == "ATTRITION":
+                                nation_loot = nation_loot * 4
+                            elif war['war_type'] == "ORDINARY":
+                                nation_loot = nation_loot * 2
                             target['nation_loot'] = f"{round(nation_loot):,}"
+                            target['nation_loot_value'] = nation_loot
                             embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
 
                     if prev_nat_loot == False:
                         embed.add_field(name="Previous nation loot", value="NaN")
                         target['nation_loot'] = "NaN"
+                        target['nation_loot_value'] = 0
 
                     rev_obj = await utils.revenue_calc(ctx, target, radiation, treasures, prices, colors, seasonal_mod)
 
@@ -552,126 +573,138 @@ class TargetFinding(commands.Cog):
                 view = webpage_view()
                 await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
                 return
-            
-            pages = len(target_list)
-            cur_page = 1
 
-            def get_embed(nation):
-                nonlocal pages, cur_page
-                embed = nation['embed']
-                if "*" in nation['money_txt']:
-                    embed.set_footer(text=f"Page {cur_page}/{pages}  |  * the income if the nation is out of food.")
-                else:
-                    embed.set_footer(text=f"Page {cur_page}/{pages}")
-                return embed
+            elif discord_embed:
+                pages = len(target_list)
+                cur_page = 1
 
-            msg_embd = get_embed(best_targets[0])
-            timed_out = False
+                def get_embed(nation):
+                    nonlocal pages, cur_page
+                    embed = nation['embed']
+                    if "*" in nation['money_txt']:
+                        embed.set_footer(text=f"Page {cur_page}/{pages}  |  * the income if the nation is out of food.")
+                    else:
+                        embed.set_footer(text=f"Page {cur_page}/{pages}")
+                    return embed
 
-            class embed_paginator(discord.ui.View):
-                def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+                msg_embd = get_embed(best_targets[0])
+                timed_out = False
 
-                def button_check(self, x):
-                    beige_button = [x for x in self.children if x.custom_id == "beige"][0]
-                    user = mongo.global_users.find_one({"user": ctx.author.id})
-                    for entry in user['beige_alerts']:
-                        if x['id'] == entry:
+                class embed_paginator(discord.ui.View):
+                    def __init__(self):
+                            super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                    def button_check(self, x):
+                        beige_button = [x for x in self.children if x.custom_id == "beige"][0]
+                        user = mongo.global_users.find_one({"user": ctx.author.id})
+                        for entry in user['beige_alerts']:
+                            if x['id'] == entry:
+                                beige_button.disabled = True
+                                return
+                        if x['beige_turns'] > 0:
+                            beige_button.disabled = False
+                        else:
                             beige_button.disabled = True
-                            return
-                    if x['beige_turns'] > 0:
-                        beige_button.disabled = False
-                    else:
-                        beige_button.disabled = True
-                
-                @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
-                async def far_left_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal cur_page
-                    cur_page = 1
-                    msg_embd = get_embed(best_targets[cur_page-1])
-                    self.button_check(best_targets[cur_page-1])
-                    await i.response.edit_message(content="", embed=msg_embd, view=view)
-
-                @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
-                async def left_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal cur_page
-                    if cur_page > 1:
-                        cur_page -= 1
-                        msg_embd = get_embed(best_targets[cur_page-1])
-                        self.button_check(best_targets[cur_page-1])
-                        await i.response.edit_message(content="", embed=msg_embd, view=view)
-                    else:
-                        cur_page = pages
-                        msg_embd = get_embed(best_targets[cur_page-1])
-                        self.button_check(best_targets[cur_page-1])
-                        await i.response.edit_message(content="", embed=msg_embd, view=view)
-                
-                @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
-                async def right_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal cur_page
-                    if cur_page != pages:
-                        cur_page += 1
-                        msg_embd = get_embed(best_targets[cur_page-1])
-                        self.button_check(best_targets[cur_page-1])
-                        await i.response.edit_message(content="", embed=msg_embd, view=view)
-                    else:
+                    
+                    @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
+                    async def far_left_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal cur_page
                         cur_page = 1
                         msg_embd = get_embed(best_targets[cur_page-1])
                         self.button_check(best_targets[cur_page-1])
                         await i.response.edit_message(content="", embed=msg_embd, view=view)
 
-                @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
-                async def far_right_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal cur_page
-                    cur_page = pages
-                    msg_embd = get_embed(best_targets[cur_page-1])
-                    self.button_check(best_targets[cur_page-1])
-                    await i.response.edit_message(content="", embed=msg_embd, view=view)
-            
-                if best_targets[0]['beige_turns'] > 0:
-                    disabled = False
-                else:
-                    disabled = True
+                    @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
+                    async def left_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal cur_page
+                        if cur_page > 1:
+                            cur_page -= 1
+                            msg_embd = get_embed(best_targets[cur_page-1])
+                            self.button_check(best_targets[cur_page-1])
+                            await i.response.edit_message(content="", embed=msg_embd, view=view)
+                        else:
+                            cur_page = pages
+                            msg_embd = get_embed(best_targets[cur_page-1])
+                            self.button_check(best_targets[cur_page-1])
+                            await i.response.edit_message(content="", embed=msg_embd, view=view)
+                    
+                    @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
+                    async def right_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal cur_page
+                        if cur_page != pages:
+                            cur_page += 1
+                            msg_embd = get_embed(best_targets[cur_page-1])
+                            self.button_check(best_targets[cur_page-1])
+                            await i.response.edit_message(content="", embed=msg_embd, view=view)
+                        else:
+                            cur_page = 1
+                            msg_embd = get_embed(best_targets[cur_page-1])
+                            self.button_check(best_targets[cur_page-1])
+                            await i.response.edit_message(content="", embed=msg_embd, view=view)
 
-                @discord.ui.button(label="Beige reminder", style=discord.ButtonStyle.primary, disabled=disabled, custom_id="beige")
-                async def beige_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal cur_page
-                    beige_button = [x for x in self.children if x.custom_id == "beige"][0]
-                    cur_embed = best_targets[cur_page-1]
-                    turns = cur_embed['beige_turns']
-                    if turns == 0:
-                        beige_button.disabled = True
-                        await ctx.edit(view=view)
-                        await i.response.send_message(content=f"They are not in beige!", ephemeral=True)
-                        return
-                    reminder = cur_embed['id']
-                    user = mongo.global_users.find_one({"user": ctx.author.id})
-                    if user == None:
-                        await i.response.send_message(content=f"I didn't find you in the database! Make sure to `/verify`!", ephemeral=True)
-                        return
-                    for entry in user['beige_alerts']:
-                        if reminder == entry:
+                    @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
+                    async def far_right_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal cur_page
+                        cur_page = pages
+                        msg_embd = get_embed(best_targets[cur_page-1])
+                        self.button_check(best_targets[cur_page-1])
+                        await i.response.edit_message(content="", embed=msg_embd, view=view)
+                
+                    if best_targets[0]['beige_turns'] > 0:
+                        disabled = False
+                    else:
+                        disabled = True
+
+                    @discord.ui.button(label="Beige reminder", style=discord.ButtonStyle.primary, disabled=disabled, custom_id="beige")
+                    async def beige_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal cur_page
+                        beige_button = [x for x in self.children if x.custom_id == "beige"][0]
+                        cur_embed = best_targets[cur_page-1]
+                        turns = cur_embed['beige_turns']
+                        if turns == 0:
                             beige_button.disabled = True
                             await ctx.edit(view=view)
-                            await i.response.send_message(content=f"You already have a beige reminder for this nation!", ephemeral=True)
+                            await i.response.send_message(content=f"They are not in beige!", ephemeral=True)
                             return
-                    mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
-                    beige_button.disabled = True
-                    await ctx.edit(view=view)
-                    await i.response.send_message(content=f"A beige reminder for <https://politicsandwar.com/nation/id={cur_embed['id']}> was added!", ephemeral=True)
+                        reminder = cur_embed['id']
+                        user = mongo.global_users.find_one({"user": ctx.author.id})
+                        if user == None:
+                            await i.response.send_message(content=f"I didn't find you in the database! Make sure to `/verify`!", ephemeral=True)
+                            return
+                        for entry in user['beige_alerts']:
+                            if reminder == entry:
+                                beige_button.disabled = True
+                                await ctx.edit(view=view)
+                                await i.response.send_message(content=f"You already have a beige reminder for this nation!", ephemeral=True)
+                                return
+                        mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
+                        beige_button.disabled = True
+                        await ctx.edit(view=view)
+                        await i.response.send_message(content=f"A beige reminder for <https://politicsandwar.com/nation/id={cur_embed['id']}> was added!", ephemeral=True)
 
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await utils.run_timeout(ctx, view)
-                
-            view = embed_paginator()
-            await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
+                    async def interaction_check(self, interaction) -> bool:
+                        if interaction.user != ctx.author:
+                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                            return False
+                        else:
+                            return True
+                    
+                    async def on_timeout(self):
+                        await utils.run_timeout(ctx, view)
+                    
+                view = embed_paginator()
+                await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
+
+            else:
+                targets = sorted(best_targets, key=lambda k: k['nation_loot_value'], reverse=True)
+                desc = filters
+                for n in range(min(20, len(targets))):
+                    target = targets[n]
+                    desc += f"\n\n**Last beige: ${target['nation_loot']}**\n[{target['nation_name']}](https://politicsandwar.com/nation/id={target['id']}) | Active: <t:{round(datetime.strptime(target['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R> | Ground IT: {round(100*target['groundwin']**3)}%"
+                embed = discord.Embed(title="Top nations by beige loot", description=desc, color=0xff5100)
+                embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+                await ctx.edit(content="", embed=embed, attachments=[], view=None)
+
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
