@@ -587,7 +587,7 @@ class Background(commands.Cog):
                     mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
                     await ctx.respond("You have successfully verified your nation!")
                 else:
-                    await ctx.respond(f'1. Got to https://politicsandwar.com/nation/edit/\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field.\n4. Come back to discord\n5. Write `/verify {nation_id}` again.')
+                    await ctx.respond(f'1. Go to <https://politicsandwar.com/nation/edit/>\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field\n4. Come back to discord\n5. Write `/verify {nation_id}` again')
             except (KeyError, IndexError):
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
         except Exception as e:
