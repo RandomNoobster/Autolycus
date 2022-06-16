@@ -4,7 +4,6 @@ import aiohttp
 import re
 from discord.commands import slash_command, Option, SlashCommandGroup
 from mako.template import Template
-import asyncio
 import random
 import pathlib
 import json
@@ -15,7 +14,6 @@ import utils
 from keep_alive import app
 from flask.views import MethodView
 from flask import request
-import traceback
 from main import mongo, logger
 
 api_key = os.getenv("api_key")
@@ -1029,11 +1027,11 @@ class TargetFinding(commands.Cog):
         ctx: discord.ApplicationContext,
     ):
         try:
-            await ctx.defer()
+            await ctx.respond("Let me think for a second...")
             
             user = utils.find_nation_plus(self, ctx.author.id)
             if not user:
-                await ctx.respond("Make sure that you are verified with `/verify`!")
+                await ctx.edit("Make sure that you are verified with `/verify`!")
                 return
             
             config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
@@ -1049,12 +1047,27 @@ class TargetFinding(commands.Cog):
                 except:
                     fail = True
             if fail:
-                await ctx.respond("This command has not been configured for this server! Someone with the `manage_server` permission must use `/config`!")
-                return
+                view = utils.yes_or_no_view(ctx=ctx)
+                embed = discord.Embed(title="Targets not configured", description="This command has not been configured for this server. To configure targeted alliances, someone with the `manage_server` permission must use `/config`.\n\nDo you want to continue with all alliances being targeted?", color=0xff5100)
+                await ctx.edit(content="", embed=embed, view=view)
+                timed_out = await view.wait()
+                if timed_out:
+                    return
+                if view.result == True:
+                    await ctx.edit(content="Let me think for a second...", view=None, embed=None)
+                    with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
+                        file_content = json.load(json_file)
+                    res = {"data": {"alliances": {"data": [file_content]}}}
+                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
+                elif view.result == False:
+                    await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
+                    return
+                else:
+                    return
 
-            res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
-            
-            user_nation = res['data']['nations']['data'][0]
+            if not fail:
+                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
+                user_nation = res['data']['nations']['data'][0]
 
             nation_list = []
             for alliance in res['data']['alliances']['data']:
@@ -1064,28 +1077,33 @@ class TargetFinding(commands.Cog):
                     for city in nation['cities']:
                         avg_infra += city['infrastructure']
                     results = await self.battle_calc(nation1=user_nation, nation2=nation)
+                    # should parallelize this https://stackoverflow.com/a/56162461/14466960
                     nation['nuke_cost'] = results['nation1_nuke_nation2_total']
                     nation['missile_cost'] = results['nation1_missile_nation2_total']
                     nation["avg_infra"] = avg_infra / len(nation['cities'])
                     nation_list.append(nation)
 
             if len(nation_list) == 0:
-                await ctx.respond("No eligible targets found!")
+                await ctx.edit("No eligible targets found!")
                 return
             
             nation_list = sorted(nation_list, key=lambda x: x['nuke_cost'], reverse=True)
 
             embed = discord.Embed(title="Nuke Targets", description="", color=0xff5100)
-            for n in range(min(8, len(nation_list))):
+            for n in range(min(10, len(nation_list))):
                 if n == 0:
                     pass
                 elif n % 2 == 0:
                     embed.add_field(name="\u200b", value="\u200b", inline=False)
                 else:
                     embed.add_field(name="\u200b", value="\u200b", inline=True)
-                embed.add_field(name=f"{nation_list[n]['nation_name']}", value=f"[Link](https://politicsandwar.com/nation/id={nation_list[n]['id']})\nDamage/nuke: `${nation_list[n]['nuke_cost']:,.0f}`\nDamage/missile: `${nation_list[n]['missile_cost']:,.0f}`\nMax infra: `{nation_list[n]['max_infra']:.0f}`\nAvg. infra: `{nation_list[n]['avg_infra']:.0f}`\nVDS: `{nation_list[n]['vds']}`\nIron Dome: `{nation_list[n]['irond']}`")
+                if nation_list[n]['alliance']:
+                    alliance = f"[{nation_list[n]['alliance']['name']}](https://politicsandwar.com/alliance/id={nation_list[n]['alliance']['id']}) ({nation_list[n]['alliance_position'].capitalize()})"
+                else:
+                    alliance = "No alliance"
+                embed.add_field(name=f"{nation_list[n]['nation_name']}", value=f"[Nation](https://politicsandwar.com/nation/id={nation_list[n]['id']}) | {alliance}\nDamage/nuke: `${nation_list[n]['nuke_cost']:,.0f}`\nDamage/missile: `${nation_list[n]['missile_cost']:,.0f}`\nMax infra: `{nation_list[n]['max_infra']:.0f}`\nAvg. infra: `{nation_list[n]['avg_infra']:.0f}`\nVital Defense: {'✅' if nation_list[n]['vds'] else '<:redcross:862669500977905694>'}\nIron Dome: {'✅' if nation_list[n]['irond'] else '<:redcross:862669500977905694>'}")
             
-            await ctx.respond(embed=embed)
+            await ctx.edit(embed=embed, content="")
 
         except Exception as e:
             logger.error(e, exc_info=True)

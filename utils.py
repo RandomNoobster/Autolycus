@@ -61,11 +61,6 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2) -> Union[dic
                         retry += 1
                         await asyncio.sleep(1)
                         continue
-                try:
-                    errors = json_response['errors']
-                    print(errors)
-                except:
-                    pass
                 return json_response
 
 def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
@@ -80,6 +75,35 @@ def embed_pager(title: str, fields: list, description: str = "", color: int = 0x
         if n % 24 == 0:
             index += 1
     return embeds
+
+class yes_or_no_view(discord.ui.View):
+    def __init__(self, ctx, timeout: int = 600, author_check: bool = True):
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.author_check = author_check
+        self.result = None
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green)
+    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+        self.result = True
+        await i.response.pong()
+        self.stop()
+    
+    @discord.ui.button(label="No", style=discord.ButtonStyle.red)
+    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+        self.result = False
+        await i.response.pong()
+        self.stop()
+
+    async def interaction_check(self, interaction) -> bool:
+        if interaction.user != self.ctx.author and self.author_check:
+            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+            return False
+        else:
+            return True
+    
+    async def on_timeout(self):
+        await run_timeout(self.ctx, self)     
                 
 async def reaction_checker(self, message: discord.Message, embeds: list) -> None:
     reactions = []
