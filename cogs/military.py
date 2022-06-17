@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import utils
 from keep_alive import app
 from flask.views import MethodView
+import math
 from flask import request
 from main import mongo, logger
 
@@ -1089,21 +1090,30 @@ class TargetFinding(commands.Cog):
             
             nation_list = sorted(nation_list, key=lambda x: x['nuke_cost'], reverse=True)
 
-            embed = discord.Embed(title="Nuke Targets", description="", color=0xff5100)
-            for n in range(min(10, len(nation_list))):
-                if n == 0:
-                    pass
-                elif n % 2 == 0:
-                    embed.add_field(name="\u200b", value="\u200b", inline=False)
-                else:
-                    embed.add_field(name="\u200b", value="\u200b", inline=True)
-                if nation_list[n]['alliance']:
-                    alliance = f"[{nation_list[n]['alliance']['name']}](https://politicsandwar.com/alliance/id={nation_list[n]['alliance']['id']}) ({nation_list[n]['alliance_position'].capitalize()})"
-                else:
-                    alliance = "No alliance"
-                embed.add_field(name=f"{nation_list[n]['nation_name']}", value=f"[Nation](https://politicsandwar.com/nation/id={nation_list[n]['id']}) | {alliance}\nDamage/nuke: `${nation_list[n]['nuke_cost']:,.0f}`\nDamage/missile: `${nation_list[n]['missile_cost']:,.0f}`\nMax infra: `{nation_list[n]['max_infra']:.0f}`\nAvg. infra: `{nation_list[n]['avg_infra']:.0f}`\nVital Defense: {'✅' if nation_list[n]['vds'] else '<:redcross:862669500977905694>'}\nIron Dome: {'✅' if nation_list[n]['irond'] else '<:redcross:862669500977905694>'}")
+            embeds = []
+            for n in range(0, len(nation_list), 8):
+                embed = discord.Embed(title="Nuke Targets", description="The damage numbers are calculated for ordinary wars - for attrition wars the damage is doubled. War policies and projects are accounted for when calculating damage. Use /damage for more detailed information about the damage dealt.", color=0xff5100)
+                for i in range(n, min(n+10, len(nation_list))):
+                    if i == n:
+                        pass
+                    elif i % 2 == 0:
+                        embed.add_field(name="\u200b", value="\u200b", inline=False)
+                    else:
+                        embed.add_field(name="\u200b", value="\u200b", inline=True)
+                    if nation_list[i]['alliance']:
+                        alliance = f"[{nation_list[i]['alliance']['name']}](https://politicsandwar.com/alliance/id={nation_list[i]['alliance']['id']}) ({nation_list[i]['alliance_position'].capitalize()})"
+                    else:
+                        alliance = "No alliance"
+                    embed.add_field(name=f"{nation_list[i]['nation_name']}", value=f"[Nation](https://politicsandwar.com/nation/id={nation_list[i]['id']}) | {alliance}\nDamage/nuke: `${nation_list[i]['nuke_cost']:,.0f}`\nDamage/missile: `${nation_list[i]['missile_cost']:,.0f}`\nMax infra: `{nation_list[i]['max_infra']:.0f}`\nAvg. infra: `{nation_list[i]['avg_infra']:.0f}`\nVital Defense: {'✅' if nation_list[i]['vds'] else '<:redcross:862669500977905694>'}\nIron Dome: {'✅' if nation_list[i]['irond'] else '<:redcross:862669500977905694>'}")
+                embed.set_footer(text=f"Page {n/8+1:.0f}/{math.ceil(len(nation_list)/8)}")
+                embeds.append(embed)
             
-            await ctx.edit(embed=embed, content="")
+            if len(embeds) > 1:
+                view = utils.switch(ctx=ctx, embeds=embeds, max_page=len(embeds))
+            else:
+                view = None
+
+            await ctx.edit(embed=embeds[0], content="", view=view)
 
         except Exception as e:
             logger.error(e, exc_info=True)
