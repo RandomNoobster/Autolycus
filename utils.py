@@ -103,7 +103,52 @@ class yes_or_no_view(discord.ui.View):
             return True
     
     async def on_timeout(self):
-        await run_timeout(self.ctx, self)     
+        await run_timeout(self.ctx, self)  
+
+class switch(discord.ui.View):
+    def __init__(self, ctx, max_page: int, embeds: list, timeout: int = 600, author_check: bool = True, cur_page: int = 0):
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.author_check = author_check
+        self.cur_page = cur_page
+        self.max_page = max_page - 1
+        self.embeds = embeds
+
+    @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
+    async def far_left_callback(self, b: discord.Button, i: discord.Interaction):
+        await i.response.edit_message(embed=self.embeds[0])
+
+    @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
+    async def left_callback(self, b: discord.Button, i: discord.Interaction):
+        if self.cur_page == 1:
+            self.cur_page = self.max_page
+            await i.response.edit_message(embed=self.embeds[self.cur_page])
+        else:
+            self.cur_page -= 1
+            await i.response.edit_message(embed=self.embeds[self.cur_page])
+    
+    @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
+    async def right_callback(self, b: discord.Button, i: discord.Interaction):
+        if self.cur_page == self.max_page:
+            self.cur_page = 0
+            await i.response.edit_message(embed=self.embeds[self.cur_page])
+        else:
+            self.cur_page += 1
+            await i.response.edit_message(embed=self.embeds[self.cur_page])
+    
+    @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
+    async def far_right_callback(self, b: discord.Button, i: discord.Interaction):
+        await i.response.edit_message(embed=self.embeds[self.max_page])
+    
+    async def interaction_check(self, interaction) -> bool:
+        if interaction.user != self.ctx.author and self.author_check:
+            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+            return False
+        else:
+            return True
+    
+    async def on_timeout(self):
+        await run_timeout(self.ctx, self)
                 
 async def reaction_checker(self, message: discord.Message, embeds: list) -> None:
     reactions = []
