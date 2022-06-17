@@ -1059,7 +1059,7 @@ class TargetFinding(commands.Cog):
                     with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
                         file_content = json.load(json_file)
                     res = {"data": {"alliances": {"data": [file_content]}}}
-                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
+                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
                 elif view.result == False:
                     await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
                     return
@@ -1067,12 +1067,16 @@ class TargetFinding(commands.Cog):
                     return
 
             if not fail:
-                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
+                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds score alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
                 user_nation = res['data']['nations']['data'][0]
 
+            minscore = round(user_nation['score'] * 0.75)
+            maxscore = round(user_nation['score'] * 1.75)
             nation_list = []
             for alliance in res['data']['alliances']['data']:
                 for nation in alliance['nations']:
+                    if nation['score'] < minscore or nation['score'] > maxscore:
+                        continue
                     nation['max_infra'] = sorted(nation['cities'], key=lambda x: x['infrastructure'], reverse=True)[0]['infrastructure']
                     avg_infra = 0
                     for city in nation['cities']:

@@ -116,6 +116,7 @@ class switch(discord.ui.View):
 
     @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
     async def far_left_callback(self, b: discord.Button, i: discord.Interaction):
+        self.cur_page = 0
         await i.response.edit_message(embed=self.embeds[0])
 
     @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
@@ -138,6 +139,7 @@ class switch(discord.ui.View):
     
     @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
     async def far_right_callback(self, b: discord.Button, i: discord.Interaction):
+        self.cur_page = self.max_page
         await i.response.edit_message(embed=self.embeds[self.max_page])
     
     async def interaction_check(self, interaction) -> bool:
