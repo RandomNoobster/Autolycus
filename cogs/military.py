@@ -1032,7 +1032,7 @@ class TargetFinding(commands.Cog):
             
             user = utils.find_nation_plus(self, ctx.author.id)
             if not user:
-                await ctx.edit("Make sure that you are verified with `/verify`!")
+                await ctx.edit(content="Make sure that you are verified with `/verify`!")
                 return
             
             config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
@@ -1089,7 +1089,7 @@ class TargetFinding(commands.Cog):
                     nation_list.append(nation)
 
             if len(nation_list) == 0:
-                await ctx.edit("No eligible targets found!")
+                await ctx.edit(content="No eligible targets found!")
                 return
             
             nation_list = sorted(nation_list, key=lambda x: x['nuke_cost'], reverse=True)
