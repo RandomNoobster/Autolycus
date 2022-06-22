@@ -281,6 +281,12 @@ def find_nation_plus(self, arg: Union[str, int]) -> Union[dict, None]: # only re
                 return None
     return nation
 
+async def listify(cursor):
+    new_list = []
+    async for x in cursor:
+        new_list.append(x)
+    return new_list
+
 async def yes_or_no(self, ctx) -> Union[bool, None]:
     try:
         msg = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=40)
