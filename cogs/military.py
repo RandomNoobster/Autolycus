@@ -14,8 +14,9 @@ import utils
 from keep_alive import app
 from flask.views import MethodView
 import math
+from collections import defaultdict
 from flask import request
-from main import mongo, logger
+from main import mongo, logger, async_auto_mongo
 
 api_key = os.getenv("api_key")
 
@@ -307,40 +308,37 @@ class TargetFinding(commands.Cog):
                 view = None
 
                 await ctx.edit(content="Getting targets...", view=view, embed=None)
-                done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
+
+                query = defaultdict(lambda: 0)
+                query["score"] = {"$gt": minscore, "$lt": maxscore}
+                query['alliance_id'] = {"$nin": ["4729", "7531"]}
 
                 await ctx.edit(content="Caching targets...")
-                for done_job in done_jobs:
-                    for x in done_job['data']['nations']['data']:
-                        if who == " alliance_position:[0,1]":
-                            if x['alliance_position'] not in ["NOALLIANCE", "APPLICANT"]:
-                                continue
-                        elif who == " alliance_id:0":
-                            if x['alliance_id'] != "0":
-                                continue
-                        if not minscore < x['score'] < maxscore:
-                            continue
-                        if beige:
-                            pass
-                        else:
-                            if x['color'] == "beige":
-                                continue
-                            else: 
-                                pass
-                        used_slots = 0
-                        for war in x['wars']:
-                            if war['turnsleft'] > 0 and war['defid'] == x['id']:
-                                used_slots += 1
-                            for attack in war['attacks']:
-                                if attack['loot_info']:
-                                    attack['loot_info'] = attack['loot_info'].replace("\r\n", "")
-                        if x['alliance_id'] in ["4729", "7531"]:
-                            continue
-                        if used_slots > max_wars:
-                            continue
-                        if (datetime.utcnow() - datetime.strptime(x['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days < inactive_limit:
-                            continue
-                        target_list.append(x)
+                if who == " alliance_position:[0,1]":
+                    query['alliance_position'] = {"$in": ["NOALLIANCE", "APPLICANT"]}
+                elif who == " alliance_id:0":
+                    query['alliance_id'] = "0"
+                if beige:
+                    pass
+                else:
+                    query['color'] = {"$ne": "beige"}
+
+                mongo_nations = await utils.listify(async_auto_mongo.nations.find(query))
+                target_list = []
+
+                for x in mongo_nations:
+                    used_slots = 0
+                    for war in x['wars']:
+                        if war['turnsleft'] > 0 and war['defid'] == x['id']:
+                            used_slots += 1
+                        for attack in war['attacks']:
+                            if attack['loot_info']:
+                                attack['loot_info'] = attack['loot_info'].replace("\r\n", "")
+                    if used_slots > max_wars:
+                        continue
+                    if (datetime.utcnow() - datetime.strptime(x['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days < inactive_limit:
+                        continue
+                    target_list.append(x)
                         
                 if len(target_list) == 0:
                     await ctx.edit(content="No targets matched your criteria!", attachments=[])
@@ -1056,9 +1054,6 @@ class TargetFinding(commands.Cog):
                     return
                 if view.result == True:
                     await ctx.edit(content="Let me think for a second...", view=None, embed=None)
-                    with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
-                        file_content = json.load(json_file)
-                    res = {"data": {"alliances": {"data": [file_content]}}}
                     user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
                 elif view.result == False:
                     await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
@@ -1073,6 +1068,12 @@ class TargetFinding(commands.Cog):
             minscore = round(user_nation['score'] * 0.75)
             maxscore = round(user_nation['score'] * 1.75)
             nation_list = []
+
+            if fail:
+                cursor = async_auto_mongo.nations.find({"score": {"$gt": minscore, "$lt": maxscore}})
+                nations = await utils.listify(cursor)
+                res = {"data": {"alliances": {"data": [{"nations": nations}]}}}
+
             for alliance in res['data']['alliances']['data']:
                 for nation in alliance['nations']:
                     if nation['score'] < minscore or nation['score'] > maxscore:
