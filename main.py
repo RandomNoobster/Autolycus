@@ -6,11 +6,15 @@ import discord
 import logging
 from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
+import motor.motor_asyncio
 load_dotenv()
 
 client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
+async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
+auto_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("auto_pymongolink"), serverSelectionTimeoutMS=5000)
+async_auto_mongo = auto_client['main']
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
