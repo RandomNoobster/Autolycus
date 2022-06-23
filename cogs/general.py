@@ -183,6 +183,9 @@ class Background(commands.Cog):
             elif nation['continent'] == "au":
                 cont_rss = ['oil_wells', 'iron_mines', 'uranium_mines']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
+            elif nation['continent'] == "an":
+                cont_rss = ['oil_wells', 'coal_mines', 'uranium_mines']
+                rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "eu":
                 cont_rss = ['oil_wells', 'bauxite_mines', 'uranium_mines']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
