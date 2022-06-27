@@ -1430,9 +1430,9 @@ class TargetFinding(commands.Cog):
                     results[f'{nation}_policy_infra_lost'] = 1.05
                 elif results[f'{nation}']['warpolicy'] == "Arcane":
                     results[f'{nation}_policy_infra_lost'] = 1.05
-                elif results[f'{nation}']['vds']:
+                if results[f'{nation}']['vds']:
                     results[f'{nation}_vds_mod'] = 0.8
-                elif results[f'{nation}']['irond']:
+                if results[f'{nation}']['irond']:
                     results[f'{nation}_irond_mod'] = 0.5
             
             def airstrike_casualties(winrate: Union[int, float]) -> float:
