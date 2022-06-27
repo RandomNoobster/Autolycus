@@ -986,7 +986,7 @@ class TargetFinding(commands.Cog):
     async def counters(
         self,
         ctx: discord.ApplicationContext,
-        nation: Option(str, "The nation you want to counter"),
+        nation: Option(str, "The nation you want to counter")
     ):
         try:
             await ctx.defer()
@@ -1026,6 +1026,7 @@ class TargetFinding(commands.Cog):
     async def nuketargets(
         self,
         ctx: discord.ApplicationContext,
+        sort: Option(str, "The metric to sort the targets by", choices=["Nuke damage", "Missile damage"]) = "Nuke damage"
     ):
         try:
             await ctx.respond("Let me think for a second...")
@@ -1075,6 +1076,8 @@ class TargetFinding(commands.Cog):
             nation_list = []
             for alliance in res['data']['alliances']['data']:
                 for nation in alliance['nations']:
+                    if nation['vacation_mode_turns'] > 0:
+                        continue
                     if nation['score'] < minscore or nation['score'] > maxscore:
                         continue
                     nation['max_infra'] = sorted(nation['cities'], key=lambda x: x['infrastructure'], reverse=True)[0]['infrastructure']
@@ -1092,7 +1095,11 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(content="No eligible targets found!")
                 return
             
-            nation_list = sorted(nation_list, key=lambda x: x['nuke_cost'], reverse=True)
+            if sort == "Nuke damage":
+                sort_key = "nuke_cost"
+            elif sort == "Missile damage":
+                sort_key = "missile_cost"
+            nation_list = sorted(nation_list, key=lambda x: x[sort_key], reverse=True)
 
             embeds = []
             for n in range(0, len(nation_list), 8):
