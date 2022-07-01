@@ -953,7 +953,13 @@ class TargetFinding(commands.Cog):
 
             cur_page = 1
 
+            endpoint = await utils.damage_page(results, app)
+            url = f"http://132.145.71.195:5000/damage/{endpoint}"
+
             class switch(discord.ui.View):
+                def __init__(self):
+                    super().__init__(discord.ui.Button(label="Damage sheet", url=url))
+
                 @discord.ui.button(label="Switch attacker/defender", style=discord.ButtonStyle.primary)
                 async def callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal cur_page
@@ -1208,14 +1214,8 @@ class TargetFinding(commands.Cog):
             nation2_id = str(nation2_nation['id'])
             
             results = await self.battle_calc(nation1_id, nation2_id)
-            endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
-            class webraid(MethodView):
-                def get(raidclass):
-                    with open(pathlib.Path.cwd() / "templates" / "damage.txt", "r") as file:
-                        template = file.read()
-                    result = Template(template).render(results=results, weird_division=utils.weird_division)
-                    return str(result)
-            app.add_url_rule(f"/damage/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
+            endpoint = await utils.damage_page(results, app)
+
             await ctx.respond(content=f"Go to http://132.145.71.195:5000/damage/{endpoint}")
         except Exception as e:
             logger.error(e, exc_info=True)

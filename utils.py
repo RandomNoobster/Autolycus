@@ -6,6 +6,9 @@ from datetime import datetime
 from typing import Union, Tuple
 import aiohttp
 import re
+import pathlib
+from flask.views import MethodView
+from mako.template import Template
 import os
 import logging
 import pymongo
@@ -62,6 +65,17 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2) -> Union[dic
                         await asyncio.sleep(1)
                         continue
                 return json_response
+
+async def damage_page(results: dict, app) -> str:
+    endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
+    class webraid(MethodView):
+        def get(raidclass):
+            with open(pathlib.Path.cwd() / "templates" / "damage.txt", "r") as file:
+                template = file.read()
+            result = Template(template).render(results=results, weird_division=weird_division)
+            return str(result)
+    app.add_url_rule(f"/damage/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
+    return endpoint
 
 def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
     embeds = []
