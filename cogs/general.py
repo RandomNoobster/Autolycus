@@ -553,8 +553,8 @@ class Background(commands.Cog):
     async def botinfo(self, ctx: discord.ApplicationContext):
         try:
             await ctx.defer()
-            content = f"{len(self.bot.users)} people across {len(self.bot.guilds)} servers have access to me, but only {len(mongo.global_users.find({}))} have verified themselves."
-            embed = discord.Embed(title="My servers:", description=content, color=0xff5100)
+            content = f"{len(self.bot.users)} people across {len(self.bot.guilds)} servers have access to me, but only {len(list(mongo.global_users.find({})))} have verified themselves.\n\nHere you can find the:\n> [GitHub Repository](https://github.com/RandomNoobster/Autolycus/tree/oracle)\n> [Invite Link](https://discord.com/api/oauth2/authorize?client_id=946351598223888414&permissions=326417827840&scope=applications.commands%20bot)\n> [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/)\n> [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)\n\u200b"
+            embed = discord.Embed(title="About me", description=content, color=0xff5100)
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
             await ctx.respond(embed=embed)
         except Exception as e:
