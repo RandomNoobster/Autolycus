@@ -53,6 +53,65 @@ class Config(commands.Cog):
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
+    
+    @config_group.command(
+        name="war_threads",
+        description="Configure automated war threads"
+    )
+    @commands.has_permissions(manage_guild=True)
+    async def config_war_threads(
+        self,
+        ctx: discord.ApplicationContext,
+        alliance_ids: Option(str, "The alliance id(s) to create war threads for; your alliance and optionally allied alliances.") = [],
+        channel: Option(discord.TextChannel, "The channel to create the war threads in") = None
+    ):      
+        try:  
+            content = ""
+            changes = {}
+            if alliance_ids != []:
+                id_list, id_str = self.str_to_id_list(alliance_ids)
+                changes['war_threads_alliance_ids'] = id_list
+                content += f"Alliance id(s) for `war threads` set to `{id_str}`"
+            elif not channel:
+                changes['war_threads_alliance_ids'] = []
+                content += f"Alliance id(s) for `war threads` set to `None`"
+            if channel:
+                content += f"\nChannel for `war threads` set to <#{channel.id}>"
+                perms = channel.permissions_for(ctx.guild.me)
+                if not perms.manage_threads:
+                    await ctx.respond(f"I need the `manage_threads` permission, but I do not have it in <#{channel.id}>")
+                    return
+                changes['war_threads_channel_id'] = channel.id
+            elif not alliance_ids:
+                content += f"\nChannel for `war threads` set to `None`"
+                changes['war_threads_channel_id'] = None
+            mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild_id}, {"$set": changes}, upsert=True)
+            await ctx.respond(content)
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+    
+    @config_group.command(
+        name="view_current_settings",
+        description="Get an overview of how Autolycus is configured in this server."
+    )
+    @commands.has_permissions(manage_guild=True)
+    async def config_view_current_settings(
+        self,
+        ctx: discord.ApplicationContext,
+    ):      
+        try:  
+            server = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+            if not server:
+                await ctx.respond("No configurable commands have been configured in this server!")
+            else:
+                content = "The configuration for this guild is as follows:\n\n```\n"
+                for k,v in server.items():
+                    content += f"{k}: {v}\n"
+                await ctx.respond(content + "```")
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
 
     async def get_alliances(ctx: discord.AutocompleteContext):
         """Returns a list of alliances that begin with the characters entered so far."""
