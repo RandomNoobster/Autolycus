@@ -6,6 +6,8 @@ import discord
 import logging
 from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
+intents = discord.Intents.default()
+intents.members = True
 load_dotenv()
 
 client = pymongo.MongoClient(os.getenv("pymongolink"))
@@ -17,7 +19,7 @@ channel_id = int(os.getenv("debug_channel"))
 logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger()
 
-bot = commands.Bot()
+bot = commands.Bot(intents=intents)
 
 for filename in os.listdir('./cogs'):
     if filename.endswith('.py'):
@@ -25,9 +27,10 @@ for filename in os.listdir('./cogs'):
 
 @bot.event
 async def on_ready():
-    logger.info(f"I am in {len(bot.guilds)} servers:")
-    n = len(bot.guilds)
-    for guild in bot.guilds:
+    guilds = sorted(bot.guilds, key=lambda x: x.member_count, reverse=True)
+    n = len(guilds)
+    logger.info(f"I am in {n} servers:")
+    for guild in guilds:
         extra = ""
         try:
             await ApplicationCommandMixin.get_desynced_commands(bot, guild.id)
@@ -35,7 +38,7 @@ async def on_ready():
             owner = guild.owner
             extra = f"|| Slash disallowed, DM {owner}"
             n -= 1
-        logger.info(f"-> {guild} || {guild.member_count} members {extra}")
+        logger.info(f"-> {guild.member_count} members || {guild} {extra}")
     logger.info(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     logger.info('We have logged in as {0.user}'.format(bot))
