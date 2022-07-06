@@ -553,16 +553,8 @@ class Background(commands.Cog):
     async def botinfo(self, ctx: discord.ApplicationContext):
         try:
             await ctx.defer()
-            slash_guilds = len(self.bot.guilds)
-            total_people = 0
-            for guild in self.bot.guilds:
-                total_people += guild.member_count
-                try:
-                    await ApplicationCommandMixin.get_desynced_commands(self.bot, guild.id)
-                except discord.errors.Forbidden:
-                    slash_guilds -= 1
-            content = f"I am serving {total_people} people across {len(self.bot.guilds)} servers.\nSlash commands are allowed in {slash_guilds}/{len(self.bot.guilds)} guilds."
-            embed = discord.Embed(title="My guilds:", description=content, color=0xff5100)
+            content = f"{len(self.bot.users)} people across {len(self.bot.guilds)} servers have access to me, but only {len(mongo.global_users.find({}))} have verified themselves."
+            embed = discord.Embed(title="My servers:", description=content, color=0xff5100)
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
             await ctx.respond(embed=embed)
         except Exception as e:
@@ -625,6 +617,7 @@ class Background(commands.Cog):
             help_text = ""
             for command in list(self.bot._application_commands.values())[1:]:
                 help_text += f"`{command}` - {command.description}\n"
+            help_text += "\nHere you can find the [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/) and [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)"
             embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
             await ctx.respond(embed=embed)
