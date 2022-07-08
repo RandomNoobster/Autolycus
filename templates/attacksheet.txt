@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+    <head>
+        <link rel="icon" href="https://i.ibb.co/2dX2WYW/atomism-ICONSSS.png">
+        <title>Raid targets</title>
+        <style>
+            table {
+                font-family: Verdana, Arial, Monaco;
+                font-size: 80%;
+                border-collapse: collapse;
+                width: 100%;
+            }
+
+            th {
+                text-align: left;
+                padding: 6px;
+                user-select: none;
+            }
+
+            tr:nth-child(even) {
+                background-color: #f2f2f2
+            }
+
+            th {
+                background-color: #383838;
+                color: white;
+                padding: 4px 10px;
+            }
+
+            th:hover {
+                background-color: #606060;
+                cursor: pointer;
+            }
+
+            td {
+                position: relative;
+                text-align: left;
+                padding: 1px 6px;
+                white-space: nowrap;
+            }
+
+            tr.strikeout > td {
+                background-color: #e8808c;
+            }
+
+            p {
+                font-family: sans-serif;
+                font-size: small;
+                padding-left: 10px;
+            }
+
+            button {
+                font-size: smaller;
+                padding: 0px 4px;
+            }
+
+            body {
+                margin: 0px;
+            }
+
+            .right {
+                text-align: right;
+            }
+
+            abbr:hover {
+                cursor: help;
+            }
+
+            /* #working {
+                opacity:0.5;
+                background-color:rgb(255,255,255);
+                position:fixed;
+                width:100%;
+                height:100%;
+                top:0px;
+                left:0px;
+                z-index:1000;
+                display:none;
+            } */
+
+        </style>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    </head>
+    <body>
+        <!-- <div id="working"></div> -->
+        <div style="overflow-x:auto;">
+            <table id="grid">
+                <tbody>
+                    <tr id="top">
+                        <th>Nation id</th>
+                        <th>Nation name</th>
+                        <th>Alliance</th>
+                        <th>Cities</th>
+                        <th>Color</th>
+                        <th>Days inactive</th>
+                        <th>Air and ground milt.</th>
+                        <th>Off. Wars</th>
+                        <th>Def. Wars</th>
+                        <th>Tot. Wars</th>
+                        <th colspan="100%">Potential attackers</th>
+                        </tr>
+                    % for nation in enemies:
+                        <tr
+                        % if nation['color'] == "beige" or (datetime.utcnow() - datetime.strptime(nation['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days > 14 or nation['def_wars'] == 3:
+                            class="strikeout"
+                        % endif
+                        >
+                            <td>${nation['id']}</td>
+                            <td><a href="https://politicsandwar.com/nation/id=${nation['id']}" target="_blank">${nation['nation_name']}</a></td>
+
+                            <td>${nation['alliance']['acronym']}</td>
+
+                            <td>${nation['num_cities']}</td>
+                            <td>
+                            ${nation['color']}
+                            % if nation['beige_turns'] > 0:
+                                (${nation['beige_turns']})
+                            % endif
+                            </td>
+
+                            % if nation['last_active'] == '-0001-11-30 00:00:00':
+                            <td class="right">0?</td>
+                            % else:
+                            <td class="right">${(datetime.utcnow() - datetime.strptime(nation['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days}</td>
+                            % endif
+
+                            <td>${round((weird_division(nation['soldiers'], nation['milt']['max_soldiers']) + weird_division(nation['tanks'], nation['milt']['max_tanks']) + weird_division(nation['aircraft'], nation['milt']['max_aircraft'])) * 100 / 3)}%</td>
+
+                            <td>${nation['off_wars']}</td>
+                            <td>${nation['def_wars']}</td>
+                            <td>${nation['tot_wars']}</td>
+                            
+                            % for potential_attacker in nation['winchance']:
+                            <td>
+                                % for ally in allies:
+                                    % if ally['id'] == potential_attacker['id']:
+                                        (${round(potential_attacker['winchance']*100)}%) <a href="https://politicsandwar.com/nation/id=${ally['id']}" target="_blank">${ally['nation_name']}</a>
+                                    % endif
+                                % endfor 
+                            </td>
+                            % endfor
+                        </tr>
+                    % endfor
+                </tbody>
+            </table>
+            <p>Time fetched: ${datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC<br><a href="http://www.timezoneconverter.com/cgi-bin/tzc.tzc" target="_blank">Timezone converter</a></p>
+            <p style="color:gray">Please report bugs to RandomNoobster#0093<br>Courtesy of Church of Atom</p>
+        </div>
+        <script>
+            const getCellValue = (tr, idx) => tr.children[idx].innerText.replace(/,/g, '').replace('NaN', '0') || tr.children[idx].textContent.replace(/,/g, '').replace('NaN', '0');
+
+            const comparer = (idx, asc) => (a, b) => ((v1, v2) => 
+                v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
+                )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
+
+            const table = document.querySelector('table');
+            //const working = document.querySelector('#working');
+            
+            function sortArrayTable(th) {
+                Array.from(table.querySelectorAll('tr:nth-child(n+2)'))
+                    .sort(comparer(Array.from(th.parentNode.children).indexOf(th), this.asc = !this.asc))
+                    .forEach(tr => {
+                        table.appendChild(tr);
+                    });
+            };
+
+            document.querySelectorAll('th').forEach(th => th.addEventListener('click', (function () {
+                //working.style.display = "block";
+
+                console.time();
+
+                sortArrayTable(th);
+                $(window).trigger('resize');
+
+                console.timeEnd();
+                
+                //working.style.display = "block";
+            })));
+        </script>
+    </body>
+</html>

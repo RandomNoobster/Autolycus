@@ -1,3 +1,4 @@
+import email
 import discord
 from discord.ext import commands
 import aiohttp
@@ -1021,6 +1022,77 @@ class TargetFinding(commands.Cog):
             embed = discord.Embed(title="Counters", description=f"[Explore counters against {result['nation_name']} on Slotter](https://slotter.bsnk.dev/search?nation={result['id']}&alliances={','.join(alliance_ids)}&countersMode=true&threatsMode=false&vm=false&grey=true&beige=false)", color=0xff5100)
             embed.set_footer(text="Slotter was made by Bann and is not affiliated with Autolycus")
             await ctx.respond(embed=embed)
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+    
+    @slash_command(
+        name="targetsheet",
+        description='Create a sheet to help with target assignment',
+        guild_ids=[729979781940248577, 434071714893398016]
+    )
+    async def targetsheet(
+        self,
+        ctx: discord.ApplicationContext,
+        allied_alliance_ids: Option(str, "The alliance id(s) to use when finding allied nations.") = [],
+        enemy_alliance_ids: Option(str, "The alliance id(s) to use when finding enemy nations.") = []
+    ):
+        try:
+            await ctx.defer()
+            allied_id_list, id_str = utils.str_to_id_list(self, allied_alliance_ids or "")
+            if id_str == "":
+                try:
+                    allied_id_list = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['counters_alliance_ids']
+                except:
+                    await ctx.respond("I could not find any allied alliances for this server! Someone with the `manage_server` permission must use `/config counters`, or you must supply some id(s) when you call this command!")
+                    return
+
+            enemy_id_list, id_str = utils.str_to_id_list(self, enemy_alliance_ids or "")
+            if id_str == "":
+                try:
+                    enemy_id_list = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['targets_alliance_ids']
+                except:
+                    await ctx.respond("I could not find any enemy alliances for this server! Someone with the `manage_server` permission must use `/config targets`, or you must supply some id(s) when you call this command!")
+                    return
+
+            allied_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(allied_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
+            enemy_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(enemy_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
+
+            for enemy in enemy_nations:
+                off_wars = 0
+                def_wars = 0
+                for war in enemy['wars']:
+                    if war['turnsleft'] > 0:
+                        if war['attid'] == enemy['id']:
+                            off_wars += 1
+                        else:
+                            def_wars += 1
+                enemy['off_wars'] = off_wars
+                enemy['def_wars'] = def_wars
+                enemy['tot_wars'] = off_wars + def_wars
+                chances = []
+                for ally in allied_nations:
+                    minscore = round(ally['score'] * 0.75)
+                    maxscore = round(ally['score'] * 1.75)
+                    if enemy['score'] >= minscore and enemy['score'] <= maxscore:
+                        results = await self.battle_calc(nation1 = ally, nation2 = enemy)
+                        chances.append({"id": ally['id'], "winchance": (results["nation1_ground_win_rate"] + results["nation1_air_win_rate"]) / 2})
+                chances = sorted(chances, key=lambda x: x['winchance'], reverse=True)
+                enemy['winchance'] = chances
+                enemy['milt'] = utils.militarization_checker(enemy)
+                
+            endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
+
+            class websheet(MethodView):
+                def get(sheetclass):
+                    with open(pathlib.Path.cwd() / "templates" / "attacksheet.txt", "r") as file:
+                        template = file.read()
+                    result = Template(template).render(allies=allied_nations, enemies=enemy_nations, datetime=datetime, weird_division=utils.weird_division)
+                    return str(result)
+
+            app.add_url_rule(f"/attacksheet/{endpoint}", view_func=websheet.as_view(str(datetime.utcnow())), methods=["GET"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
+            await ctx.respond("The sheet can be found here: http://132.145.71.195:5000/attacksheet/" + endpoint)
+            
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
