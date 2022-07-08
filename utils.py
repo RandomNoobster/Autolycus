@@ -345,10 +345,10 @@ def militarization_checker(nation: dict) -> float:
     milt['hangar_mmr'] = round(hangars / cities, 1)
     milt['drydock_mmr'] = round(drydocks / cities, 1)
 
-    milt['max_soldiers'] = min(3000 * barracks, nation['population']/6.67)
-    milt['max_tanks'] = min(250 * factories, nation['population']/66.67)
-    milt['max_aircraft'] = min(15 * hangars, nation['population']/1000)
-    milt['max_ships'] = min(5 * drydocks, nation['population']/10000)
+    milt['max_soldiers'] = math.floor(min(3000 * barracks, nation['population']/6.67))
+    milt['max_tanks'] = math.floor(min(250 * factories, nation['population']/66.67))
+    milt['max_aircraft'] = math.floor(min(15 * hangars, nation['population']/1000))
+    milt['max_ships'] = math.floor(min(5 * drydocks, nation['population']/10000))
 
     try:
         milt['soldiers_days'] = math.ceil((milt['max_soldiers'] - nation['soldiers']) / (milt['max_soldiers']/3))
