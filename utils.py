@@ -280,8 +280,8 @@ def find_nation(arg: Union[str, int]) -> Union[dict, None]:
     if isinstance(arg, str):
         arg = arg.strip()
     try:
-        arg = int(re.sub("[^0-9]", "", arg))
-        result = list(mongo.world_nations.find({"id": str(arg)}).collation(
+        new_arg = int(re.sub("[^0-9]", "", arg))
+        result = list(mongo.world_nations.find({"id": str(new_arg)}).collation(
             {"locale": "en", "strength": 1}))[0]
     except:
         try:
