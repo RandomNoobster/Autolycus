@@ -66,23 +66,23 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2) -> Union[dic
                         continue
                 return json_response
 
-def str_to_id_list(self, str_var):
-        try:
-            str_var = re.sub("[^0-9]", " ", str_var)
-            str_var = str_var.strip().replace(" ", ",")
-            index = 0
-            while True:
-                try:
-                    if str_var[index] == str_var[index+1] and not str_var[index].isdigit():
-                        str_var = str_var[:index] + str_var[index+1:]
-                        index -= 1
-                    index += 1
-                except Exception as e: 
-                    break
-            return str_var.split(","), str_var
-        except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+def str_to_id_list(str_var):
+    try:
+        str_var = re.sub("[^0-9]", " ", str_var)
+        str_var = str_var.strip().replace(" ", ",")
+        index = 0
+        while True:
+            try:
+                if str_var[index] == str_var[index+1] and not str_var[index].isdigit():
+                    str_var = str_var[:index] + str_var[index+1:]
+                    index -= 1
+                index += 1
+            except Exception as e: 
+                break
+        return str_var.split(","), str_var
+    except Exception as e:
+        logger.error(e, exc_info=True)
+        raise e
 
 async def damage_page(results: dict, app) -> str:
     endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
@@ -305,7 +305,7 @@ def find_nation_plus(self, arg: Union[str, int]) -> Union[dict, None]: # only re
     nation = find_nation(arg)
     if nation == None:
         nation = find_user(self, arg)
-        if nation == {}:
+        if not nation:
             return None
         else:
             nation = find_nation(nation['id'])

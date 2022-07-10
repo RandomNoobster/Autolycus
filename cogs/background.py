@@ -107,7 +107,7 @@ class General(commands.Cog):
 
     async def add_to_thread(self, thread, atom_id: Union[str, int], atom: dict = None):
         person = utils.find_user(self, atom_id)
-        if person == {}:
+        if not person:
             print("tried to add, but could not find", atom_id)
             if atom:
                 await thread.send(f"I was unable to add {atom['leader_name']} of {atom['nation_name']} to the thread. Have they not verified with `/verify`?")
@@ -122,7 +122,7 @@ class General(commands.Cog):
     
     async def remove_from_thread(self, thread, atom_id: Union[str, int], atom: dict = None):
         person = utils.find_user(self, atom_id)
-        if person == {}:
+        if not person:
             print("tried to remove, but could not find", atom_id)
             if atom:
                 await thread.send(f"I was unable to remove {atom['leader_name']} of {atom['nation_name']} from the thread. Have they not verified with `/verify`?")

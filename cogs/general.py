@@ -414,6 +414,10 @@ class Background(commands.Cog):
                     except:
                         pass
             
+            if len(nations) == 0:
+                await ctx.respond(f"They have no valid members!")
+                return
+                
             embed = discord.Embed(title=f"{nations[0]['alliance']['name']}'s daily revenue:", url=f"https://politicsandwar.com/alliance/id={alliance_id}", description="", color=0xff5100)
 
             for rs in RSS[:-2]:
