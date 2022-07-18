@@ -3,7 +3,7 @@ import traceback
 from discord.ext import commands
 from datetime import datetime, timedelta, timezone
 import pathlib
-from main import mongo, logger, client
+from main import mongo, logger, client, channel_id
 import utils
 import aiohttp
 import time
@@ -140,7 +140,7 @@ class General(commands.Cog):
             await self.bot.wait_until_ready()
             channel = None
             guild_id = None
-            debug_channel = self.bot.get_channel(739155202640183377)
+            debug_channel = self.bot.get_channel(channel_id)
             
             async def cthread(war, non_atom, atom):
                 url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
