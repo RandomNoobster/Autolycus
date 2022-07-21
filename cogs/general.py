@@ -389,10 +389,30 @@ class Background(commands.Cog):
     async def alliance_revenue(
         self,
         ctx: discord.ApplicationContext,
-        alliance_id: Option(int, "The alliance you want to see the revenue of."),
+        alliance: Option(str, "The alliance you want to see the revenue of.", autocomplete=utils.get_alliances),
         include_grey: Option(bool, "Do you want to include gray nations? Defaults to no.") = False
     ):
         try:
+            await ctx.defer()
+
+            for aa in mongo.alliances.find({}):
+                if alliance == f"{aa['name']} ({aa['id']})":
+                    alliance_id = aa['id']
+                    break
+                elif alliance == aa['id']:
+                    alliance_id = aa['id']
+                    break
+                elif alliance == aa['name']:
+                    alliance_id = aa['id']
+                    break
+                elif alliance == aa['acronym']:
+                    alliance_id = aa['id']
+                    break
+                                
+            if alliance_id is None:
+                await ctx.respond(f"I could not find a match to `{alliance}` in the database!")
+                return
+
             await ctx.respond('Calling the API...')
 
             nations = await utils.paginate_call(f"{{nations(alliance_id:{alliance_id} page:page_number alliance_position:[2,3,4,5]){{paginatorInfo{{hasMorePages}} data{{id continent color warpolicy cia dompolicy alliance_id alliance{{name id}} num_cities soldiers tanks aircraft ships missiles nukes wars{{turnsleft}} ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}", "nations")
