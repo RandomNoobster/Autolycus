@@ -95,24 +95,6 @@ class Config(commands.Cog):
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
-
-    async def get_alliances(ctx: discord.AutocompleteContext):
-        """Returns a list of alliances that begin with the characters entered so far."""
-        alliances = list(mongo.alliances.find({}))
-        return [f"{aa['name']} ({aa['id']})" for aa in alliances if (ctx.value.lower()) in aa['id'] or (ctx.value.lower()) in aa['name'].lower() or (ctx.value.lower()) in aa['acronym'].lower()]
-    
-    async def get_target_alliances(ctx: discord.AutocompleteContext):
-        """Returns a list of alliances that begin with the characters entered so far."""
-        config = mongo.guild_configs.find_one({"guild_id": ctx.interaction.guild_id})
-        if config is None:
-            return []
-        else:
-            try:
-                ids = config['targets_alliance_ids']
-            except:
-                return []
-        alliances = list(mongo.alliances.find({"id": {"$in": ids}}))
-        return [f"{aa['name']} ({aa['id']})" for aa in alliances if (ctx.value.lower()) in aa['id'] or (ctx.value.lower()) in aa['name'].lower() or (ctx.value.lower()) in aa['acronym'].lower()]
     
     @config_group.command(
         name="targets",
@@ -122,8 +104,8 @@ class Config(commands.Cog):
     async def config_targets(
         self,
         ctx: discord.ApplicationContext,
-        add_alliance: Option(str, "An enemy alliance to add to the targets command", autocomplete=get_alliances) = None,
-        remove_alliance: Option(str, "An enemy alliance to remove from the targets command", autocomplete=get_target_alliances) = None,
+        add_alliance: Option(str, "An enemy alliance to add to the targets command", autocomplete=utils.get_alliances) = None,
+        remove_alliance: Option(str, "An enemy alliance to remove from the targets command", autocomplete=utils.get_target_alliances) = None,
         set_alliances: Option(str, "Overwrite existing alliances with a list of alliance ids") = [],
         view_alliances: Option(bool, "Whether or not you want to see the currently targeted alliances") = False
     ):        

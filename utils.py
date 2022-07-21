@@ -313,6 +313,24 @@ def find_nation_plus(self, arg: Union[str, int]) -> Union[dict, None]: # only re
                 return None
     return nation
 
+async def get_alliances(ctx: discord.AutocompleteContext):
+    """Returns a list of alliances that begin with the characters entered so far."""
+    alliances = list(mongo.alliances.find({}))
+    return [f"{aa['name']} ({aa['id']})" for aa in alliances if (ctx.value.lower()) in aa['id'] or (ctx.value.lower()) in aa['name'].lower() or (ctx.value.lower()) in aa['acronym'].lower()]
+    
+async def get_target_alliances(ctx: discord.AutocompleteContext):
+    """Returns a list of alliances that begin with the characters entered so far."""
+    config = mongo.guild_configs.find_one({"guild_id": ctx.interaction.guild_id})
+    if config is None:
+        return []
+    else:
+        try:
+            ids = config['targets_alliance_ids']
+        except:
+            return []
+    alliances = list(mongo.alliances.find({"id": {"$in": ids}}))
+    return [f"{aa['name']} ({aa['id']})" for aa in alliances if (ctx.value.lower()) in aa['id'] or (ctx.value.lower()) in aa['name'].lower() or (ctx.value.lower()) in aa['acronym'].lower()]
+
 async def yes_or_no(self, ctx) -> Union[bool, None]:
     try:
         msg = await self.bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.id == ctx.channel.id, timeout=40)
