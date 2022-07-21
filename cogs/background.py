@@ -31,12 +31,7 @@ class General(commands.Cog):
         await self.bot.wait_until_ready()
         debug_channel = self.bot.get_channel(channel_id)
         while True:
-            minute = 50
-            now = datetime.utcnow()
-            future = datetime(now.year, now.month, now.day, now.hour, minute)
-            if now.minute >= minute:
-                future += timedelta(hours=1, seconds=1)
-            await asyncio.sleep((future-now).seconds+1)
+            await asyncio.sleep(300)
             try:
                 alerts = list(mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
                 nation_ids = []
@@ -45,18 +40,18 @@ class General(commands.Cog):
                         nation_ids.append(alert)
                 unique_ids = list(set(nation_ids))
 
-                res = (await utils.call(f"{{nations(id:[{','.join(unique_ids)}]){{data{{id beige_turns}}}}}}"))['data']['nations']['data']
+                res = (await utils.call(f"{{nations(id:[{','.join(unique_ids)}]){{data{{id vacation_mode_turns beige_turns}}}}}}"))['data']['nations']['data']
 
                 for user in alerts:
                     for alert in user['beige_alerts']:
                         for nation in res:
                             if alert == nation['id']:
-                                if nation['beige_turns'] <= 1:
+                                if nation['beige_turns'] <= 1 and nation['vacation_mode_turns'] <= 1:
                                     disc_user = await self.bot.fetch_user(user['user'])
                                     if nation['beige_turns'] == 1:
                                         turns = int(nation['beige_turns'])
                                         time = datetime.utcnow()
-                                        if time.hour % 2 == 0:
+                                        if time.hour % 2 == 0 and time.minute > 50:
                                             break
                                         else:
                                             time += timedelta(hours=turns*2-1)
@@ -102,7 +97,7 @@ class General(commands.Cog):
                 logger.info(f"Done fetching nation data. {n} pages, took {(time.time() - series_start) / 60 :.2f} minutes")
             except Exception as e:
                 logger.error(e, exc_info=True)
-                await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()}```')
+                await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning nations\n\nError:```{traceback.format_exc()[:2000]}```')
                 await asyncio.sleep(300)
 
     async def add_to_thread(self, thread, atom_id: Union[str, int], atom: dict = None):
