@@ -1,4 +1,3 @@
-import email
 import discord
 from discord.ext import commands
 import aiohttp
@@ -1171,8 +1170,10 @@ class TargetFinding(commands.Cog):
         desc = f"[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']}) | {alliance}\n\nLast login: <t:{round(datetime.strptime(nation['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R>\nOffensive wars: {len(nation['offensive_wars'])}/{max_offense}\nDefensive wars: {len(nation['defensive_wars'])}/3\nDefensive range: {round(nation['score'] / 1.75)} - {round(nation['score'] / 0.75)}\nCities: {nation['num_cities']}\nBeige (turns): {nation['beigeturns']}\n\nSoldiers: **{nation['soldiers']:,}** / {max_sol:,}\nTanks: **{nation['tanks']:,}** / {max_tnk:,}\nPlanes: **{nation['aircraft']:,}** / {max_pln:,}\nShips: **{nation['ships']:,}** / {max_shp:,}\nSpies: **{spies}** / {max_spies}"
         embed = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
         embed1 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
-        embed.set_footer(text="_________________________________\nThe chance to get immense triumphs is if the nation in question attacks the main enemy. On average, it's worth attacking if the percentage is above 13%. Use /battlesimulation for more detailed battle predictions.")
-        embed1.set_footer(text="_________________________________\nThe chance to get immense triumphs is if the nation in question attacks the main enemy. On average, it's worth attacking if the percentage is above 13%. Use /battlesimulation for more detailed battle predictions.")
+        embed2 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
+        embed.set_footer(text=f"_________________________________\nThe chance to get immense triumphs is if the nation in question attacks {nation['nation_name']}. On average, it's worth attacking if the percentage is above 13%. Use /battlesimulation for more detailed battle predictions.")
+        embed1.set_footer(text=f"_________________________________\nThe chance to get immense triumphs is if the nation in question attacks {nation['nation_name']}. On average, it's worth attacking if the percentage is above 13%. Use /battlesimulation for more detailed battle predictions.")
+        embed2.set_footer(text=f"_________________________________\nThese are the average net damage per MAP predictions for the nations in question. Negative numbers means the net damage would be negative (not good). Use /damage for more detailed damage predictions.")
         n = 1
 
         for war in nation['wars']:
@@ -1180,12 +1181,14 @@ class TargetFinding(commands.Cog):
             if n % 2 == 0:
                 embed.add_field(name="\u200b", value="\u200b", inline=False)
                 embed1.add_field(name="\u200b", value="\u200b", inline=False)
+                embed2.add_field(name="\u200b", value="\u200b", inline=False)
             else:
                 embed.add_field(name="\u200b", value="\u200b", inline=True)
                 embed1.add_field(name="\u200b", value="\u200b", inline=True)
+                embed2.add_field(name="\u200b", value="\u200b", inline=True)
 
             if war in nation['offensive_wars']:
-                result = await self.battle_calc(nation['id'], war['defender']['id'])
+                result = await self.battle_calc(nation1=nation, nation2_id=war['defender']['id'])
                 war_emoji_1 = "\⚔️"
                 war_emoji_2 = "\🛡️"
                 x = war['defender']
@@ -1194,7 +1197,7 @@ class TargetFinding(commands.Cog):
                 their_enemy_points = war['defpoints']
                 their_enemy_res = war['def_resistance']
             else:
-                result = await self.battle_calc(nation['id'], war['attacker']['id'])
+                result = await self.battle_calc(nation1=nation, nation2_id=war['attacker']['id'])
                 war_emoji_1 = "\🛡️"
                 war_emoji_2 = "\⚔️"
                 x = war['attacker']
@@ -1258,6 +1261,7 @@ class TargetFinding(commands.Cog):
 
             embed.add_field(name=f"{x['nation_name']} ({x['id']})", value=f"{vmstart}[War timeline](https://politicsandwar.com/nation/war/timeline/war={war['id']}) | [Message](https://politicsandwar.com/inbox/message/receiver={x['leader_name'].replace(' ', '+')})\n{alliance}\n\n{war_emoji_1} **[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})**{result['nation1_append']}\n{main_enemy_bar}\n**{main_enemy_res}/100** | MAPs: **{main_enemy_points}/12**\n\n{war_emoji_2} **[{x['nation_name']}](https://politicsandwar.com/nation/id={x['id']})**{result['nation2_append']}\n{their_enemy_bar}\n**{their_enemy_res}/100** | MAPs: **{their_enemy_points}/12**\n\nExpiration (turns): {war['turnsleft']}\nLast login: <t:{round(datetime.strptime(x['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R>\nOngoing wars: {len(x['offensive_wars'] + x['defensive_wars'])}\n\nGround IT chance: **{round(100 * result['nation2_ground_win_rate']**3)}%**\nAir IT chance: **{round(100 * result['nation2_air_win_rate']**3)}%**\nNaval IT chance: **{round(100 * result['nation2_naval_win_rate']**3)}%**{vmend}", inline=True)
             embed1.add_field(name=f"{x['nation_name']} ({x['id']})", value=f"{vmstart}[War timeline](https://politicsandwar.com/nation/war/timeline/war={war['id']}) | [Message](https://politicsandwar.com/inbox/message/receiver={x['leader_name'].replace(' ', '+')})\n{alliance}\n\n{war_emoji_1} **[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})**{result['nation1_append']}\n{war_emoji_2} **[{x['nation_name']}](https://politicsandwar.com/nation/id={x['id']})**{result['nation2_append']}\n\nOffensive wars: {len(x['offensive_wars'])}/{max_offense}\nDefensive wars: {len(x['defensive_wars'])}/3{beige}\n\n Soldiers: **{x['soldiers']:,}** / {max_sol:,}\nTanks: **{x['tanks']:,}** / {max_tnk:,}\nPlanes: **{x['aircraft']:,}** / {max_pln:,}\nShips: **{x['ships']:,}** / {max_shp:,}\nMissiles: {x['missiles']}\nNukes: {x['nukes']}\n\nGround IT chance: **{round(100 * result['nation2_ground_win_rate']**3)}%**\nAir IT chance: **{round(100 * result['nation2_air_win_rate']**3)}%**\nNaval IT chance: **{round(100 * result['nation2_naval_win_rate']**3)}%**{vmend}", inline=True)
+            embed2.add_field(name=f"{x['nation_name']} ({x['id']})", value=f"{vmstart}[War timeline](https://politicsandwar.com/nation/war/timeline/war={war['id']}) | [Message](https://politicsandwar.com/inbox/message/receiver={x['leader_name'].replace(' ', '+')})\n{alliance}\n\n{war_emoji_1} **[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})**{result['nation1_append']}\nGround: **${result['nation1_ground_net']/3:,.0f}**\nAir v air: **${result['nation1_airvair_net']/4:,.0f}**\nNaval: **${result['nation1_naval_net']/4:,.0f}**\nMissile: **${result['nation1_missile_net']/8:,.0f}**\nNuke: **${result['nation1_nuke_net']/12:,.0f}** **\n\n{war_emoji_2} [{x['nation_name']}](https://politicsandwar.com/nation/id={x['id']})**{result['nation2_append']}\nGround: **${result['nation2_ground_net']/3:,.0f}**\nAir v air: **${result['nation2_airvair_net']/4:,.0f}**\nNaval: **${result['nation2_naval_net']/4:,.0f}**\nMissile: **${result['nation2_missile_net']/8:,.0f}**\nNuke: **${result['nation2_nuke_net']/12:,.0f}**{vmend}", inline=True)
 
         class status_view(discord.ui.View):
             def __init__(self):
@@ -1265,19 +1269,30 @@ class TargetFinding(commands.Cog):
 
             @discord.ui.button(label="General", style=discord.ButtonStyle.primary, custom_id="status_general", disabled=True)
             async def general_callback(self, b: discord.Button, i: discord.Interaction):
-                general_button = [x for x in self.children if x.custom_id == "status_general"][0]
-                military_button = [x for x in self.children if x.custom_id == "status_military"][0]
-                general_button.disabled = True
-                military_button.disabled = False
+                this_button = [x for x in self.children if x.custom_id == "status_general"][0]
+                other_buttons = [x for x in self.children if x.custom_id != "status_general"]
+                for button in other_buttons:
+                    button.disabled = False
+                this_button.disabled = True
                 await i.response.edit_message(content="", embed=embed, view=view)
             
             @discord.ui.button(label="Military", style=discord.ButtonStyle.primary, custom_id="status_military")
-            async def right_callback(self, b: discord.Button, i: discord.Interaction):
-                general_button = [x for x in self.children if x.custom_id == "status_general"][0]
-                military_button = [x for x in self.children if x.custom_id == "status_military"][0]
-                military_button.disabled = True
-                general_button.disabled = False
+            async def military_callback(self, b: discord.Button, i: discord.Interaction):
+                this_button = [x for x in self.children if x.custom_id == "status_military"][0]
+                other_buttons = [x for x in self.children if x.custom_id != "status_military"]
+                for button in other_buttons:
+                    button.disabled = False
+                this_button.disabled = True
                 await i.response.edit_message(content="", embed=embed1, view=view)
+            
+            @discord.ui.button(label="Damage", style=discord.ButtonStyle.primary, custom_id="status_damage")
+            async def damage_callback(self, b: discord.Button, i: discord.Interaction):
+                this_button = [x for x in self.children if x.custom_id == "status_damage"][0]
+                other_buttons = [x for x in self.children if x.custom_id != "status_damage"]
+                for button in other_buttons:
+                    button.disabled = False
+                this_button.disabled = True
+                await i.response.edit_message(content="", embed=embed2, view=view)
         
         view = status_view()
         await ctx.respond(content="", embed=embed, view=view)
@@ -1496,22 +1511,27 @@ class TargetFinding(commands.Cog):
         try:
             results = {}
 
-            if nation1 and nation2:
+            if nation1 and nation1_id or nation2 and nation2_id:
+                raise Exception("You can't specify nation1 or nation2 multiple times!")
+            if nation1:
                 results['nation1'] = nation1
                 nation1_id = nation1['id']
+            if nation2:
                 results['nation2'] = nation2
                 nation2_id = nation2['id']
-            else:
-                nations = (await utils.call(f"{{nations(id:[{nation1_id},{nation2_id}]){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data']
+            if nation1_id or nation2_id:
+                ids = []
+                if nation1_id:
+                    ids.append(nation1_id)
+                if nation2_id:
+                    ids.append(nation2_id)
+                nations = (await utils.call(f"{{nations(id:[{','.join(list(set(ids)))}]){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data']
                 nations = sorted(nations, key=lambda x: int(x['id']))
-                if int(nation1_id) < int(nation2_id):
-                    results['nation1'] = nations[0]
-                    results['nation2'] = nations[1]
-                elif int(nation1_id) > int(nation2_id):
-                    results['nation1'] = nations[1]
-                    results['nation2'] = nations[0]
-                else:
-                    results['nation1'] = results['nation2'] = nations[0]
+                for nation in nations:
+                    if nation['id'] == nation1_id:
+                        results['nation1'] = nation
+                    if nation['id'] == nation2_id:
+                        results['nation2'] = nation
 
             results['nation1_append'] = ""
             results['nation2_append'] = ""
