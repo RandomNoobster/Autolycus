@@ -731,13 +731,15 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content=f"You have no beige reminders!\n\n||{insult}||")
                 return
 
-            res = (await utils.call(f"{{nations(id:[{','.join(person['beige_alerts'])}]){{data{{id nation_name beige_turns}}}}}}"))['data']['nations']['data']
+            res = (await utils.call(f"{{nations(id:[{','.join(person['beige_alerts'])}]){{data{{id nation_name vacation_mode_turns beige_turns}}}}}}"))['data']['nations']['data']
 
             reminders = []
             for alert in person['beige_alerts']:
                 for nation in res:
                     if alert == nation['id']:
-                        turns = int(nation['beige_turns'])
+                        beige_turns = int(nation['beige_turns'])
+                        vacation_mode_turns = int(nation['vacation_mode_turns'])
+                        turns = sorted([beige_turns, vacation_mode_turns])[1]
                         time = datetime.utcnow()
                         if time.hour % 2 == 0:
                             time += timedelta(hours=turns*2)
@@ -856,10 +858,10 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content='I could not find that nation!')
                 return
 
-            res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id beige_turns}}}}}}"))['data']['nations']['data'][0]
+            res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id beige_turns vacation_mode_turns}}}}}}"))['data']['nations']['data'][0]
 
-            if res['beige_turns'] == 0:
-                await ctx.respond(content="They are not beige!")
+            if res['beige_turns'] == 0 and res['vacation_mode_turns'] == 0:
+                await ctx.respond(content="They are not in beige or vacation mode!")
                 return
 
             reminder = nation['id']
