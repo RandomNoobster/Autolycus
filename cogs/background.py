@@ -51,12 +51,21 @@ class General(commands.Cog):
                                     if nation['beige_turns'] == 1:
                                         turns = int(nation['beige_turns'])
                                         time = datetime.utcnow()
-                                        if time.hour % 2 == 0 and time.minute > 50:
+                                        if time.hour % 2 == 0 or time.minute <= 50:
                                             break
                                         else:
                                             time += timedelta(hours=turns*2-1)
                                         time = datetime(time.year, time.month, time.day, time.hour)
                                         content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(time.timestamp())}:R>!"
+                                    elif nation['vacation_mode_turns'] == 1:
+                                        turns = int(nation['vacation_mode_turns'])
+                                        time = datetime.utcnow()
+                                        if time.hour % 2 == 0 or time.minute <= 50:
+                                            break
+                                        else:
+                                            time += timedelta(hours=turns*2-1)
+                                        time = datetime(time.year, time.month, time.day, time.hour)
+                                        content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving vacation mode <t:{round(time.timestamp())}:R>!"
                                     else:
                                         content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
                                     try:
