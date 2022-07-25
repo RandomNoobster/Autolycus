@@ -504,6 +504,7 @@ class General(commands.Cog):
                     await asyncio.sleep(60)
                 except:
                     await debug_channel.send(f"I encountered an error whilst scanning for wars:```{traceback.format_exc()}```")
+                    await asyncio.sleep(300)
         except Exception as e:
             logger.error(e, exc_info=True)
             await debug_channel.send(f'**__FATAL__ exception caught!**\nWhere: Scanning wars\n\nError:```{traceback.format_exc()}```')
