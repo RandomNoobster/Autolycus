@@ -31,7 +31,6 @@ class General(commands.Cog):
         await self.bot.wait_until_ready()
         debug_channel = self.bot.get_channel(channel_id)
         while True:
-            await asyncio.sleep(300)
             try:
                 alerts = list(mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
                 nation_ids = []
@@ -51,7 +50,7 @@ class General(commands.Cog):
                                     if nation['beige_turns'] == 1:
                                         turns = int(nation['beige_turns'])
                                         time = datetime.utcnow()
-                                        if time.hour % 2 == 0 or time.minute <= 50:
+                                        if time.hour % 2 == 0 or (time.hour % 2 != 0 and time.minute <= 50):
                                             break
                                         else:
                                             time += timedelta(hours=turns*2-1)
@@ -77,6 +76,7 @@ class General(commands.Cog):
             except Exception as e:
                 await debug_channel.send(f'**Exception __caught__!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```')
                 logger.error(e, exc_info=True)
+            await asyncio.sleep(300)
 
     async def nation_scanner(self):
         await self.bot.wait_until_ready()
