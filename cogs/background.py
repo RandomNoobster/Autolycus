@@ -39,7 +39,7 @@ class General(commands.Cog):
                         nation_ids.append(alert)
                 unique_ids = list(set(nation_ids))
 
-                res = (await utils.call(f"{{nations(id:[{','.join(unique_ids)}]){{data{{id vacation_mode_turns beige_turns}}}}}}"))['data']['nations']['data']
+                res = await utils.paginate_call(f"{{nations(page:page_number first:500 id:[{','.join(unique_ids)}]){{paginatorInfo{{hasMorePages}} data{{id vacation_mode_turns beige_turns}}}}}}", "nations")
 
                 for user in alerts:
                     for alert in user['beige_alerts']:
