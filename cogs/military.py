@@ -15,6 +15,7 @@ from keep_alive import app
 from flask.views import MethodView
 import math
 from flask import request
+import queries
 from main import mongo, logger
 
 api_key = os.getenv("api_key")
@@ -710,9 +711,9 @@ class TargetFinding(commands.Cog):
             logger.error(e, exc_info=True)
             raise e
     
-    revenue_group = SlashCommandGroup("reminders", "Beige reminders")
+    reminder_group = SlashCommandGroup("reminders", "Beige reminders")
 
-    @revenue_group.command(
+    @reminder_group.command(
         name="show",
         description="Show all your beige reminders"
     )
@@ -801,7 +802,7 @@ class TargetFinding(commands.Cog):
             logger.error(e, exc_info=True)
             raise e
         
-    @revenue_group.command(
+    @reminder_group.command(
         name="delete",
         description="Delete a beige reminder"
     )
@@ -841,7 +842,7 @@ class TargetFinding(commands.Cog):
             logger.error(e, exc_info=True)
             raise e
 
-    @revenue_group.command(
+    @reminder_group.command(
         name="add",
         description="Add a beige reminder"
     )
@@ -1073,8 +1074,8 @@ class TargetFinding(commands.Cog):
                     await ctx.respond("I could not find any enemy alliances for this server! Someone with the `manage_server` permission must use `/config targets`, or you must supply some id(s) when you call this command!")
                     return
 
-            allied_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(allied_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
-            enemy_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(enemy_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
+            allied_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(allied_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond fallout_shelter military_salvage population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
+            enemy_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(enemy_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond fallout_shelter military_salvage population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
 
             for enemy in enemy_nations:
                 off_wars = 0
@@ -1140,7 +1141,7 @@ class TargetFinding(commands.Cog):
             person = utils.find_nation_plus(self, nation)
             nation_id = str(person['id'])
 
-        nation = (await utils.call(f"{{nations(first:1 id:{nation_id}) {{data{{nation_name leader_name warpolicy cia id alliance{{name}} cities{{barracks factory airforcebase drydock}} population score last_active beigeturns vmode pirate_economy color dompolicy alliance_id num_cities soldiers tanks aircraft ships missiles nukes wars{{defender{{nation_name leader_name population alliance_id alliance{{name}} cities{{barracks factory airforcebase drydock}} wars{{attid defid turnsleft}} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} attacker{{ nation_name leader_name population alliance_id alliance{{ name }} cities{{ barracks factory airforcebase drydock }} wars{{ attid defid turnsleft }} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} date id attid defid winner att_resistance def_resistance attpoints defpoints attpeace defpeace war_type groundcontrol airsuperiority navalblockade turnsleft att_fortify def_fortify }} }} }}}}"))['data']['nations']['data'][0]
+        nation = (await utils.call(f"{{nations(first:1 id:{nation_id}) {{data{{nation_name leader_name warpolicy cia fallout_shelter military_salvage id alliance{{name}} cities{{barracks factory airforcebase drydock}} population score last_active beigeturns vmode pirate_economy color dompolicy alliance_id num_cities soldiers tanks aircraft ships missiles nukes wars{{defender{{nation_name leader_name population alliance_id alliance{{name}} cities{{barracks factory airforcebase drydock}} wars{{attid defid turnsleft}} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} attacker{{ nation_name leader_name population alliance_id alliance{{ name }} cities{{ barracks factory airforcebase drydock }} wars{{ attid defid turnsleft }} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} date id attid defid winner att_resistance def_resistance attpoints defpoints attpeace defpeace war_type groundcontrol airsuperiority navalblockade turnsleft att_fortify def_fortify }} }} }}}}"))['data']['nations']['data'][0]
 
         if nation['pirate_economy']:
             max_offense = 6
@@ -1340,7 +1341,7 @@ class TargetFinding(commands.Cog):
                     with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
                         file_content = json.load(json_file)
                     res = {"data": {"alliances": {"data": [file_content]}}}
-                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
+                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
                 elif view.result == False:
                     await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
                     return
@@ -1348,7 +1349,7 @@ class TargetFinding(commands.Cog):
                     return
 
             if not fail:
-                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population vacation_mode_turns warpolicy id soldiers tanks aircraft ships irond vds score alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
+                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population vacation_mode_turns warpolicy id soldiers tanks aircraft ships irond vds score alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
                 user_nation = res['data']['nations']['data'][0]
 
             minscore = round(user_nation['score'] * 0.75)
@@ -1527,7 +1528,7 @@ class TargetFinding(commands.Cog):
                     ids.append(nation1_id)
                 if nation2_id:
                     ids.append(nation2_id)
-                nations = (await utils.call(f"{{nations(id:[{','.join(list(set(ids)))}]){{data{{nation_name population warpolicy id soldiers tanks aircraft ships irond vds cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data']
+                nations = (await utils.call(f"{{nations(id:[{','.join(list(set(ids)))}]){{data{queries.BATTLE_CALC}}}}}"))['data']['nations']['data']
                 nations = sorted(nations, key=lambda x: int(x['id']))
                 for nation in nations:
                     if nation['id'] == nation1_id:
@@ -1708,6 +1709,8 @@ class TargetFinding(commands.Cog):
                 results[f'{nation}_policy_improvements_destroyed'] = 1
                 results[f'{nation}_vds_mod'] = 1
                 results[f'{nation}_irond_mod'] = 1
+                results[f'{nation}_fallout_shelter_mod'] = 1
+                results[f'{nation}_military_salvage_mod'] = 0
 
                 if results[f'{nation}']['warpolicy'] == "Attrition":
                     results[f'{nation}_policy_infra_dealt'] = 1.1
@@ -1734,6 +1737,10 @@ class TargetFinding(commands.Cog):
                     results[f'{nation}_vds_mod'] = 0.8
                 if results[f'{nation}']['irond']:
                     results[f'{nation}_irond_mod'] = 0.5
+                if results[f'{nation}']['fallout_shelter']:
+                    results[f'{nation}_fallout_shelter_mod'] = 0.9
+                if results[f'{nation}']['military_salvage']:
+                    results[f'{nation}_military_salvage_mod'] = 1
             
             def airstrike_casualties(winrate: Union[int, float]) -> float:
                 rate = -0.4624 * winrate**2 + 1.06256 * winrate + 0.3999            
@@ -1759,7 +1766,7 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_naval_{defender}_lost_infra_avg'] = max(min((results[f'{attacker}']['ships'] - results[f'{attacker}']['ships'] * 0.5) * 2.625 * 0.95 * results[f'{attacker}_naval_win_rate'], results[defender]['city']['infrastructure'] * 0.5 + 25), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
                 results[f'{attacker}_naval_{defender}_lost_infra_diff'] = results[f'{attacker}_naval_{defender}_lost_infra_avg'] / 0.95 * 0.15
 
-                results[f'{attacker}_nuke_{defender}_lost_infra_avg'] = max(min((1700 + max(2000, results[defender]['city']['infrastructure'] * 100 / results[defender]['city']['land'] * 13.5)) / 2, results[defender]['city']['infrastructure'] * 0.8 + 150), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
+                results[f'{attacker}_nuke_{defender}_lost_infra_avg'] = max(min((1700 + max(2000, results[defender]['city']['infrastructure'] * 100 / results[defender]['city']['land'] * 13.5)) / 2, results[defender]['city']['infrastructure'] * 0.8 + 150), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost'] * results[f'{defender}_fallout_shelter_mod']
                 results[f'{attacker}_missile_{defender}_lost_infra_avg'] = max(min((300 + max(350, results[defender]['city']['infrastructure'] * 100 / results[defender]['city']['land'] * 3)) / 2, results[defender]['city']['infrastructure'] * 0.3 + 100), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
                 
                 for infra in [
@@ -1784,7 +1791,7 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_ground_{attacker}_mun'] = results[f'{attacker}']['soldiers'] * 0.0002 + results[f'{attacker}']['tanks'] * 0.01
                 results[f'{attacker}_ground_{attacker}_gas'] = results[f'{attacker}']['tanks'] * 0.01
                 results[f'{attacker}_ground_{attacker}_alum'] = 0
-                results[f'{attacker}_ground_{attacker}_steel'] = results[f'{attacker}_ground_{attacker}_avg_tanks'] * 0.5
+                results[f'{attacker}_ground_{attacker}_steel'] = (results[f'{attacker}_ground_{attacker}_avg_tanks'] * 0.5) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_ground_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_ground_{attacker}_money'] = -results[f'{attacker}_ground_loot_avg'] + results[f'{attacker}_ground_{attacker}_avg_tanks'] * 50 + results[f'{attacker}_ground_{attacker}_avg_soldiers'] * 5
                 results[f'{attacker}_ground_{attacker}_total'] = results[f'{attacker}_ground_{attacker}_alum'] * 2971 + results[f'{attacker}_ground_{attacker}_steel'] * 3990 + results[f'{attacker}_ground_{attacker}_gas'] * 3340 + results[f'{attacker}_ground_{attacker}_mun'] * 1960 + results[f'{attacker}_ground_{attacker}_money'] 
 
@@ -1805,7 +1812,7 @@ class TargetFinding(commands.Cog):
                     results[f'{attacker}_{attack}_{defender}_gas'] = results[f'{attacker}_{attack}_{defender}_mun'] = (base_gas * (1 - results[f'{attacker}_air_fail']) + min(base_gas, results[f'{attacker}_air_{attacker}_gas']) * results[f'{attacker}_air_fail'])
 
 
-                results[f'{attacker}_airvair_{attacker}_alum'] = results[f'{attacker}_airtoair_{attacker}_avg'] * 5
+                results[f'{attacker}_airvair_{attacker}_alum'] = (results[f'{attacker}_airtoair_{attacker}_avg'] * 5) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_air_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_airvair_{attacker}_steel'] = 0
                 results[f'{attacker}_airvair_{attacker}_money'] = results[f'{attacker}_airtoair_{attacker}_avg'] * 4000
                 results[f'{attacker}_airvair_{attacker}_total'] = results[f'{attacker}_airvair_{attacker}_alum'] * 2971 + results[f'{attacker}_airvair_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvair_{attacker}_money'] 
@@ -1817,7 +1824,7 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_airvair_net'] = results[f'{attacker}_airvair_{defender}_total'] - results[f'{attacker}_airvair_{attacker}_total']
 
 
-                results[f'{attacker}_airvinfra_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+                results[f'{attacker}_airvinfra_{attacker}_alum'] = (results[f'{attacker}_airtoother_{attacker}_avg'] * 5) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_air_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_airvinfra_{attacker}_steel'] = 0
                 results[f'{attacker}_airvinfra_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
                 results[f'{attacker}_airvinfra_{attacker}_total'] = results[f'{attacker}_airvinfra_{attacker}_alum'] * 2971 + results[f'{attacker}_airvinfra_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvinfra_{attacker}_money'] 
@@ -1829,7 +1836,7 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_airvinfra_net'] = results[f'{attacker}_airvinfra_{defender}_total'] - results[f'{attacker}_airvinfra_{attacker}_total']
 
 
-                results[f'{attacker}_airvsoldiers_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+                results[f'{attacker}_airvsoldiers_{attacker}_alum'] = (results[f'{attacker}_airtoother_{attacker}_avg'] * 5) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_air_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_airvsoldiers_{attacker}_steel'] = 0
                 results[f'{attacker}_airvsoldiers_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
                 results[f'{attacker}_airvsoldiers_{attacker}_total'] = results[f'{attacker}_airvsoldiers_{attacker}_alum'] * 2971 + results[f'{attacker}_airvsoldiers_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvsoldiers_{attacker}_money'] 
@@ -1841,7 +1848,7 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_airvsoldiers_net'] = results[f'{attacker}_airvair_{defender}_total'] - results[f'{attacker}_airvsoldiers_{attacker}_total']
 
 
-                results[f'{attacker}_airvtanks_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+                results[f'{attacker}_airvtanks_{attacker}_alum'] = (results[f'{attacker}_airtoother_{attacker}_avg'] * 5) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_air_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_airvtanks_{attacker}_steel'] = 0
                 results[f'{attacker}_airvtanks_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
                 results[f'{attacker}_airvtanks_{attacker}_total'] = results[f'{attacker}_airvtanks_{attacker}_alum'] * 2971 + results[f'{attacker}_airvtanks_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvtanks_{attacker}_money'] 
@@ -1853,7 +1860,7 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_airvtanks_net'] = results[f'{attacker}_airvtanks_{defender}_total'] - results[f'{attacker}_airvtanks_{attacker}_total']
 
 
-                results[f'{attacker}_airvships_{attacker}_alum'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 5
+                results[f'{attacker}_airvships_{attacker}_alum'] = (results[f'{attacker}_airtoother_{attacker}_avg'] * 5) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_air_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_airvships_{attacker}_steel'] = 0
                 results[f'{attacker}_airvships_{attacker}_money'] = results[f'{attacker}_airtoother_{attacker}_avg'] * 4000
                 results[f'{attacker}_airvships_{attacker}_total'] = results[f'{attacker}_airvships_{attacker}_alum'] * 2971 + results[f'{attacker}_airvships_{attacker}_steel'] * 3990 + results[f'{attacker}_air_{attacker}_gas'] * 3340 + results[f'{attacker}_air_{attacker}_mun'] * 1960 + results[f'{attacker}_airvships_{attacker}_money'] 
@@ -1868,13 +1875,13 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_naval_{attacker}_mun'] = results[f'{attacker}']['ships'] * 3
                 results[f'{attacker}_naval_{attacker}_gas'] = results[f'{attacker}']['ships'] * 2
                 results[f'{attacker}_naval_{attacker}_alum'] = 0
-                results[f'{attacker}_naval_{attacker}_steel'] = results[f'{attacker}_naval_{attacker}_avg'] * 30
+                results[f'{attacker}_naval_{attacker}_steel'] = (results[f'{attacker}_naval_{attacker}_avg'] * 30) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_naval_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_naval_{attacker}_money'] = results[f'{attacker}_naval_{attacker}_avg'] * 50000
                 results[f'{attacker}_naval_{attacker}_total'] = results[f'{attacker}_naval_{attacker}_alum'] * 2971 + results[f'{attacker}_naval_{attacker}_steel'] * 3990 + results[f'{attacker}_naval_{attacker}_gas'] * 3340 + results[f'{attacker}_naval_{attacker}_mun'] * 1960 + results[f'{attacker}_naval_{attacker}_money'] 
             
-                base_mun = results[f'{defender}']['ships'] * 3 * def_rss_consumption(results[f'{attacker}_air_win_rate'])
+                base_mun = results[f'{defender}']['ships'] * 3 * def_rss_consumption(results[f'{attacker}_naval_win_rate'])
                 results[f'{attacker}_naval_{defender}_mun'] = results[f'{attacker}_naval_{defender}_mun'] = (base_mun * (1 - results[f'{attacker}_naval_fail']) + min(base_gas, results[f'{attacker}_naval_{attacker}_mun']) * results[f'{attacker}_naval_fail'])
-                base_gas = results[f'{defender}']['ships'] * 2 * def_rss_consumption(results[f'{attacker}_air_win_rate'])
+                base_gas = results[f'{defender}']['ships'] * 2 * def_rss_consumption(results[f'{attacker}_naval_win_rate'])
                 results[f'{attacker}_naval_{defender}_gas'] = results[f'{attacker}_naval_{defender}_gas'] = (base_gas * (1 - results[f'{attacker}_naval_fail']) + min(base_gas, results[f'{attacker}_naval_{attacker}_gas']) * results[f'{attacker}_naval_fail'])
                 results[f'{attacker}_naval_{defender}_alum'] = 0
                 results[f'{attacker}_naval_{defender}_steel'] = results[f'{attacker}_naval_{defender}_avg'] * 30
