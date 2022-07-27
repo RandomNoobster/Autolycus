@@ -148,7 +148,7 @@ class Background(commands.Cog):
                 await ctx.edit(content="I could not find the specified person!")
                 return
 
-            nation = (await utils.call(f"{{nations(first:1 id:{db_nation['id']}){{data{{id continent date color dompolicy alliance{{name}} alliance_id num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap}}}}}}"))['data']['nations']['data']
+            nation = (await utils.call(f"{{nations(first:1 id:{db_nation['id']}){{data{{id continent date color dompolicy alliance{{name}} alliance_id num_cities ironw bauxitew armss egr massirr resource_production_center itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap}}}}}}"))['data']['nations']['data']
             if len(nation) == 0:
                 await ctx.edit(content="That person was not in the API!")
                 return
@@ -354,7 +354,7 @@ class Background(commands.Cog):
                 person = ctx.author.id
             db_nation = utils.find_user(self, person)
 
-            if db_nation == {}:
+            if not db_nation:
                 db_nation = utils.find_nation(person)
                 if not db_nation:
                     await ctx.edit(content='I could not find that person!')
@@ -415,7 +415,7 @@ class Background(commands.Cog):
 
             await ctx.respond('Calling the API...')
 
-            nations = await utils.paginate_call(f"{{nations(alliance_id:{alliance_id} page:page_number alliance_position:[2,3,4,5]){{paginatorInfo{{hasMorePages}} data{{id continent color warpolicy cia dompolicy alliance_id alliance{{name id}} num_cities soldiers tanks aircraft ships missiles nukes wars{{turnsleft}} ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}", "nations")
+            nations = await utils.paginate_call(f"{{nations(alliance_id:{alliance_id} page:page_number alliance_position:[2,3,4,5]){{paginatorInfo{{hasMorePages}} data{{id continent color warpolicy cia dompolicy alliance_id alliance{{name id}} num_cities soldiers tanks aircraft ships missiles nukes wars{{turnsleft}} ironw bauxitew armss egr massirr resource_production_center itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}", "nations")
 
             nation, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx)
 
