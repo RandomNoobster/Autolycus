@@ -12,6 +12,7 @@ from typing import Union
 import asyncio
 from dotenv import load_dotenv
 import json
+import queries
 load_dotenv()
 
 api_key = os.getenv("api_key")
@@ -92,7 +93,7 @@ class General(commands.Cog):
                     start = time.time()
                     try:
                         await asyncio.sleep(1)
-                        resp = await utils.call(f"{{nations(page:{n} first:{first} vmode:false min_score:15 orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type defid turnsleft attacks{{loot_info victor moneystolen}}}} alliance_position num_cities ironw bauxitew armss egr massirr itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}")
+                        resp = await utils.call(f"{{nations(page:{n} first:{first} vmode:false min_score:15 orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{queries.BACKGROUND_SCANNER}}}}}")
                         new_nations['nations'] += resp['data']['nations']['data']
                         more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
                     except (aiohttp.client_exceptions.ContentTypeError, TypeError):
@@ -385,7 +386,7 @@ class General(commands.Cog):
                         done_wars = []
                         all_wars = []
                         while has_more_pages:
-                            temp1 = await utils.call(f"{{wars(alliance_id:[{','.join(unique_ids)}] page:{n} active:false days_ago:5 first:200) {{paginatorInfo{{hasMorePages}} data{{id war_type attpeace defpeace turnsleft reason date att_alliance_id def_alliance_id attacker{{nation_name leader_name alliance{{name}} alliance_id id num_cities}} defender{{nation_name leader_name alliance{{name}} alliance_id id num_cities}} attacks{{type id date att_id def_id loot_info victor moneystolen success cityid resistance_eliminated infradestroyed infra_destroyed_value improvementslost aircraft_killed_by_tanks attcas1 attcas2 defcas1 defcas2}}}}}}}}")
+                            temp1 = await utils.call(f"{{wars(alliance_id:[{','.join(unique_ids)}] page:{n} active:false days_ago:5 first:200) {{paginatorInfo{{hasMorePages}} data{queries.WARS_SCANNER}}}}}")
                             n += 1
                             try:
                                 all_wars += temp1['data']['wars']['data']
