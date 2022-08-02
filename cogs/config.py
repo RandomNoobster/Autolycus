@@ -17,8 +17,9 @@ class Config(commands.Cog):
 
     @config_group.command(
         name="counters",
-        description="Configure the counters command"
+        description="Configure the counters command",
     )
+    @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
     async def config_counters(
         self,
@@ -41,6 +42,7 @@ class Config(commands.Cog):
         name="war_threads",
         description="Configure automated war threads"
     )
+    @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
     async def config_war_threads(
         self,
@@ -78,6 +80,7 @@ class Config(commands.Cog):
         name="view_current_settings",
         description="Get an overview of how Autolycus is configured in this server."
     )
+    @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
     async def config_view_current_settings(
         self,
@@ -100,6 +103,7 @@ class Config(commands.Cog):
         name="targets",
         description="Configure the targets command"
     )
+    @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
     async def config_targets(
         self,
