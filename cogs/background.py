@@ -379,130 +379,129 @@ class General(commands.Cog):
                         for aa in guild['war_threads_alliance_ids']:
                             alliance_ids.append(aa)
                     unique_ids = list(set(alliance_ids))
-                    async with aiohttp.ClientSession() as session:
-                        wars = []
-                        has_more_pages = True
-                        n = 1
-                        done_wars = []
-                        all_wars = []
-                        while has_more_pages:
-                            temp1 = await utils.call(f"{{wars(alliance_id:[{','.join(unique_ids)}] page:{n} active:false days_ago:5 first:200) {{paginatorInfo{{hasMorePages}} data{queries.WARS_SCANNER}}}}}")
-                            await asyncio.sleep(1)
-                            n += 1
-                            try:
-                                all_wars += temp1['data']['wars']['data']
-                                has_more_pages = temp1['data']['wars']['paginatorInfo']['hasMorePages']
-                            except:
-                                e = temp1['errors']
-                                logger.error(e, exc_info=True)
-                                await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Fetching from API\n\nError:```{e}```')
-                                await asyncio.sleep(60)
-                                continue
-                        for war in all_wars:
-                            if war['turnsleft'] <= 0:
-                                declaration = datetime.strptime(war['date'], '%Y-%m-%dT%H:%M:%S%z').replace(tzinfo=None)
-                                if (datetime.utcnow() - declaration).days <= 5:
-                                    done_wars.append(war)
-                            else:
-                                wars.append(war)
-                        for new_war in wars:
-                            try:
-                                for guild in guilds:
-                                    channel = None
-                                    guild_id = None
-                                    try:
-                                        if new_war['att_alliance_id'] in guild['war_threads_alliance_ids']:
-                                            atom = new_war['attacker']
-                                            non_atom = new_war['defender']
-                                        elif new_war['def_alliance_id'] in guild['war_threads_alliance_ids']:
-                                            atom = new_war['defender']
-                                            non_atom = new_war['attacker']
-                                        else:
-                                            continue
-                                        channel = self.bot.get_channel(guild['war_threads_channel_id']) 
-                                        guild_id = guild['guild_id']
-                                    except:
+                    wars = []
+                    has_more_pages = True
+                    n = 1
+                    done_wars = []
+                    all_wars = []
+                    while has_more_pages:
+                        temp1 = await utils.call(f"{{wars(alliance_id:[{','.join(unique_ids)}] page:{n} active:false days_ago:5 first:200) {{paginatorInfo{{hasMorePages}} data{queries.WARS_SCANNER}}}}}")
+                        await asyncio.sleep(1)
+                        n += 1
+                        try:
+                            all_wars += temp1['data']['wars']['data']
+                            has_more_pages = temp1['data']['wars']['paginatorInfo']['hasMorePages']
+                        except:
+                            e = temp1['errors']
+                            logger.error(e, exc_info=True)
+                            await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Fetching from API\n\nError:```{e}```')
+                            await asyncio.sleep(60)
+                            continue
+                    for war in all_wars:
+                        if war['turnsleft'] <= 0:
+                            declaration = datetime.strptime(war['date'], '%Y-%m-%dT%H:%M:%S%z').replace(tzinfo=None)
+                            if (datetime.utcnow() - declaration).days <= 5:
+                                done_wars.append(war)
+                        else:
+                            wars.append(war)
+                    for new_war in wars:
+                        try:
+                            for guild in guilds:
+                                channel = None
+                                guild_id = None
+                                try:
+                                    if new_war['att_alliance_id'] in guild['war_threads_alliance_ids']:
+                                        atom = new_war['attacker']
+                                        non_atom = new_war['defender']
+                                    elif new_war['def_alliance_id'] in guild['war_threads_alliance_ids']:
+                                        atom = new_war['defender']
+                                        non_atom = new_war['attacker']
+                                    else:
                                         continue
-                                    if not channel or not guild_id:
+                                    channel = self.bot.get_channel(guild['war_threads_channel_id']) 
+                                    guild_id = guild['guild_id']
+                                except:
+                                    continue
+                                if not channel or not guild_id:
+                                    continue
+                                attack_logs = mongo.war_logs.find_one({"id": new_war['id'], "guild_id": guild_id})
+                                if not attack_logs:
+                                    attack_logs, temp = await cthread(new_war, non_atom, atom)
+                                for old_war in prev_wars:
+                                    if new_war['id'] == old_war['id']:
+                                        if new_war['attpeace'] and not old_war['attpeace']:
+                                            peace_obj = {"offerer": new_war['attacker'], "reciever": new_war['defender']}
+                                            await smsg(None, None, new_war, atom, non_atom, peace_obj)
+                                        elif new_war['defpeace'] and not old_war['defpeace']:
+                                            peace_obj = {"offerer": new_war['defender'], "reciever": new_war['attacker']}
+                                            await smsg(None, None, new_war, atom, non_atom, peace_obj)
+                                        break
+                                for attack in new_war['attacks']:
+                                    if attack['id'] not in attack_logs['attacks']:
+                                        await smsg(attack['att_id'], attack, new_war, atom, non_atom, None)
+                        except discord.errors.Forbidden:
+                            pass
+                        except Exception as e:
+                            logger.error(e, exc_info=True)
+                            await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Iterating `new_wars`\n\nError:```{traceback.format_exc()}```')
+                    for done_war in done_wars:
+                        try:
+                            for guild in guilds:
+                                channel = None
+                                guild_id = None
+                                try:
+                                    if done_war['att_alliance_id'] in guild['war_threads_alliance_ids']:
+                                        atom = done_war['attacker']
+                                        non_atom = done_war['defender']
+                                    elif done_war['def_alliance_id'] in guild['war_threads_alliance_ids']:
+                                        atom = done_war['defender']
+                                        non_atom = done_war['attacker']
+                                    else:
                                         continue
-                                    attack_logs = mongo.war_logs.find_one({"id": new_war['id'], "guild_id": guild_id})
-                                    if not attack_logs:
-                                        attack_logs, temp = await cthread(new_war, non_atom, atom)
-                                    for old_war in prev_wars:
-                                        if new_war['id'] == old_war['id']:
-                                            if new_war['attpeace'] and not old_war['attpeace']:
-                                                peace_obj = {"offerer": new_war['attacker'], "reciever": new_war['defender']}
-                                                await smsg(None, None, new_war, atom, non_atom, peace_obj)
-                                            elif new_war['defpeace'] and not old_war['defpeace']:
-                                                peace_obj = {"offerer": new_war['defender'], "reciever": new_war['attacker']}
-                                                await smsg(None, None, new_war, atom, non_atom, peace_obj)
-                                            break
-                                    for attack in new_war['attacks']:
-                                        if attack['id'] not in attack_logs['attacks']:
-                                            await smsg(attack['att_id'], attack, new_war, atom, non_atom, None)
-                            except discord.errors.Forbidden:
-                                pass
-                            except Exception as e:
-                                logger.error(e, exc_info=True)
-                                await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Iterating `new_wars`\n\nError:```{traceback.format_exc()}```')
-                        for done_war in done_wars:
-                            try:
-                                for guild in guilds:
-                                    channel = None
-                                    guild_id = None
-                                    try:
-                                        if done_war['att_alliance_id'] in guild['war_threads_alliance_ids']:
-                                            atom = done_war['attacker']
-                                            non_atom = done_war['defender']
-                                        elif done_war['def_alliance_id'] in guild['war_threads_alliance_ids']:
-                                            atom = done_war['defender']
-                                            non_atom = done_war['attacker']
-                                        else:
-                                            continue
-                                        channel = self.bot.get_channel(guild['war_threads_channel_id']) 
-                                        guild_id = guild['guild_id']
-                                    except:
-                                        continue
-                                    if not channel or not guild_id:
-                                        continue
-                                    attack_logs = mongo.war_logs.find_one({"id": done_war['id'], "guild_id": guild_id})
-                                    if not attack_logs:
-                                        attack_logs, temp = await cthread(done_war, non_atom, atom)
-                                    elif attack_logs['finished']:
-                                        continue
-                                    for attack in done_war['attacks']:
-                                        if attack['id'] not in attack_logs['attacks']:
-                                            await smsg(attack['att_id'], attack, done_war, atom, non_atom, None)
-                                    if len(done_war['attacks']) == 0:
-                                        attack = {"type": "EXPIRATION", "id": -1, "date": datetime.strftime(datetime.utcnow().replace(tzinfo=timezone.utc), '%Y-%m-%dT%H:%M:%S%z')}
-                                        await smsg(None, attack, done_war, atom, non_atom, None)
-                                    elif done_war['attacks'][-1]['type'] not in ["PEACE", "VICTORY", "ALLIANCELOOT"]:
-                                        attack = {"type": "EXPIRATION", "id": -1, "date": datetime.strftime(datetime.utcnow().replace(tzinfo=timezone.utc), '%Y-%m-%dT%H:%M:%S%z')}
-                                        await smsg(None, attack, done_war, atom, non_atom, None)
-                                    for thread in channel.threads:
-                                        if f"({non_atom['id']})" in thread.name:
-                                            try:
-                                                await self.remove_from_thread(thread, atom['id'], atom)
-                                                members = await thread.fetch_members()
-                                                member_count = 0
-                                                for member in members:
-                                                    user = await self.bot.fetch_user(member.id)
-                                                    if user.bot:
-                                                        continue
-                                                    else:
-                                                        member_count += 1
-                                                if member_count == 0:
-                                                    await thread.edit(archived=True)
-                                            except Exception as e:
-                                                logger.error(e, exc_info=True)
-                                                await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Fetching members of closing thread\n\nError:```{traceback.format_exc()}```')
-                                            mongo.war_logs.find_one_and_update({"id": done_war['id'], "guild_id": guild_id}, {"$set": {"finished": True}})
-                                            break
-                            except discord.errors.Forbidden:
-                                pass
-                            except Exception as e:
-                                logger.error(e, exc_info=True)
-                                await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Iterating `done_wars`\n\nError:```{traceback.format_exc()}```')
+                                    channel = self.bot.get_channel(guild['war_threads_channel_id']) 
+                                    guild_id = guild['guild_id']
+                                except:
+                                    continue
+                                if not channel or not guild_id:
+                                    continue
+                                attack_logs = mongo.war_logs.find_one({"id": done_war['id'], "guild_id": guild_id})
+                                if not attack_logs:
+                                    attack_logs, temp = await cthread(done_war, non_atom, atom)
+                                elif attack_logs['finished']:
+                                    continue
+                                for attack in done_war['attacks']:
+                                    if attack['id'] not in attack_logs['attacks']:
+                                        await smsg(attack['att_id'], attack, done_war, atom, non_atom, None)
+                                if len(done_war['attacks']) == 0:
+                                    attack = {"type": "EXPIRATION", "id": -1, "date": datetime.strftime(datetime.utcnow().replace(tzinfo=timezone.utc), '%Y-%m-%dT%H:%M:%S%z')}
+                                    await smsg(None, attack, done_war, atom, non_atom, None)
+                                elif done_war['attacks'][-1]['type'] not in ["PEACE", "VICTORY", "ALLIANCELOOT"]:
+                                    attack = {"type": "EXPIRATION", "id": -1, "date": datetime.strftime(datetime.utcnow().replace(tzinfo=timezone.utc), '%Y-%m-%dT%H:%M:%S%z')}
+                                    await smsg(None, attack, done_war, atom, non_atom, None)
+                                for thread in channel.threads:
+                                    if f"({non_atom['id']})" in thread.name:
+                                        try:
+                                            await self.remove_from_thread(thread, atom['id'], atom)
+                                            members = await thread.fetch_members()
+                                            member_count = 0
+                                            for member in members:
+                                                user = await self.bot.fetch_user(member.id)
+                                                if user.bot:
+                                                    continue
+                                                else:
+                                                    member_count += 1
+                                            if member_count == 0:
+                                                await thread.edit(archived=True)
+                                        except Exception as e:
+                                            logger.error(e, exc_info=True)
+                                            await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Fetching members of closing thread\n\nError:```{traceback.format_exc()}```')
+                                        mongo.war_logs.find_one_and_update({"id": done_war['id'], "guild_id": guild_id}, {"$set": {"finished": True}})
+                                        break
+                        except discord.errors.Forbidden:
+                            pass
+                        except Exception as e:
+                            logger.error(e, exc_info=True)
+                            await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Iterating `done_wars`\n\nError:```{traceback.format_exc()}```')
                     await asyncio.sleep(60)
                 except:
                     await debug_channel.send(f"I encountered an error whilst scanning for wars:```{traceback.format_exc()}```")
