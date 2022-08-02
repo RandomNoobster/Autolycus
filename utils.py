@@ -583,8 +583,7 @@ def str_to_int(string: str) -> int:
 async def pre_revenue_calc(api_key, message: discord.Message, query_for_nation: bool = False, nationid: Union[int, str] = None, parsed_nation: dict = None):
     async with aiohttp.ClientSession() as session:
         if query_for_nation:
-            async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{nations(first:1 id:{nationid}){{data{queries.REVENUE}}}}}"}) as temp:
-                nation = (await temp.json())['data']['nations']['data']
+            nation = (await call(f"{{nations(first:1 id:{nationid}){{data{queries.REVENUE}}}}}"))['data']['nations']['data']
             if len(nation) == 0:
                 print("That person was not in the API!")
                 raise 
@@ -594,18 +593,18 @@ async def pre_revenue_calc(api_key, message: discord.Message, query_for_nation: 
             nation = parsed_nation
 
         await message.edit(content="Getting income modifiers...")
-        async with session.post(f"https://api.politicsandwar.com/graphql?api_key={api_key}", json={'query': f"{{colors{{color turn_bonus}} game_info{{game_date radiation{{global north_america south_america africa europe asia australia antarctica}}}} tradeprices(page:1 first:1){{data{{coal oil uranium iron bauxite lead gasoline munitions steel aluminum food}}}} treasures{{bonus nation{{id alliance_id}}}}}}"}) as temp:
-            res_colors = (await temp.json())['data']['colors']
+        res = await call(f"{{colors{{color turn_bonus}} game_info{{game_date radiation{{global north_america south_america africa europe asia australia antarctica}}}} tradeprices(page:1 first:1){{data{{coal oil uranium iron bauxite lead gasoline munitions steel aluminum food}}}} treasures{{bonus nation{{id alliance_id}}}}}}")
+        res_colors = res['data']['colors']
         colors = {}
         for color in res_colors:
             colors[color['color']] = color['turn_bonus'] * 12
 
-        prices = (await temp.json())['data']['tradeprices']['data'][0]
+        prices = res['data']['tradeprices']['data'][0]
         prices['money'] = 1
 
-        treasures = (await temp.json())['data']['treasures']
+        treasures = res['data']['treasures']
 
-        game_info = (await temp.json())['data']['game_info']
+        game_info = res['data']['game_info']
 
         rad = game_info['radiation']
         radiation = {"na": 1 - (rad['north_america'] + rad['global'])/1000, "sa": 1 - (rad['south_america'] + rad['global'])/1000, "eu": (rad['europe'] + rad['global'])/1000, "as": 1 - (rad['asia'] + rad['global'])/1000, "af": 1 - (rad['africa'] + rad['global'])/1000, "au": 1 - (rad['australia'] + rad['global'])/1000, "an": 1 - (rad['antarctica'] + rad['global'])/1000}
