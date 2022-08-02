@@ -387,6 +387,7 @@ class General(commands.Cog):
                         all_wars = []
                         while has_more_pages:
                             temp1 = await utils.call(f"{{wars(alliance_id:[{','.join(unique_ids)}] page:{n} active:false days_ago:5 first:200) {{paginatorInfo{{hasMorePages}} data{queries.WARS_SCANNER}}}}}")
+                            await asyncio.sleep(1)
                             n += 1
                             try:
                                 all_wars += temp1['data']['wars']['data']
@@ -502,7 +503,6 @@ class General(commands.Cog):
                             except Exception as e:
                                 logger.error(e, exc_info=True)
                                 await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Iterating `done_wars`\n\nError:```{traceback.format_exc()}```')
-                    await asyncio.sleep(60)
                 except:
                     await debug_channel.send(f"I encountered an error whilst scanning for wars:```{traceback.format_exc()}```")
                     await asyncio.sleep(300)
