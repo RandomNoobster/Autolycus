@@ -1304,6 +1304,7 @@ class TargetFinding(commands.Cog):
         name="nuketargets",
         description='Find nations with juicy infra'
     )
+    @commands.guild_only()
     async def nuketargets(
         self,
         ctx: discord.ApplicationContext,
@@ -1415,6 +1416,7 @@ class TargetFinding(commands.Cog):
         name="targets",
         description="Find alliance war targets"
     )
+    @commands.guild_only()
     async def targets(
         self,
         ctx: discord.ApplicationContext
