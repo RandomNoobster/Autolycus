@@ -35,11 +35,13 @@ And this file: `/usr/local/bin/bootup.sh`
 ```
 #!/bin/bash
 cd /home/opc/Autolycus
-git fetch
-git reset --hard origin/oracle
-pip3 install -r requirements.txt --user
-pkill -9 python
-python3 main.py
+while true; do
+    sudo git pull origin oracle
+    pip3 install -r requirements.txt --user
+    pkill -9 python
+    python3 main.py
+    sleep 2d
+done
 ```
 
 
