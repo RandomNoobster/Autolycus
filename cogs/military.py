@@ -1524,7 +1524,7 @@ class TargetFinding(commands.Cog):
             if nation2:
                 results['nation2'] = nation2
                 nation2_id = nation2['id']
-            if nation1_id or nation2_id:
+            if (nation1_id and not nation1) or (nation2_id and not nation2):
                 ids = []
                 if nation1_id:
                     ids.append(nation1_id)
