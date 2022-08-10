@@ -138,14 +138,47 @@ class yes_or_no_view(discord.ui.View):
     async def on_timeout(self):
         await run_timeout(self.ctx, self)  
 
+class Dropdown(discord.ui.Select):
+    """
+    select_options: Needs `embeds`, `placeholder`, `min_values`, `max_values` and `options` -> list of dicts with `label`, `description`, `emoji`, `value` (index) and `default`.
+    """
+    def __init__(self, main_view, select_options: dict = {}):
+        self.apples = main_view
+        options = []
+        n = 0
+        for x in select_options['options']:
+            options.append(discord.SelectOption(label=x['label'], description=x['description'], emoji=x['emoji'], value=n, default=x['default']))
+            n += 1
+        self.selectable_options = options
+
+        # The placeholder is what will be shown when no option is selected.
+        # The min and max values indicate we can only pick one of the three options.
+        # The options parameter, contents shown above, define the dropdown options.
+        super().__init__(
+            placeholder=select_options['placeholder'] or "Select an option from the dropdown",
+            min_values=select_options['min_values'] or 1,
+            max_values=select_options['max_values'] or 1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        self.apples.embeds = sorted(self.apples.embeds, key=self.selectable_options[int(interaction.data['values'][0])]['sort_by'], reverse=True)
+        await interaction.response.edit_message(embed=self.apples.embeds[0])
+        print("gg")
+
 class switch(discord.ui.View):
-    def __init__(self, ctx, max_page: int, embeds: list, timeout: int = 600, author_check: bool = True, cur_page: int = 0):
+    """
+    select_options: Needs `embeds`, `placeholder`, `min_values`, `max_values` and `options` -> list of dicts with `label`, `description`, `emoji`, `value` and `default`.
+    """
+    def __init__(self, ctx, max_page: int, embeds: list, timeout: int = 600, author_check: bool = True, cur_page: int = 0, select_options: dict = {}):
         super().__init__(timeout=timeout)
         self.ctx = ctx
         self.author_check = author_check
         self.cur_page = cur_page
         self.max_page = max_page - 1
         self.embeds = embeds
+        if select_options:
+            self.add_item(Dropdown(self, select_options))
 
     @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
     async def far_left_callback(self, b: discord.Button, i: discord.Interaction):
@@ -154,7 +187,7 @@ class switch(discord.ui.View):
 
     @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
     async def left_callback(self, b: discord.Button, i: discord.Interaction):
-        if self.cur_page == 1:
+        if self.cur_page == 0:
             self.cur_page = self.max_page
             await i.response.edit_message(embed=self.embeds[self.cur_page])
         else:
@@ -537,7 +570,7 @@ def expansion_cost(current: int, end: int, infra: int, land: int, nation: dict =
     """
     diff = end - current
     if diff < 1:
-        raise ValueError("Incorrect start and end input")
+        raise ValueError("Invalid start and end input.")
 
     cost = 0
     while current < end:
