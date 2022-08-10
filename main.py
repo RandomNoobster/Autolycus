@@ -53,6 +53,8 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
         await ctx.respond(error.original)
     elif "NoPrivateMessage" in str(error):
         await ctx.respond(error.original)
+    elif "ValueError" in str(error) and "cost" in str(ctx.command):
+        await ctx.respond(error.original)
     elif "Unknown interaction" in str(error):
         await ctx.respond(f"My bad <@{ctx.author.id}>! Discord claims I didn't respond fast enough, please try that again!")
         await debug_channel.send(f'**Exception caught!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```')
