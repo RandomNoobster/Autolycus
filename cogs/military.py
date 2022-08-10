@@ -1874,16 +1874,16 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_airvships_net'] = results[f'{attacker}_airvships_{defender}_total'] - results[f'{attacker}_airvships_{attacker}_total']
 
 
-                results[f'{attacker}_naval_{attacker}_mun'] = results[f'{attacker}']['ships'] * 3
-                results[f'{attacker}_naval_{attacker}_gas'] = results[f'{attacker}']['ships'] * 2
+                results[f'{attacker}_naval_{attacker}_mun'] = results[f'{attacker}']['ships'] * 2.5
+                results[f'{attacker}_naval_{attacker}_gas'] = results[f'{attacker}']['ships'] * 1.5
                 results[f'{attacker}_naval_{attacker}_alum'] = 0
                 results[f'{attacker}_naval_{attacker}_steel'] = (results[f'{attacker}_naval_{attacker}_avg'] * 30) * (1 - (results[f'{attacker}_military_salvage_mod'] * (1 - ((1 - results[f'{attacker}_naval_win_rate']) ** 3)) * 0.05))
                 results[f'{attacker}_naval_{attacker}_money'] = results[f'{attacker}_naval_{attacker}_avg'] * 50000
                 results[f'{attacker}_naval_{attacker}_total'] = results[f'{attacker}_naval_{attacker}_alum'] * 2971 + results[f'{attacker}_naval_{attacker}_steel'] * 3990 + results[f'{attacker}_naval_{attacker}_gas'] * 3340 + results[f'{attacker}_naval_{attacker}_mun'] * 1960 + results[f'{attacker}_naval_{attacker}_money'] 
             
-                base_mun = results[f'{defender}']['ships'] * 3 * def_rss_consumption(results[f'{attacker}_naval_win_rate'])
+                base_mun = results[f'{defender}']['ships'] * 2.5 * def_rss_consumption(results[f'{attacker}_naval_win_rate'])
                 results[f'{attacker}_naval_{defender}_mun'] = results[f'{attacker}_naval_{defender}_mun'] = (base_mun * (1 - results[f'{attacker}_naval_fail']) + min(base_gas, results[f'{attacker}_naval_{attacker}_mun']) * results[f'{attacker}_naval_fail'])
-                base_gas = results[f'{defender}']['ships'] * 2 * def_rss_consumption(results[f'{attacker}_naval_win_rate'])
+                base_gas = results[f'{defender}']['ships'] * 1.5 * def_rss_consumption(results[f'{attacker}_naval_win_rate'])
                 results[f'{attacker}_naval_{defender}_gas'] = results[f'{attacker}_naval_{defender}_gas'] = (base_gas * (1 - results[f'{attacker}_naval_fail']) + min(base_gas, results[f'{attacker}_naval_{attacker}_gas']) * results[f'{attacker}_naval_fail'])
                 results[f'{attacker}_naval_{defender}_alum'] = 0
                 results[f'{attacker}_naval_{defender}_steel'] = results[f'{attacker}_naval_{defender}_avg'] * 30

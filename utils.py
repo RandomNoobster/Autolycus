@@ -975,7 +975,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
             food -= nation['soldiers'] / 750
             military_upkeep += nation['tanks'] * 50
             military_upkeep += nation['aircraft'] * 500
-            military_upkeep += nation['ships'] * 3750
+            military_upkeep += nation['ships'] * 3375
             military_upkeep += nation['missiles'] * 21000
             military_upkeep += nation['nukes'] * 31500 
         else:
@@ -983,7 +983,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
             food -= nation['soldiers'] / 500
             military_upkeep += nation['tanks'] * 75
             military_upkeep += nation['aircraft'] * 750
-            military_upkeep += nation['ships'] * 5625
+            military_upkeep += nation['ships'] * 5062.50
             military_upkeep += nation['missiles'] * 35000 
             military_upkeep += nation['nukes'] * 52500
     else:
