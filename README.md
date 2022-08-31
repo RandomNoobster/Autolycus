@@ -40,7 +40,6 @@ while true; do
     pip3 install -r requirements.txt --user
     pkill -9 python
     python3 main.py
-    sleep 172800
 done
 ```
 
