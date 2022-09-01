@@ -434,9 +434,9 @@ class TargetFinding(commands.Cog):
                                     target['nation_loot_value'] = nation_loot
                                     embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
                                     prev_nat_loot = True
-                                except Exception as e:
-                                    logger.error(e, exc_info=True)
-                                    raise Exception("raidsError: " + str(war))
+                                except:
+                                    # if you are here, it is probably because the attacker has deleted their nation
+                                    pass
 
                     if prev_nat_loot == False:
                         embed.add_field(name="Previous nation loot", value="NaN")
