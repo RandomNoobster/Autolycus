@@ -435,7 +435,7 @@ class TargetFinding(commands.Cog):
                                     target['nation_loot_value'] = nation_loot
                                     embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
                                 except Exception as e:
-                                    logger.error("CAUGHT raidsERROR" + e, exc_info=True)
+                                    logger.error(e, exc_info=True)
                                     raise Exception("raidsError: " + str(war))
 
                     if prev_nat_loot == False:
