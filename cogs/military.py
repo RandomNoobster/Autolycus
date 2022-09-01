@@ -437,6 +437,7 @@ class TargetFinding(commands.Cog):
                                 except:
                                     # if you are here, it is probably because the attacker has deleted their nation
                                     pass
+                                break
 
                     if prev_nat_loot == False:
                         embed.add_field(name="Previous nation loot", value="NaN")
