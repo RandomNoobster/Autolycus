@@ -398,42 +398,41 @@ class TargetFinding(commands.Cog):
                             target['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
                         else:
                             target['time_since_war'] = "Ongoing"
-                        if war['winner'] in ["0", target['id']]:
-                            pass
-                        else:
-                            nation_loot = 0
-                            prev_nat_loot = True
-                            for attack in war['attacks']:
-                                if attack['victor'] == target['id']:
-                                    continue
-                                if attack['loot_info']:
-                                    text = attack['loot_info']
-                                    if "won the war and looted" in text:
-                                        text = text[text.index('looted') + 7 :text.index(' Food. ')]
-                                        text = re.sub(r"[^0-9-]+", "", text.replace(", ", "-"))
-                                        rss = ['money', 'coal', 'oil', 'uranium', 'iron', 'bauxite', 'lead', 'gasoline', 'munitions', 'steel', 'aluminum', 'food']
-                                        n = 0
-                                        loot = {}
-                                        for sub in text.split("-"):
-                                            loot[rss[n]] = int(sub)
-                                            n += 1
-                                        for rs in rss:
-                                            amount = loot[rs]
-                                            price = int(prices[rs])
-                                            nation_loot += amount * price
-                                    else:
+                        for war in wars:
+                            if war['turnsleft'] <= 0:
+                                nation_loot = 0
+                                prev_nat_loot = True
+                                for attack in war['attacks']:
+                                    if attack['victor'] == target['id']:
                                         continue
-                            if war['attacker']['war_policy'] == "ATTRITION":
-                                nation_loot = nation_loot / 80 * 100
-                            elif war['attacker']['war_policy'] == "PIRATE":
-                                nation_loot = nation_loot / 140 * 100
-                            if war['war_type'] == "ATTRITION":
-                                nation_loot = nation_loot * 4
-                            elif war['war_type'] == "ORDINARY":
-                                nation_loot = nation_loot * 2
-                            target['nation_loot'] = f"{round(nation_loot):,}"
-                            target['nation_loot_value'] = nation_loot
-                            embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
+                                    if attack['loot_info']:
+                                        text = attack['loot_info']
+                                        if "won the war and looted" in text:
+                                            text = text[text.index('looted') + 7 :text.index(' Food. ')]
+                                            text = re.sub(r"[^0-9-]+", "", text.replace(", ", "-"))
+                                            rss = ['money', 'coal', 'oil', 'uranium', 'iron', 'bauxite', 'lead', 'gasoline', 'munitions', 'steel', 'aluminum', 'food']
+                                            n = 0
+                                            loot = {}
+                                            for sub in text.split("-"):
+                                                loot[rss[n]] = int(sub)
+                                                n += 1
+                                            for rs in rss:
+                                                amount = loot[rs]
+                                                price = int(prices[rs])
+                                                nation_loot += amount * price
+                                        else:
+                                            continue
+                                if war['attacker']['war_policy'] == "ATTRITION":
+                                    nation_loot = nation_loot / 80 * 100
+                                elif war['attacker']['war_policy'] == "PIRATE":
+                                    nation_loot = nation_loot / 140 * 100
+                                if war['war_type'] == "ATTRITION":
+                                    nation_loot = nation_loot * 4
+                                elif war['war_type'] == "ORDINARY":
+                                    nation_loot = nation_loot * 2
+                                target['nation_loot'] = f"{round(nation_loot):,}"
+                                target['nation_loot_value'] = nation_loot
+                                embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
 
                     if prev_nat_loot == False:
                         embed.add_field(name="Previous nation loot", value="NaN")
