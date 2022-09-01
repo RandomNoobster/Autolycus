@@ -422,17 +422,21 @@ class TargetFinding(commands.Cog):
                                                 nation_loot += amount * price
                                         else:
                                             continue
-                                if war['attacker']['war_policy'] == "ATTRITION":
-                                    nation_loot = nation_loot / 80 * 100
-                                elif war['attacker']['war_policy'] == "PIRATE":
-                                    nation_loot = nation_loot / 140 * 100
-                                if war['war_type'] == "ATTRITION":
-                                    nation_loot = nation_loot * 4
-                                elif war['war_type'] == "ORDINARY":
-                                    nation_loot = nation_loot * 2
-                                target['nation_loot'] = f"{round(nation_loot):,}"
-                                target['nation_loot_value'] = nation_loot
-                                embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
+                                try:
+                                    if war['attacker']['war_policy'] == "ATTRITION":
+                                        nation_loot = nation_loot / 80 * 100
+                                    elif war['attacker']['war_policy'] == "PIRATE":
+                                        nation_loot = nation_loot / 140 * 100
+                                    if war['war_type'] == "ATTRITION":
+                                        nation_loot = nation_loot * 4
+                                    elif war['war_type'] == "ORDINARY":
+                                        nation_loot = nation_loot * 2
+                                    target['nation_loot'] = f"{round(nation_loot):,}"
+                                    target['nation_loot_value'] = nation_loot
+                                    embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
+                                except Exception as e:
+                                    logger.error("CAUGHT raidsERROR" + e, exc_info=True)
+                                    raise Exception("raidsError: " + war)
 
                     if prev_nat_loot == False:
                         embed.add_field(name="Previous nation loot", value="NaN")
