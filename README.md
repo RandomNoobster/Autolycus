@@ -36,10 +36,11 @@ And this file: `/usr/local/bin/bootup.sh`
 #!/bin/bash
 cd /home/opc/Autolycus
 while true; do
+    pkill -9 python
     sudo git pull origin oracle
     pip3 install -r requirements.txt --user
-    pkill -9 python
-    python3 main.py
+    python3 main.py &
+    sleep 86400
 done
 ```
 
