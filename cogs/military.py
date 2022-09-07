@@ -1062,7 +1062,7 @@ class TargetFinding(commands.Cog):
     ):
         try:
             await ctx.defer()
-            allied_id_list, id_str = utils.str_to_id_list(self, allied_alliance_ids or "")
+            allied_id_list, id_str = utils.str_to_id_list(allied_alliance_ids or "")
             if id_str == "":
                 try:
                     allied_id_list = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['counters_alliance_ids']
@@ -1070,7 +1070,7 @@ class TargetFinding(commands.Cog):
                     await ctx.respond("I could not find any allied alliances for this server! Someone with the `manage_server` permission must use `/config counters`, or you must supply some id(s) when you call this command!")
                     return
 
-            enemy_id_list, id_str = utils.str_to_id_list(self, enemy_alliance_ids or "")
+            enemy_id_list, id_str = utils.str_to_id_list(enemy_alliance_ids or "")
             if id_str == "":
                 try:
                     enemy_id_list = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['targets_alliance_ids']
