@@ -44,9 +44,6 @@ async def on_ready():
     logger.info(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     logger.info('We have logged in as {0.user}'.format(bot))
-    await asyncio.sleep(2)
-    raise KeyboardInterrupt
-    sys.exit("Exiting after running for 2 days")
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
