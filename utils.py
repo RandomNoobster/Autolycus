@@ -845,7 +845,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
 
         rss_upkeep += 300 * city['farm'] * rss_upkeep_mod ## seasonal modifiers and radiation
         pollution += 2 * city['farm'] * farm_poll_mod
-        food_prod = city['land']/food_land_mod * city['farm'] * (1 + ((0.5 * (city['farm'] - 1)) / (20 - 1))) * seasonal_mod[nation['continent']] * radiation[nation['continent']] * 12
+        food_prod = city['land']/food_land_mod * city['farm'] * (1 + ((0.5 * (city['farm'] - 1)) / (20 - 1))) * seasonal_mod[nation['continent']] * max(radiation[nation['continent']], 0.1 * int(nation['fallout_shelter'])) * 12
         if food_prod < 0:
             food += 0
         else:
