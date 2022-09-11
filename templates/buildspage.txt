@@ -234,37 +234,37 @@
         <div class="template" id="template <%text>$</%text>{rs}">
         <h3>The best build for <%text>$</%text>{rs}</h3>
     <pre id="<%text>$</%text>{rs}">
-{
-    "infra_needed": <%text>$</%text>{build['infrastructure']},
-    "imp_total": <%text>$</%text>{Math.floor(parseFloat(build['infrastructure'])/50)},
-    "imp_coalpower": <%text>$</%text>{build['coalpower']},
-    "imp_oilpower": <%text>$</%text>{build['oilpower']},
-    "imp_windpower": <%text>$</%text>{build['windpower']},
-    "imp_nuclearpower": <%text>$</%text>{build['nuclearpower']},
-    "imp_coalmine": <%text>$</%text>{build['coalmine']},
-    "imp_oilwell": <%text>$</%text>{build['oilwell']},
-    "imp_uramine": <%text>$</%text>{build['uramine']},
-    "imp_leadmine": <%text>$</%text>{build['leadmine']},
-    "imp_ironmine": <%text>$</%text>{build['ironmine']},
-    "imp_bauxitemine": <%text>$</%text>{build['bauxitemine']},
-    "imp_farm": <%text>$</%text>{build['farm']},
-    "imp_gasrefinery": <%text>$</%text>{build['gasrefinery']},
-    "imp_aluminumrefinery": <%text>$</%text>{build['aluminumrefinery']},
-    "imp_munitionsfactory": <%text>$</%text>{build['munitionsfactory']},
-    "imp_steelmill": <%text>$</%text>{build['steelmill']},
-    "imp_policestation": <%text>$</%text>{build['policestation']},
-    "imp_hospital": <%text>$</%text>{build['hospital']},
-    "imp_recyclingcenter": <%text>$</%text>{build['recyclingcenter']},
-    "imp_subway": <%text>$</%text>{build['subway']},
-    "imp_supermarket": <%text>$</%text>{build['supermarket']},
-    "imp_bank": <%text>$</%text>{build['bank']},
-    "imp_mall": <%text>$</%text>{build['mall']},
-    "imp_stadium": <%text>$</%text>{build['stadium']},
-    "imp_barracks": <%text>$</%text>{build['barracks']},
-    "imp_factory": <%text>$</%text>{build['factory']},
-    "imp_hangars": <%text>$</%text>{build['airforcebase']},
-    "imp_drydock": <%text>$</%text>{build['drydock']}
-}</pre>
+    {
+        "infra_needed": <%text>$</%text>{build['infrastructure']},
+        "imp_total": <%text>$</%text>{Math.floor(parseFloat(build['infrastructure'])/50)},
+        "imp_coalpower": <%text>$</%text>{build['coalpower']},
+        "imp_oilpower": <%text>$</%text>{build['oilpower']},
+        "imp_windpower": <%text>$</%text>{build['windpower']},
+        "imp_nuclearpower": <%text>$</%text>{build['nuclearpower']},
+        "imp_coalmine": <%text>$</%text>{build['coalmine']},
+        "imp_oilwell": <%text>$</%text>{build['oilwell']},
+        "imp_uramine": <%text>$</%text>{build['uramine']},
+        "imp_leadmine": <%text>$</%text>{build['leadmine']},
+        "imp_ironmine": <%text>$</%text>{build['ironmine']},
+        "imp_bauxitemine": <%text>$</%text>{build['bauxitemine']},
+        "imp_farm": <%text>$</%text>{build['farm']},
+        "imp_gasrefinery": <%text>$</%text>{build['gasrefinery']},
+        "imp_aluminumrefinery": <%text>$</%text>{build['aluminumrefinery']},
+        "imp_munitionsfactory": <%text>$</%text>{build['munitionsfactory']},
+        "imp_steelmill": <%text>$</%text>{build['steelmill']},
+        "imp_policestation": <%text>$</%text>{build['policestation']},
+        "imp_hospital": <%text>$</%text>{build['hospital']},
+        "imp_recyclingcenter": <%text>$</%text>{build['recyclingcenter']},
+        "imp_subway": <%text>$</%text>{build['subway']},
+        "imp_supermarket": <%text>$</%text>{build['supermarket']},
+        "imp_bank": <%text>$</%text>{build['bank']},
+        "imp_mall": <%text>$</%text>{build['mall']},
+        "imp_stadium": <%text>$</%text>{build['stadium']},
+        "imp_barracks": <%text>$</%text>{build['barracks']},
+        "imp_factory": <%text>$</%text>{build['factory']},
+        "imp_hangars": <%text>$</%text>{build['airforcebase']},
+        "imp_drydock": <%text>$</%text>{build['drydock']}
+    }</pre>
         <div class="btnRow">
             <button onclick="copyFunc('<%text>$</%text>{rs}')">
                 Copy build

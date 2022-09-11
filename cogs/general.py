@@ -4,6 +4,7 @@ import discord
 from datetime import datetime, timedelta
 import pathlib
 import math
+import json
 from mako.template import Template
 import re
 from keep_alive import app
@@ -156,6 +157,11 @@ class Background(commands.Cog):
                 nation = nation[0]
             
             infra = utils.str_to_int(infra)
+            
+            if infra % 50 != 0:
+                await ctx.edit("The amount of infra must be a multiple of 50!")
+                return
+
             land = utils.str_to_int(land)
             
             try:
@@ -176,24 +182,31 @@ class Background(commands.Cog):
             all_rss = ['net income', 'aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium']
             if nation['continent'] == "af":
                 cont_rss = ['coal_mines', 'iron_mines', 'lead_mines']
+                cont_rss_2 = ['coalmine', 'ironmine', 'leadmine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "as":
                 cont_rss = ['coal_mines', 'bauxite_mines', 'lead_mines']
+                cont_rss_2 = ['coalmine', 'bauxitemine', 'leadmine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "au":
                 cont_rss = ['oil_wells', 'iron_mines', 'uranium_mines']
+                cont_rss_2 = ['oilwell', 'ironmine', 'uramine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "an":
                 cont_rss = ['oil_wells', 'coal_mines', 'uranium_mines']
+                cont_rss_2 = ['oilwell', 'coalmine', 'uramine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "eu":
                 cont_rss = ['oil_wells', 'bauxite_mines', 'uranium_mines']
+                cont_rss_2 = ['oilwell', 'bauxitemine', 'uramine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "na":
                 cont_rss = ['oil_wells', 'bauxite_mines', 'lead_mines']
+                cont_rss_2 = ['oilwell', 'bauxitemine', 'leadmine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "sa":
                 cont_rss = ['coal_mines', 'iron_mines', 'uranium_mines']
+                cont_rss_2 = ['coalmine', 'ironmine', 'uramine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
 
             await ctx.edit(content="Scanning cities...")
@@ -202,11 +215,10 @@ class Background(commands.Cog):
                 csv_dict_reader = DictReader(f1)
                 nation_age = nation['date'][:nation['date'].index("T")]
                 for city in csv_dict_reader:
-                    if str(infra).lower() not in "any":
-                        if float(city['infrastructure']) != float(infra):
-                            continue
-                        if int(infra) / 50 < int(city['oil_power_plants']) + int(city['nuclear_power_plants']) + int(city['wind_power_plants']) + int(city['coal_power_plants']) + int(city['coal_mines']) + int(city['oil_wells']) + int(city['uranium_mines']) + int(city['iron_mines']) + int(city['lead_mines']) + int(city['bauxite_mines']) + int(city['farms']) + int(city['police_stations']) + int(city['hospitals']) + int(city['recycling_centers']) + int(city['subway']) + int(city['supermarkets']) + int(city['banks']) + int(city['shopping_malls']) + int(city['stadiums']) + int(city['oil_refineries']) + int(city['aluminum_refineries']) + int(city['steel_mills']) + int(city['munitions_factories']) + int(city['barracks']) + int(city['factories']) + int(city['hangars']) + int(city['drydocks']):
-                            continue
+                    if float(city['infrastructure']) != float(infra):
+                        continue
+                    if int(infra) / 50 < int(city['oil_power_plants']) + int(city['nuclear_power_plants']) + int(city['wind_power_plants']) + int(city['coal_power_plants']) + int(city['coal_mines']) + int(city['oil_wells']) + int(city['uranium_mines']) + int(city['iron_mines']) + int(city['lead_mines']) + int(city['bauxite_mines']) + int(city['farms']) + int(city['police_stations']) + int(city['hospitals']) + int(city['recycling_centers']) + int(city['subway']) + int(city['supermarkets']) + int(city['banks']) + int(city['shopping_malls']) + int(city['stadiums']) + int(city['oil_refineries']) + int(city['aluminum_refineries']) + int(city['steel_mills']) + int(city['munitions_factories']) + int(city['barracks']) + int(city['factories']) + int(city['hangars']) + int(city['drydocks']):
+                        continue
                     if str(mmr).lower() not in "any":
                         if int(city['barracks']) < min_bar:
                             continue
@@ -266,6 +278,33 @@ class Background(commands.Cog):
                     city['drydock'] = int(city.pop('drydocks'))
 
                     to_scan.append(city)
+
+            with open(pathlib.Path.cwd() / 'data' / 'builds' / f'{infra}.json') as f1:
+                file_builds = json.load(f1)
+                for city in file_builds:
+                    if str(mmr).lower() not in "any":
+                        if city['barracks'] < min_bar:
+                            continue
+                        if city['factory'] < min_fac:
+                            continue
+                        if city['airforcebase'] < min_han:
+                            continue
+                        if city['drydock'] < min_dry:
+                            continue
+                    
+                    skip = False
+                    for mine in cont_rss_2:
+                        if city[mine] > 0:
+                            skip = True
+                            break
+                    if skip:
+                        continue
+                    
+                    city['powered'] = "am powered" #must be string to work when being in the webpage
+                    city['land'] = land
+                    city['date'] = nation_age
+
+                    to_scan.append(city)
             
             temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=False, parsed_nation=nation)
 
@@ -282,9 +321,11 @@ class Background(commands.Cog):
             unique_builds = sorted(unique_builds, key=lambda k: k['net income'], reverse=True)
                             
             builds = {}
+            top_builds = []
             for rs in rss:
                 sorted_builds = sorted(unique_builds, key=lambda k: k[rs], reverse=True)
                 best_builds = [city for city in sorted_builds if city[rs] == sorted_builds[0][rs]]
+                top_builds += best_builds[0:20]
                 builds[rs] = sorted(best_builds, key=lambda k: k['net income'], reverse=True)[0]
                 builds[rs]['template'] = f"""
     {{
@@ -318,12 +359,13 @@ class Background(commands.Cog):
         "imp_hangars": {builds[rs]['airforcebase']},
         "imp_drydock": {builds[rs]['drydock']}
     }}"""
+            top_unique_builds = [dict(t) for t in {tuple(d.items()) for d in top_builds}]
 
             class webbuild(MethodView):
                 def get(arg):
                     with open('./templates/buildspage.txt', 'r', encoding='UTF-8') as file:
                         template = file.read()
-                    result = Template(template).render(builds=builds, rss=rss, land=land, unique_builds=unique_builds, datetime=datetime)
+                    result = Template(template).render(builds=builds, rss=rss, land=land, unique_builds=top_unique_builds, datetime=datetime)
                     return str(result)
             endpoint = datetime.utcnow().strftime('%d%H%M%S')
             app.add_url_rule(f"/builds/{datetime.utcnow().strftime('%d%H%M%S')}", view_func=webbuild.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
