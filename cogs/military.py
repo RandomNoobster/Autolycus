@@ -1354,7 +1354,7 @@ class TargetFinding(commands.Cog):
                     return
 
             if not fail:
-                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population vacation_mode_turns warpolicy id soldiers tanks aircraft ships irond vds score alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
+                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population vacation_mode_turns warpolicy id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage score alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
                 user_nation = res['data']['nations']['data'][0]
 
             minscore = round(user_nation['score'] * 0.75)
