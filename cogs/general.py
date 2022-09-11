@@ -279,33 +279,36 @@ class Background(commands.Cog):
 
                     to_scan.append(city)
 
-            with open(pathlib.Path.cwd() / 'data' / 'builds' / f'{infra}.json') as f1:
-                file_builds = json.load(f1)
-                for city in file_builds:
-                    if str(mmr).lower() not in "any":
-                        if city['barracks'] < min_bar:
+            try:
+                with open(pathlib.Path.cwd() / 'data' / 'builds' / f'{infra}.json') as f1:
+                    file_builds = json.load(f1)
+                    for city in file_builds:
+                        if str(mmr).lower() not in "any":
+                            if city['barracks'] < min_bar:
+                                continue
+                            if city['factory'] < min_fac:
+                                continue
+                            if city['airforcebase'] < min_han:
+                                continue
+                            if city['drydock'] < min_dry:
+                                continue
+                        
+                        skip = False
+                        for mine in cont_rss_2:
+                            if city[mine] > 0:
+                                skip = True
+                                break
+                        if skip:
                             continue
-                        if city['factory'] < min_fac:
-                            continue
-                        if city['airforcebase'] < min_han:
-                            continue
-                        if city['drydock'] < min_dry:
-                            continue
-                    
-                    skip = False
-                    for mine in cont_rss_2:
-                        if city[mine] > 0:
-                            skip = True
-                            break
-                    if skip:
-                        continue
-                    
-                    city['powered'] = "am powered" #must be string to work when being in the webpage
-                    city['land'] = land
-                    city['date'] = nation_age
+                        
+                        city['powered'] = "am powered" #must be string to work when being in the webpage
+                        city['land'] = land
+                        city['date'] = nation_age
 
-                    to_scan.append(city)
-            
+                        to_scan.append(city)
+            except:
+                pass
+                
             temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=False, parsed_nation=nation)
 
             cities = []
