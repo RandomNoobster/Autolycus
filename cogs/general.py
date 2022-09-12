@@ -149,7 +149,7 @@ class Background(commands.Cog):
                 await ctx.edit(content="I could not find the specified person!")
                 return
 
-            nation = (await utils.call(f"{{nations(first:1 id:{db_nation['id']}){{data{{id continent date color dompolicy alliance{{name}} alliance_id num_cities ironw bauxitew armss egr massirr resource_production_center itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training uap}}}}}}"))['data']['nations']['data']
+            nation = (await utils.call(f"{{nations(first:1 id:{db_nation['id']}){{data{{id continent date color dompolicy alliance{{name}} alliance_id num_cities ironw bauxitew armss egr massirr resource_production_center itc recycling_initiative fallout_shelter telecom_satellite green_tech clinical_research_center specialized_police_training uap}}}}}}"))['data']['nations']['data']
             if len(nation) == 0:
                 await ctx.edit(content="That person was not in the API!")
                 return
