@@ -55,7 +55,7 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
     print(type(error))
     if "MissingPermissions" in str(error):
         await ctx.respond(error.original)
-    elif "NoPrivateMessage" in str(error):
+    elif "NoPrivateMessage" in str(error) or isinstance(error, commands.errors.NoPrivateMessage):
         await ctx.respond(error.original)
     elif "ValueError" in str(error) and "cost" in str(ctx.command):
         await ctx.respond(error.original)
