@@ -1362,20 +1362,24 @@ class TargetFinding(commands.Cog):
             nation_list = []
             for alliance in res['data']['alliances']['data']:
                 for nation in alliance['nations']:
-                    if nation['vacation_mode_turns'] > 0:
-                        continue
-                    if nation['score'] < minscore or nation['score'] > maxscore:
-                        continue
-                    nation['max_infra'] = sorted(nation['cities'], key=lambda x: x['infrastructure'], reverse=True)[0]['infrastructure']
-                    avg_infra = 0
-                    for city in nation['cities']:
-                        avg_infra += city['infrastructure']
-                    results = await self.battle_calc(nation1=user_nation, nation2=nation)
-                    # should parallelize this https://stackoverflow.com/a/56162461/14466960
-                    nation['nuke_cost'] = results['nation1_nuke_nation2_total']
-                    nation['missile_cost'] = results['nation1_missile_nation2_total']
-                    nation["avg_infra"] = avg_infra / len(nation['cities'])
-                    nation_list.append(nation)
+                    try:
+                        if nation['vacation_mode_turns'] > 0:
+                            continue
+                        if nation['score'] < minscore or nation['score'] > maxscore:
+                            continue
+                        nation['max_infra'] = sorted(nation['cities'], key=lambda x: x['infrastructure'], reverse=True)[0]['infrastructure']
+                        avg_infra = 0
+                        for city in nation['cities']:
+                            avg_infra += city['infrastructure']
+                        results = await self.battle_calc(nation1=user_nation, nation2=nation)
+                        # should parallelize this https://stackoverflow.com/a/56162461/14466960
+                        nation['nuke_cost'] = results['nation1_nuke_nation2_total']
+                        nation['missile_cost'] = results['nation1_missile_nation2_total']
+                        nation["avg_infra"] = avg_infra / len(nation['cities'])
+                        nation_list.append(nation)
+                    except IndexError:
+                        # IndexError if for some reason nation['cities'] is empty
+                        pass
 
             if len(nation_list) == 0:
                 await ctx.edit(content="No eligible targets found!")
