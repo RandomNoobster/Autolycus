@@ -398,6 +398,10 @@ class General(commands.Cog):
                             await asyncio.sleep(60)
                             continue
                     for war in all_wars:
+                        if not war['defender']:
+                            war['defender'] = {"nation_name": "Deleted", "leader_name": "Deleted", "alliance": {"name": "Deleted"}, "alliance_id": 0, "id": 0, "num_cities": 1}
+                        if not war['attacker']:
+                            war['attacker'] = {"nation_name": "Deleted", "leader_name": "Deleted", "alliance": {"name": "Deleted"}, "alliance_id": 0, "id": 0, "num_cities": 1}
                         if war['turnsleft'] <= 0:
                             declaration = datetime.strptime(war['date'], '%Y-%m-%dT%H:%M:%S%z').replace(tzinfo=None)
                             if (datetime.utcnow() - declaration).days <= 5:
