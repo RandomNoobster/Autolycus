@@ -440,6 +440,7 @@ class Background(commands.Cog):
         try:
             await ctx.defer()
 
+            alliance_id = None
             for aa in mongo.alliances.find({}):
                 if alliance == f"{aa['name']} ({aa['id']})":
                     alliance_id = aa['id']
