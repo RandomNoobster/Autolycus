@@ -6,6 +6,7 @@ import asyncio
 import sys
 import discord
 import logging
+import datetime
 from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
 intents = discord.Intents.default()
@@ -46,6 +47,18 @@ async def on_ready():
     logger.info('We have logged in as {0.user}'.format(bot))
     await asyncio.sleep(60*60*24*2)
     sys.exit("Exiting after running for 2 days")
+
+@bot.event
+async def on_application_command(ctx: discord.ApplicationContext):
+    try:
+        channel = {"name": ctx.channel.name, "id": ctx.channel_id}
+    except:
+        channel = {"name": f"{ctx.author.name}'s DM's", "id": ctx.channel_id}
+    try:
+        guild = {"name": ctx.guild.name, "id": ctx.guild_id}
+    except:
+        guild = {"name": f"{ctx.author.name}'s DM's", "id": None}
+    mongo.commands.insert_one({"command": ctx.command.name, "time": round(datetime.datetime.utcnow().timestamp()), "user": {"name": ctx.author.name, "id": ctx.author.id}, "channel": channel, "guild": guild})
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
