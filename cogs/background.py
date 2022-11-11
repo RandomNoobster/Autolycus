@@ -377,6 +377,9 @@ class General(commands.Cog):
                     alliance_ids = []
                     for guild in guilds:
                         for aa in guild['war_threads_alliance_ids']:
+                            if len(aa) > 5:
+                                #to avoid large integers (they are invalid alliance ids)
+                                continue
                             alliance_ids.append(aa)
                     unique_ids = list(set(alliance_ids))
                     wars = []
