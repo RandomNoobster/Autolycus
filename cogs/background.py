@@ -236,10 +236,12 @@ class General(commands.Cog):
                     footer = f"<t:{round(datetime.strptime(attack['date'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R> <t:{round(datetime.strptime(attack['date'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}>"
                     if attack['type'] in ["GROUND", "NAVAL", "AIRVINFRA", "AIRVSOLDIERS", "AIRVTANKS", "AIRVMONEY", "AIRVSHIPS", "AIRVAIR"]:
                         for nation in [war['attacker'], war['defender']]:
-                            if nation['id'] == attacker_id:
+                            if nation['id'] == attack['att_id']:
                                 attacker_nation = nation
-                            elif nation['id'] != attacker_id:
+                            elif nation['id'] == attack['def_id']:
                                 defender_nation = nation
+                            else:
+                                return
 
                         colors = [0xff0000, 0xffff00, 0xffff00, 0x00ff00]
                         if attacker_nation['id'] == non_atom['id']:
@@ -337,10 +339,12 @@ class General(commands.Cog):
                         await thread.send(embed=embed)
                     else:
                         for nation in [war['attacker'], war['defender']]:
-                            if nation['id'] == attacker_id:
+                            if nation['id'] == attack['att_id']:
                                 attacker_nation = nation
-                            elif nation['id'] != attacker_id:
+                            elif nation['id'] == attack['def_id']:
                                 defender_nation = nation
+                            else:
+                                return
 
                         colors = [0xff0000, 0x00ff00]
                         if attacker_nation['id'] == non_atom['id']:
@@ -377,6 +381,9 @@ class General(commands.Cog):
                     alliance_ids = []
                     for guild in guilds:
                         for aa in guild['war_threads_alliance_ids']:
+                            if len(aa) > 5:
+                                #to avoid large integers (they are invalid alliance ids)
+                                continue
                             alliance_ids.append(aa)
                     unique_ids = list(set(alliance_ids))
                     wars = []
