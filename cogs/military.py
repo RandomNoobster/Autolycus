@@ -1199,8 +1199,8 @@ class TargetFinding(commands.Cog):
 
             if war in nation['offensive_wars']:
                 result = await self.battle_calc(nation1=nation, nation2_id=war['defender']['id'])
-                war_emoji_1 = "\⚔️"
-                war_emoji_2 = "\🛡️"
+                war_emoji_1 = "<:offensive_swords:1054714270547447828>"
+                war_emoji_2 = "<:defensive_shield:1054714196715110411>"
                 x = war['defender']
                 main_enemy_res = war['att_resistance']
                 main_enemy_points = war['attpoints']
@@ -1208,8 +1208,8 @@ class TargetFinding(commands.Cog):
                 their_enemy_res = war['def_resistance']
             else:
                 result = await self.battle_calc(nation1=nation, nation2_id=war['attacker']['id'])
-                war_emoji_1 = "\🛡️"
-                war_emoji_2 = "\⚔️"
+                war_emoji_1 = "<:defensive_shield:1054714196715110411>"
+                war_emoji_2 = "<:offensive_swords:1054714270547447828>"
                 x = war['attacker']
                 main_enemy_res = war['def_resistance']
                 main_enemy_points = war['defpoints']
