@@ -1143,6 +1143,9 @@ class TargetFinding(commands.Cog):
                     return
         else:
             person = utils.find_nation_plus(self, nation)
+            if not person:
+                await ctx.respond("I could not find that nation!")
+                return
             nation_id = str(person['id'])
 
         nation = (await utils.call(f"{{nations(first:1 id:{nation_id}) {{data{{nation_name leader_name warpolicy cia fallout_shelter military_salvage id alliance{{name}} cities{{barracks factory airforcebase drydock}} population score last_active beigeturns vmode pirate_economy color dompolicy alliance_id num_cities soldiers tanks aircraft ships missiles nukes wars{{defender{{nation_name leader_name population alliance_id alliance{{name}} cities{{barracks factory airforcebase drydock}} wars{{attid defid turnsleft}} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} attacker{{ nation_name leader_name population alliance_id alliance{{ name }} cities{{ barracks factory airforcebase drydock }} wars{{ attid defid turnsleft }} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} date id attid defid winner att_resistance def_resistance attpoints defpoints attpeace defpeace war_type groundcontrol airsuperiority navalblockade turnsleft att_fortify def_fortify }} }} }}}}"))['data']['nations']['data'][0]
@@ -1679,6 +1682,7 @@ class TargetFinding(commands.Cog):
                     results[f'{attacker}_ground_{defender}_avg_aircraft'] = 0
                 
                 for type, cas_rate in [("avg", 0.7), ("diff", 0.3)]:
+                    # values should be multiplied by 0.7 again? no... https://politicsandwar.fandom.com/wiki/Ground_Battles?so=search -> make a function for the average tank/soldier value roll giving success
                     results[f'{attacker}_ground_{attacker}_{type}_soldiers'] = min(round(((defender_soldiers_value * 0.0084) + (defender_tanks_value * 0.0092)) * cas_rate * 3), results[attacker]['soldiers'])
                     results[f'{attacker}_ground_{attacker}_{type}_tanks'] = min(round((((defender_soldiers_value * 0.0004060606) + (defender_tanks_value * 0.00066666666)) * results[f'{attacker}_ground_win_rate'] + ((defender_soldiers_value * 0.00043225806) + (defender_tanks_value * 0.00070967741)) * (1 - results[f'{attacker}_ground_win_rate'])) * cas_rate * 3), results[attacker]['tanks'])
                     results[f'{attacker}_ground_{defender}_{type}_soldiers'] = min(round(((attacker_soldiers_value * 0.0084) + (attacker_tanks_value * 0.0092)) * cas_rate * 3), results[defender]['soldiers'])
