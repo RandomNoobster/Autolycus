@@ -70,18 +70,6 @@
                 cursor: help;
             }
 
-            /* #working {
-                opacity:0.5;
-                background-color:rgb(255,255,255);
-                position:fixed;
-                width:100%;
-                height:100%;
-                top:0px;
-                left:0px;
-                z-index:1000;
-                display:none;
-            } */
-
         </style>
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
         <script>
@@ -110,7 +98,6 @@
         </script>
     </head>
     <body>
-        <!-- <div id="working"></div> -->
         <div style="overflow-x:auto;">
             <table id="grid">
                 <tbody>
@@ -221,7 +208,10 @@
                 )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
 
             const table = document.querySelector('table');
-            //const working = document.querySelector('#working');
+            
+            function refresh() {
+                return new Promise(resolve => setTimeout(resolve, 50));
+            }
             
             function sortArrayTable(th) {
                 Array.from(table.querySelectorAll('tr:nth-child(n+2)'))
@@ -231,17 +221,13 @@
                     });
             };
 
-            document.querySelectorAll('th').forEach(th => th.addEventListener('click', (function () {
-                //working.style.display = "block";
-
+            document.querySelectorAll('th').forEach(th => th.addEventListener('click', (async function () {
                 console.time();
-
-                sortArrayTable(th);
-                $(window).trigger('resize');
-
+                this.style.cursor = "wait";
+                await refresh()
+                await sortArrayTable(th);
+                this.style.cursor = "pointer";
                 console.timeEnd();
-                
-                //working.style.display = "block";
             })));
         </script>
     </body>
