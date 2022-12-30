@@ -7,6 +7,8 @@ import sys
 import discord
 import logging
 import datetime
+import pnwkit
+import motor.motor_asyncio
 from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
 intents = discord.Intents.default()
@@ -16,11 +18,23 @@ load_dotenv()
 client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
+async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
+async_mongo = async_client[str(version)]
+
+db_client = pymongo.MongoClient(os.getenv("databaselink"))
+#db_version = os.getenv("version")
+db_version = "main"
+db = db_client[str(db_version)]
+db_async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("databaselink"), serverSelectionTimeoutMS=5000)
+async_db = db_async_client[str(db_version)]
+
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
 logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger()
+
+kit = pnwkit.QueryKit(api_key)
 
 bot = commands.Bot(intents=intents)
 
@@ -58,7 +72,7 @@ async def on_application_command(ctx: discord.ApplicationContext):
         guild = {"name": ctx.guild.name, "id": ctx.guild_id}
     except:
         guild = {"name": f"{ctx.author.name}'s DM's", "id": None}
-    mongo.commands.insert_one({"command": ctx.command.name, "time": round(datetime.datetime.utcnow().timestamp()), "user": {"name": ctx.author.name, "id": ctx.author.id}, "channel": channel, "guild": guild})
+    await async_mongo.commands.insert_one({"command": ctx.command.name, "time": round(datetime.datetime.utcnow().timestamp()), "user": {"name": ctx.author.name, "id": ctx.author.id}, "channel": channel, "guild": guild})
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
@@ -79,7 +93,7 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
         await debug_channel.send(f'**Exception __caught__!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```')
     else:
         await ctx.send("Oh no! An unknown error occurred! Contact RandomNoobster#0093, and he might be able to help you out.")
-        await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```')
+        await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```'[:2000])
 
 @bot.slash_command(name="ping", description="Pong!")
 async def ping(ctx: discord.ApplicationContext):
