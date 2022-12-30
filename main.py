@@ -22,11 +22,10 @@ async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), 
 async_mongo = async_client[str(version)]
 
 db_client = pymongo.MongoClient(os.getenv("databaselink"))
-#db_version = os.getenv("version")
-db_version = "main"
-db = db_client[str(db_version)]
+db_version = os.getenv("version")
 db_async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("databaselink"), serverSelectionTimeoutMS=5000)
-async_db = db_async_client[str(db_version)]
+main_async_db = db_async_client["main"]
+dependent_async_db = db_async_client[str(db_version)]
 
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
