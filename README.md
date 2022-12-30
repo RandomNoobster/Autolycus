@@ -40,6 +40,7 @@ while true; do
     sudo git pull origin oracle
     pip3 install -r requirements.txt --user
     python3 main.py &
+    python3 scanner.py &
     sleep 86400
 done
 ```
