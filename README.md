@@ -14,6 +14,8 @@ In `/home/opc/Autolycus`, you need a .env file with the following environment va
 - `ip` (the ip you want the flask server to run on. Use 127.0.0.1 for localhost, or 0.0.0.0 if you are on replit)
 - `debug_channel` (the id of the channel you want the bot to send error messages in)
 
+You also have to create a empty `nations.json` file in `/home/opc/Autolycus`. After running for ~30 minutes the bot should have updated the contents of the file to include nation details for every nation.
+
 
 You also need to create this file: `/etc/systemd/system/autolycus.service`
 ```
