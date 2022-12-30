@@ -9,11 +9,10 @@ from mako.template import Template
 import re
 from keep_alive import app
 from flask.views import MethodView
-from discord.commands import slash_command, Option, CommandPermission, SlashCommandGroup
+from discord.commands import slash_command, Option, SlashCommandGroup, permissions
 import dload
 from csv import DictReader
 import utils
-from discord.bot import ApplicationCommandMixin
 
 from main import mongo, logger
 
