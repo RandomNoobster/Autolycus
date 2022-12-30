@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 from discord.commands import Option, SlashCommandGroup
-import re
 import os
 import utils
 from main import mongo, logger

@@ -2,17 +2,12 @@ import os
 import traceback
 from discord.ext import commands
 from datetime import datetime, timedelta, timezone
-import pathlib
-from main import mongo, logger, channel_id, async_db, kit, async_mongo, db
+from main import mongo, logger, channel_id, kit, async_mongo, main_async_db, dependent_async_db
 import utils
-import aiohttp
-import random
-import time
 import discord
 from typing import Union, Tuple
 import asyncio
 from dotenv import load_dotenv
-import json
 import queries
 load_dotenv()
 
@@ -407,7 +402,7 @@ class General(commands.Cog):
                                 if not (channel and friend and enemy):
                                     continue
                                 await cthread(war, enemy, friend, channel)
-                            db.wars.find_one_and_replace({"id": war['id']}, war, upsert=True)
+                            await dependent_async_db.wars.find_one_and_replace({"id": war['id']}, war, upsert=True)
                     except Exception as e:
                         logger.error(e, exc_info=True)
                         await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> scan_new_wars()\n\nError:```{traceback.format_exc()}```')
@@ -429,7 +424,7 @@ class General(commands.Cog):
                                 found, matching_thread = await find_thread(channel, enemy, friend)
 
                                 if found:
-                                    old_record = db.wars.find_one({"id": war['id']})
+                                    old_record = await dependent_async_db.wars.find_one({"id": war['id']})
                                     if old_record == None:
                                         # should only break the loop when this feature is added
                                         # later on, all wars should be in the db
@@ -458,7 +453,7 @@ class General(commands.Cog):
                                         embed = discord.Embed(title="Peace offering", url=url, description=content, color=0xffffff)
                                         await matching_thread.send(embed=embed)
 
-                            db.wars.find_one_and_replace({"id": war["id"]}, war, upsert=True)
+                            await dependent_async_db.wars.find_one_and_replace({"id": war["id"]}, war, upsert=True)
                     except Exception as e:
                         logger.error(e, exc_info=True)
                         await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> scan_updated_wars()\n\nError:```{traceback.format_exc()}```')
@@ -475,7 +470,7 @@ class General(commands.Cog):
                                         attack[k] = str(v)
                                 except:
                                     pass
-                            war = db.wars.find_one({"id": attack['war_id']})
+                            war = await dependent_async_db.wars.find_one({"id": attack['war_id']})
                             if not war:
                                 print("skipping attack", attack['war_id'])
                                 continue
@@ -556,9 +551,9 @@ class General(commands.Cog):
                             if (datetime.utcnow() - declaration).days <= 5:
                                 done_wars.append(war)
                         else:
-                            db_war = await async_db.wars.find_one({"id": war['id']})
+                            db_war = await dependent_async_db.wars.find_one({"id": war['id']})
                             if not db_war:
-                                await async_db.wars.insert_one(war)
+                                await dependent_async_db.wars.insert_one(war)
                             wars.append(war)
                     for new_war in wars:
                         try:
