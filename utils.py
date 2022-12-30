@@ -66,6 +66,12 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2) -> Union[dic
                         await asyncio.sleep(1)
                         continue
                 return json_response
+                
+async def listify(cursor):
+    new_list = []
+    async for x in cursor:
+        new_list.append(x)
+    return new_list
 
 def str_to_id_list(str_var):
     try:
