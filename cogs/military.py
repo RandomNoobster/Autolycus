@@ -68,9 +68,38 @@ class TargetFinding(commands.Cog):
                 minscore = round(atck_ntn['score'] * 0.75)
                 maxscore = round(atck_ntn['score'] * 1.75)
                 
+                use_same = None
+                class stage_one(discord.ui.View):
+                    def __init__(self):
+                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal use_same
+                        use_same = True
+                        await i.response.edit_message()
+                        self.stop()
+                    
+                    @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                        nonlocal use_same
+                        use_same = False
+                        await i.response.edit_message()
+                        self.stop()
+
+                    async def interaction_check(self, interaction) -> bool:
+                        if interaction.user != ctx.author:
+                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                            return False
+                        else:
+                            return True
+                    
+                    async def on_timeout(self):
+                        await utils.run_timeout(ctx, view)
+
                 webpage = None
                 discord_embed = None
-                class stage_one(discord.ui.View):
+                class stage_two(discord.ui.View):
                     def __init__(self):
                         super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
@@ -79,7 +108,7 @@ class TargetFinding(commands.Cog):
                         nonlocal webpage, discord_embed
                         webpage = False
                         discord_embed = True
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="Message on discord", style=discord.ButtonStyle.primary)
@@ -87,7 +116,7 @@ class TargetFinding(commands.Cog):
                         nonlocal webpage, discord_embed
                         webpage = False
                         discord_embed = False
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
 
                     @discord.ui.button(label="As a webpage", style=discord.ButtonStyle.primary)
@@ -95,7 +124,7 @@ class TargetFinding(commands.Cog):
                         nonlocal webpage, discord_embed
                         webpage = True
                         discord_embed = False
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     async def interaction_check(self, interaction) -> bool:
@@ -117,21 +146,21 @@ class TargetFinding(commands.Cog):
                     async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal who
                         who = ""
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="Applicants and nations not in alliances", style=discord.ButtonStyle.primary)
                     async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal who
                         who = " alliance_position:[0,1]"
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
 
                     @discord.ui.button(label="Nations not affiliated with any alliance", style=discord.ButtonStyle.primary)
                     async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal who
                         who = " alliance_id:0"
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     async def interaction_check(self, interaction) -> bool:
@@ -153,28 +182,28 @@ class TargetFinding(commands.Cog):
                     async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal max_wars
                         max_wars = 0
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="1 or less", style=discord.ButtonStyle.primary)
                     async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal max_wars
                         max_wars = 1
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
 
                     @discord.ui.button(label="2 or less", style=discord.ButtonStyle.primary)
                     async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal max_wars
                         max_wars = 2
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="3 or less", style=discord.ButtonStyle.primary)
                     async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal max_wars
                         max_wars = 3
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     async def interaction_check(self, interaction) -> bool:
@@ -196,28 +225,28 @@ class TargetFinding(commands.Cog):
                     async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal inactive_limit
                         inactive_limit = 0
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="7+ days inactive", style=discord.ButtonStyle.primary)
                     async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal inactive_limit
                         inactive_limit = 7
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
 
                     @discord.ui.button(label="14+ days inactive", style=discord.ButtonStyle.primary)
                     async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal inactive_limit
                         inactive_limit = 14
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="30+ days inactive", style=discord.ButtonStyle.primary)
                     async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal inactive_limit
                         inactive_limit = 30
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     async def interaction_check(self, interaction) -> bool:
@@ -239,14 +268,14 @@ class TargetFinding(commands.Cog):
                     async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal beige
                         beige = True
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
                     async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal beige
                         beige = False
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     async def interaction_check(self, interaction) -> bool:
@@ -268,14 +297,14 @@ class TargetFinding(commands.Cog):
                     async def primary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal performace_filter
                         performace_filter = True
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
                     async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal performace_filter
                         performace_filter = False
-                        await i.response.pong()
+                        await i.response.edit_message()
                         self.stop()
                     
                     async def interaction_check(self, interaction) -> bool:
@@ -294,18 +323,33 @@ class TargetFinding(commands.Cog):
                     file_content = json.load(json_file)
                     last_fetched = file_content['last_fetched']
                     
-                embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
-                embed2 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
-                embed3 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
-                embed4 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
-                embed5 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
-                embed6 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
+                embed1 = discord.Embed(title=f"Configuration", description="Do you want to use the same configuration (presenatation & filters) that you used last time running this command?", color=0xff5100)
+                embed2 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
+                embed3 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
+                embed4 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
+                embed5 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
+                embed6 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
+                embed7 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
 
-                for embed, view in [(embed0, stage_one()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six()), (embed6, stage_seven())]:
+                option_list = [(embed1, stage_one()), (embed2, stage_two()), (embed3, stage_three()), (embed4, stage_four()), (embed5, stage_five()), (embed6, stage_six()), (embed7, stage_seven())]
+                user = mongo.global_users.find_one({"user": ctx.author.id})
+                if "raids_config" not in user:
+                    option_list.pop(0)
+
+                for embed, view in option_list:
                     await ctx.edit(content="", embed=embed, view=view)
                     timed_out = await view.wait()
                     if timed_out:
                         return
+                    if use_same == True:
+                        webpage = user['raids_config']['webpage']
+                        discord_embed = user['raids_config']['discord_embed']
+                        who = user['raids_config']['who']
+                        max_wars = user['raids_config']['max_wars']
+                        inactive_limit = user['raids_config']['inactive_limit']
+                        beige = user['raids_config']['beige']
+                        performace_filter = user['raids_config']['performace_filter']
+                        break
                 
                 view = None
 
@@ -372,6 +416,8 @@ class TargetFinding(commands.Cog):
                     filters = filters + ", ".join(filter_list)
                 else:
                     filters += "No active filters"
+                
+                mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$set": {"raids_config": {"webpage": webpage, "discord_embed": discord_embed, "who": who, "max_wars": max_wars, "inactive_limit": inactive_limit, "beige": beige, "performace_filter": performace_filter}}})
 
                 temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=False, parsed_nation=atck_ntn)
 
