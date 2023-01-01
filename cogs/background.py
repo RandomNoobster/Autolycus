@@ -575,7 +575,7 @@ class General(commands.Cog):
                     for done_war in done_wars:
                         try:
                             for guild in guilds:
-                                channel, friend, enemy = await get_war_vars(new_war, guild)                                        
+                                channel, friend, enemy = await get_war_vars(done_war, guild)                                        
                                 if not (channel and friend and enemy):
                                     continue
                                 attack_logs = await async_mongo.war_logs.find_one({"id": done_war['id'], "guild_id": channel.guild.id})
@@ -587,11 +587,10 @@ class General(commands.Cog):
                                     for attack in done_war['attacks']:
                                         if attack['id'] not in attack_logs['attacks']:
                                             await smsg(attack, done_war, friend, enemy, guild, channel)
+                                attack = {"type": "EXPIRATION", "id": -1, "date": done_war['date'] + timedelta(days=5)}
                                 if len(done_war['attacks']) == 0:
-                                    attack = {"type": "EXPIRATION", "id": -1, "date": datetime.utcnow().replace(tzinfo=timezone.utc)}
                                     await smsg(attack, done_war, friend, enemy, guild, channel)
                                 elif done_war['attacks'][-1]['type'] not in ["PEACE", "VICTORY", "ALLIANCELOOT"]:
-                                    attack = {"type": "EXPIRATION", "id": -1, "date": datetime.utcnow().replace(tzinfo=timezone.utc)}
                                     await smsg(attack, done_war, friend, enemy, guild, channel)
                                 for thread in channel.threads:
                                     if f"({enemy['id']})" in thread.name:
