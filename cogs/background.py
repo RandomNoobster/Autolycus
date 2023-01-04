@@ -431,7 +431,10 @@ class General(commands.Cog):
                                         # if not, there is an issue
                                         break
 
+                                    await dependent_async_db.wars.find_one_and_replace({"id": war["id"]}, war, upsert=True)
+
                                     content = None
+                                    footer = f"<t:{round((datetime.utcnow()).timestamp())}:R> <t:{round((datetime.utcnow()).timestamp())}>"
                                     if not old_record['att_peace'] and war['att_peace'] and not war['def_peace']:
                                         offerer = war['attacker']
                                         reciever = war['defender']
@@ -443,17 +446,16 @@ class General(commands.Cog):
                                         content = f"[{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) is offering peace to [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}). The peace offering will be cancelled if either side performs an act of aggression."
 
                                     if old_record['att_peace'] and not war['att_peace']:
-                                        content = "The pending peace offer was cancelled."
+                                        content = f"The pending peace offer between [{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
 
                                     elif old_record['def_peace'] and not war['def_peace']:
-                                        content = "The pending peace offer was cancelled."
+                                        content = f"The pending peace offer between [{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
 
                                     if content:
                                         url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
-                                        embed = discord.Embed(title="Peace offering", url=url, description=content, color=0xffffff)
+                                        embed = discord.Embed(title="Peace offering", url=url, description=content, footer=footer, color=0xffffff)
                                         await matching_thread.send(embed=embed)
 
-                            await dependent_async_db.wars.find_one_and_replace({"id": war["id"]}, war, upsert=True)
                     except Exception as e:
                         logger.error(e, exc_info=True)
                         await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> scan_updated_wars()\n\nError:```{traceback.format_exc()}```')
