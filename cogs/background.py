@@ -346,8 +346,8 @@ class General(commands.Cog):
 
                     await async_mongo.war_logs.find_one_and_update({"id": war['id'], "guild_id": channel.guild.id}, {"$push": {"attacks": attack['id']}})
                 else:
-                    logger.error(f"Could not find or create thread for war {war['id']}\nFriend: {friend}\nEnemy: {enemy}\nGuild: {guild}\nWar: {war}")
-                    print(f"Could not find or create thread for war {war['id']}\nFriend: {friend}\nEnemy: {enemy}\nGuild: {guild}\nWar: {war}")
+                    logger.error(f"Could not find or create thread for war {war['id']}\nFriend: {friend}\nEnemy: {enemy}\nGuild: {guild}\nWar: {war}\nAttack: {attack}")
+                    print(f"Could not find or create thread for war {war['id']}\nFriend: {friend}\nEnemy: {enemy}\nGuild: {guild}\nWar: {war}\nAttack: {attack}")
                              
 
             async def ensure_nations(war: dict) -> dict:
