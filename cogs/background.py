@@ -292,7 +292,10 @@ class General(commands.Cog):
                             else:
                                 title = "Defeat"
                                 color = 0xff0000
-                            loot = attack['loot_info'].replace('\r\n                            ', '')
+                            try:
+                                loot = attack['loot_info'].replace('\r\n                            ', '')
+                            except:
+                                loot = "No loot information."
                             content = f"[{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) is no longer fighting an offensive war against [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}).\n\n{loot}"
                         elif attack_type == "ALLIANCELOOT":
                             if friend['nation_name'] in attack['loot_info']:
@@ -300,7 +303,10 @@ class General(commands.Cog):
                             else:
                                 color = 0xff0000
                             title = "Alliance loot"
-                            loot = attack['loot_info'].replace('\r\n                            ', '')
+                            try:
+                                loot = attack['loot_info'].replace('\r\n                            ', '')
+                            except:
+                                loot = "No loot information."
                             content = f"{loot}"
                         elif attack_type == "EXPIRATION":
                             title = "War expiration"
@@ -446,10 +452,10 @@ class General(commands.Cog):
                                         content = f"[{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) is offering peace to [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}). The peace offering will be cancelled if either side performs an act of aggression."
 
                                     if old_record['att_peace'] and not war['att_peace']:
-                                        content = f"The pending peace offer between [{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
+                                        content = f"The pending peace offer between [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
 
                                     elif old_record['def_peace'] and not war['def_peace']:
-                                        content = f"The pending peace offer between [{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
+                                        content = f"The pending peace offer between [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
 
                                     if content:
                                         url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
