@@ -459,7 +459,8 @@ class General(commands.Cog):
 
                                     if content:
                                         url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
-                                        embed = discord.Embed(title="Peace offering", url=url, description=content, footer=footer, color=0xffffff)
+                                        embed = discord.Embed(title="Peace offering", url=url, description=content, color=0xffffff)
+                                        embed.add_field(name="\u200b", value=footer, inline=False)
                                         await matching_thread.send(embed=embed)
 
                     except Exception as e:
