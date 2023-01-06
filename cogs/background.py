@@ -173,7 +173,8 @@ class General(commands.Cog):
                             person = utils.find_user(self, friend['id'])
                             if not person:
                                 print("tried to add to archived thread, but could not find", friend['id'])
-                                await thread.send(f"I was unable to add https://politicsandwar.com/nation/id={friend['id']} to the thread. Have they not verified with `/verify`?")
+                                # await thread.send(f"I was unable to add https://politicsandwar.com/nation/id={friend['id']} to the thread. Have they not verified with `/verify`?")
+                                # dont need this since this is done by add_to_thread()
                                 break
                             user = await self.bot.fetch_user(person['user'])
                             try:
