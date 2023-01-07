@@ -453,10 +453,10 @@ class General(commands.Cog):
                                         content = f"[{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) is offering peace to [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}). The peace offering will be cancelled if either side performs an act of aggression."
 
                                     if old_record['att_peace'] and not war['att_peace']:
-                                        content = f"The pending peace offer between [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
+                                        content = f"The pending peace offer between [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) and [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) was cancelled."
 
                                     elif old_record['def_peace'] and not war['def_peace']:
-                                        content = f"The pending peace offer between [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) and [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}) was cancelled."
+                                        content = f"The pending peace offer between [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) and [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) was cancelled."
 
                                     if content:
                                         url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
