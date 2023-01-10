@@ -401,6 +401,7 @@ class General(commands.Cog):
                 while True:
                     try:
                         async for war in subscription:
+                            logger.info("New war")
                             war = vars(war)
                             war = await ensure_nations(war)
                             # could instead run ensure_antions() after we know that a guild has subscrbed to this alliance
@@ -419,6 +420,7 @@ class General(commands.Cog):
                 while True:
                     try:
                         async for war in subscription:
+                            logger.info("Updated war")
                             war = vars(war)
                             war = await ensure_nations(war)
                             for guild in guilds.copy():
@@ -473,6 +475,7 @@ class General(commands.Cog):
                 while True:
                     try:
                         async for attack in subscription:
+                            logger.info("War attack")
                             attack = vars(attack)
                             for k,v in attack.items():
                                 try:
