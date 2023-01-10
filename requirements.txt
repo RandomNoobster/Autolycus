@@ -7,5 +7,5 @@ Flask==2.2.2
 aiohttp==3.8.3
 requests==2.28.1
 dload==0.6
-pnwkit-py==2.6.1
+pnwkit-py==2.6.2
 py-cord==2.3.2
