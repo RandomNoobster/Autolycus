@@ -403,7 +403,7 @@ class General(commands.Cog):
                         async for war in subscription:
                             subby = vars(subscription)
                             subby['succeeded'] = vars(subscription.succeeded)
-                            logger.info("New war: " + subby)
+                            logger.info("New war: " + str(subby))
                             war = vars(war)
                             war = await ensure_nations(war)
                             # could instead run ensure_antions() after we know that a guild has subscrbed to this alliance
@@ -424,7 +424,7 @@ class General(commands.Cog):
                         async for war in subscription:
                             subby = vars(subscription)
                             subby['succeeded'] = vars(subscription.succeeded)
-                            logger.info("Updated war: " + subby)
+                            logger.info("Updated war: " + str(subby))
                             war = vars(war)
                             war = await ensure_nations(war)
                             for guild in guilds.copy():
@@ -481,7 +481,7 @@ class General(commands.Cog):
                         async for attack in subscription:
                             subby = vars(subscription)
                             subby['succeeded'] = vars(subscription.succeeded)
-                            logger.info("War attack: " + subby)
+                            logger.info("War attack: " + str(subby))
                             attack = vars(attack)
                             for k,v in attack.items():
                                 try:
