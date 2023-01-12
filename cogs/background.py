@@ -402,7 +402,6 @@ class General(commands.Cog):
                     try:
                         async for war in subscription:
                             subby = vars(subscription)
-                            subby['succeeded'] = vars(subscription.succeeded)
                             logger.info("New war: " + str(subby))
                             war = vars(war)
                             war = await ensure_nations(war)
@@ -423,7 +422,6 @@ class General(commands.Cog):
                     try:
                         async for war in subscription:
                             subby = vars(subscription)
-                            subby['succeeded'] = vars(subscription.succeeded)
                             logger.info("Updated war: " + str(subby))
                             war = vars(war)
                             war = await ensure_nations(war)
@@ -480,7 +478,6 @@ class General(commands.Cog):
                     try:
                         async for attack in subscription:
                             subby = vars(subscription)
-                            subby['succeeded'] = vars(subscription.succeeded)
                             logger.info("War attack: " + str(subby))
                             attack = vars(attack)
                             for k,v in attack.items():
