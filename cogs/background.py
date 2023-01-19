@@ -488,10 +488,10 @@ class General(commands.Cog):
                                     pass
                             war = await dependent_async_db.wars.find_one({"id": attack['war_id']})
                             if not war:
-                                print("skipping attack", attack['war_id'])
+                                print("skipping attack, war id:", attack['war_id'])
                                 continue
                             war = await ensure_nations(war)
-                            print("NOT skipping attack", attack['war_id'])
+                            print("NOT skipping attack, war id:", attack['war_id'])
 
                             for guild in guilds.copy():
                                 channel, friend, enemy = await get_war_vars(war, guild)
