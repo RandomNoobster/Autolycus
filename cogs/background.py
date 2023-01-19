@@ -126,7 +126,7 @@ class General(commands.Cog):
                     type_of_war = war["type"]
                 else:
                     type_of_war = war["war_type"].name
-                embed = discord.Embed(title=f"New {war_type} War", url=url, description=f"[{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) declared a{'n'[:(len(war[type_of_war])-5)^1]} {type_of_war.lower()} war on [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) for the reason of: ```{war['reason']}```\n{footer}", color=0x2F3136)
+                embed = discord.Embed(title=f"New {war_type} War", url=url, description=f"[{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) declared a{'n'[:(len(type_of_war)-5)^1]} {type_of_war.lower()} war on [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) for the reason of: ```{war['reason']}```\n{footer}", color=0x2F3136)
                 name = f"{enemy['nation_name']} ({enemy['id']})"
                 found = False
 
