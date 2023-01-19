@@ -41,7 +41,7 @@ class Background(commands.Cog):
                 await ctx.respond(content="I did not find that nation!")
                 return
 
-            nation = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beige_turns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{id}}}}}}}}}}"))['data']['nations']['data'][0]
+            nation = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beige_turns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond propaganda_bureau wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{alliance_position}}}}}}}}}}"))['data']['nations']['data'][0]
 
             embed = discord.Embed(title=nation['nation_name'], url=f"https://politicsandwar.com/nation/id={nation['id']}", color=0xff5100)
             user = utils.find_user(self, nation['id'])
@@ -57,28 +57,19 @@ class Background(commands.Cog):
             nation_info = f"> Nation Name: [{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})\n> Leader Name: {nation['leader_name']}\n> Cities: [{nation['num_cities']}](https://politicsandwar.com/city/manager/n={nation['nation_name'].replace(' ', '%20')})\n> War Policy: [{nation['warpolicy']}](https://politicsandwar.com/pwpedia/war-policy/)\n> Dom. Policy: [{nation['dompolicy']}](https://politicsandwar.com/pwpedia/domestic-policy/)"
             embed.add_field(name="Nation Info", value=nation_info)
 
-            nation_info_2 = f"> Score: `{nation['score']}`\n> Def. Range: `{round(nation['score']/1.75)}`-`{round(nation['score']/0.75)}`\n> Off. Range: `{round(nation['score']*0.75)}`-`{round(nation['score']*1.75)}`\n> Color: {nation['color'].capitalize()}\n> Turns of VM: `{nation['vmode']}`"
+            nation_info_2 = f"> Score: `{nation['score']}`\n> Def. Range: `{round(nation['score']/1.75)}`-`{round(nation['score']/0.75)}`\n> Off. Range: `{round(nation['score']*0.75)}`-`{round(nation['score']*1.75)}`\n> Color: [{nation['color'].capitalize()}](https://politicsandwar.com/leaderboards/display=color)\n> Turns of VM: `{nation['vmode']}`"
             embed.add_field(name="\u200b", value=nation_info_2)
 
             if nation['alliance']:
-                alliance_info = f"> Alliance: [{nation['alliance']['name']}](https://politicsandwar.com/alliance/id={nation['alliance']['id']})\n> Position: {nation['alliance_position'].capitalize()}\n> Seniority: {nation['alliance_seniority']:,} days\n> Score: `{nation['alliance']['score']:,}`\n> Color: {nation['alliance']['color'].capitalize()}\n> Members: `{len(nation['alliance']['nations'])}`"
+                members = len([temp for temp in nation['alliance']['nations'] if temp['alliance_position'] != "APPLICANT"])
+                alliance_info = f"> Alliance: [{nation['alliance']['name']}](https://politicsandwar.com/alliance/id={nation['alliance']['id']})\n> Position: {nation['alliance_position'].capitalize()}\n> Seniority: {nation['alliance_seniority']:,} days\n> Score: `{nation['alliance']['score']:,}`\n> Color: [{nation['alliance']['color'].capitalize()}](https://politicsandwar.com/leaderboards/display=color)\n> Members: `{members}`"
             else:
                 alliance_info = f"> Alliance: None"
             embed.add_field(name="Alliance Info", value=alliance_info, inline=False)
 
-            spy_count = await utils.spy_calc(nation)
-            if nation['spy_satellite']:
-                daily_rebuy = 3
-            else:
-                daily_rebuy = 2
-            if nation['cia']:
-                max_spies = 60
-            else:
-                max_spies = 50
-            spies = f"`{spy_count}`/`{max_spies}`/`{math.ceil((max_spies-spy_count)/daily_rebuy)}`"
-
             milt = utils.militarization_checker(nation)
-            military_info = f"> Format: `Current`/`Cap`/`Days`\n> Soldiers: `{nation['soldiers']:,.0f}`/`{milt['max_soldiers']:,.0f}`/`{milt['soldiers_days']:,.0f}`\n> Tanks: `{nation['tanks']:,.0f}`/`{milt['max_tanks']:,.0f}`/`{milt['tanks_days']:,.0f}`\n> Aircraft: `{nation['aircraft']:,.0f}`/`{milt['max_aircraft']:,.0f}`/`{milt['aircraft_days']:,.0f}`\n> Ships: `{nation['ships']:,.0f}`/`{milt['max_ships']:,.0f}`/`{milt['ships_days']:,.0f}`\n> Spies: {spies}\n> MMR: `{milt['barracks_mmr']}`/`{milt['factory_mmr']}`/`{milt['hangar_mmr']}`/`{milt['drydock_mmr']}`"
+            military_info = "> Format: \u200b \u200b \u200b`" + "Current".center(9) + "` `" + "Cap".center(9) + "` `" + "Daily".center(7) + "`\n> Soldiers: \u200a\u200b\u200a`" + f"{nation['soldiers']:,.0f}".rjust(9) + "` `" + f"{milt['max_soldiers']:,.0f}".rjust(9) + "` `" + f"{milt['soldiers_daily']:,.0f}".rjust(7) + "`\n> Tanks: \u200a \u200a \u200a \u200a \u200b`" + f"{nation['tanks']:,.0f}".rjust(9) + "` `" + f"{milt['max_tanks']:,.0f}".rjust(9) + "` `" + f"{milt['tanks_daily']:,.0f}".rjust(7) + "`\n> Aircraft: \u200b \u200b`" + f"{nation['aircraft']:,.0f}".rjust(9) + "` `" + f"{milt['max_aircraft']:,.0f}".rjust(9) + "` `" + f"{milt['aircraft_daily']:,.0f}".rjust(7) + "`\n> Ships:\u200a \u200a \u200a \u200a \u200a \u200a`" + f"{nation['ships']:,.0f}".rjust(9) + "` `" + f"{milt['max_ships']:,.0f}".rjust(9) + "` `" + f"{milt['ships_daily']:,.0f}".rjust(7) + f"`\n> \n> MMR: `{milt['barracks_mmr']}`/`{milt['factory_mmr']}`/`{milt['hangar_mmr']}`/`{milt['drydock_mmr']}`"
+            print(military_info)
             embed.add_field(name="Military Info", value=military_info)
 
             missiles = str(nation['missiles'])
@@ -107,9 +98,9 @@ class Background(commands.Cog):
                 vital = "No"
 
             military_info_2 = f"> Offensive Wars: `{o_wars}`/`5`\n> Defensive Wars: `{d_wars}`/`3`\n> Missiles: `{missiles}`\n> Nukes: `{nukes}`\n> Iron Dome: {dome}\n> Vital Defense: {vital}\n> Turns of Beige: `{nation['beige_turns']}`"
-            embed.add_field(name="\u200b", value=military_info_2)
+            embed.add_field(name="\u200b", value=military_info_2, inline=True)
 
-            embed.set_thumbnail(url=nation['flag'])
+            embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
 
             await ctx.respond(embed=embed)
         except Exception as e:
@@ -158,7 +149,7 @@ class Background(commands.Cog):
             infra = utils.str_to_int(infra)
             
             if infra % 50 != 0:
-                await ctx.edit("The amount of infra must be a multiple of 50!")
+                await ctx.edit(content="The amount of infra must be a multiple of 50!")
                 return
 
             land = utils.str_to_int(land)
