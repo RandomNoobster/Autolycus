@@ -123,10 +123,10 @@ class General(commands.Cog):
                     war_type = "Defensive"
                 footer = f"<t:{round((war['date']).timestamp())}:R> <t:{round((war['date']).timestamp())}>"
                 if "type" in war:
-                    type_of_war = "type"
+                    type_of_war = war["type"]
                 else:
-                    type_of_war = "war_type"
-                embed = discord.Embed(title=f"New {war_type} War", url=url, description=f"[{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) declared a{'n'[:(len(war[type_of_war])-5)^1]} {war[type_of_war].lower()} war on [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) for the reason of: ```{war['reason']}```\n{footer}", color=0x2F3136)
+                    type_of_war = war["war_type"].name
+                embed = discord.Embed(title=f"New {war_type} War", url=url, description=f"[{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) declared a{'n'[:(len(war[type_of_war])-5)^1]} {type_of_war.lower()} war on [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) for the reason of: ```{war['reason']}```\n{footer}", color=0x2F3136)
                 name = f"{enemy['nation_name']} ({enemy['id']})"
                 found = False
 
