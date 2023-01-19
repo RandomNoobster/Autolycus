@@ -383,7 +383,7 @@ async def yes_or_no(self, ctx) -> Union[bool, None]:
 
 def militarization_checker(nation: dict) -> float:
     """
-    Requires `cities` with `barracks`, `factory`, `airforcebase` and `drydock`. Also `soldiers`, `tanks`, `aircraft`, `ships` and `population`
+    Requires `cities` with `barracks`, `factory`, `airforcebase` and `drydock`. Also `soldiers`, `tanks`, `aircraft`, `ships`, `propaganda_bureau` and `population`
     """
     milt = {}
     cities = len(nation['cities'])
@@ -408,22 +408,16 @@ def militarization_checker(nation: dict) -> float:
     milt['max_aircraft'] = math.floor(min(15 * hangars, nation['population']/1000))
     milt['max_ships'] = math.floor(min(5 * drydocks, nation['population']/10000))
 
-    try:
-        milt['soldiers_days'] = math.ceil((milt['max_soldiers'] - nation['soldiers']) / (milt['max_soldiers']/3))
-    except ZeroDivisionError:
-        milt['soldiers_days'] = 0
-    try:
-        milt['tanks_days'] = math.ceil((milt['max_tanks'] - nation['tanks']) / (milt['max_tanks']/5))
-    except ZeroDivisionError:
-        milt['tanks_days'] = 0
-    try:
-        milt['aircraft_days'] = math.ceil((milt['max_aircraft'] - nation['aircraft']) / (milt['max_aircraft']/5))
-    except ZeroDivisionError:
-        milt['aircraft_days'] = 0
-    try:
-        milt['ships_days'] = math.ceil((milt['max_ships'] - nation['ships']) / (milt['max_ships']/5))
-    except ZeroDivisionError:
-        milt['ships_days'] = 0
+    pg_mod = (int(nation["propaganda_bureau"]) * 0.1 + 1) 
+    milt['soldiers_daily'] = round(milt['max_soldiers']/3) * pg_mod
+    milt['tanks_daily'] = round(milt['max_tanks']/5) * pg_mod
+    milt['aircraft_daily'] = round(milt['max_aircraft']/5) * pg_mod
+    milt['ships_daily'] = round(milt['max_ships']/5) * pg_mod
+
+    milt['soldiers_days'] = math.ceil(weird_division(milt['max_soldiers'] - nation['soldiers'], milt['max_soldiers']/3))
+    milt['tanks_days'] = math.ceil(weird_division(milt['max_tanks'] - nation['tanks'], milt['max_tanks']/5))
+    milt['aircraft_days'] = math.ceil(weird_division(milt['max_aircraft'] - nation['aircraft'], milt['max_aircraft']/5))
+    milt['ships_days'] = math.ceil(weird_division(milt['max_ships'] - nation['ships'], milt['max_ships']/5))
 
     milt['total_milt'] = (nation['soldiers'] / (cities * 5 * 3000) + nation['tanks'] / (cities * 5 * 250) + nation['aircraft'] / (cities * 5 * 15) + nation['ships'] / (cities * 3 * 5)) / 4
     milt['soldiers_milt'] = nation['soldiers'] / (cities * 5 * 3000)
