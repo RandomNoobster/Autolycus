@@ -3,7 +3,8 @@ from discord.ext import commands
 from discord.commands import Option, SlashCommandGroup
 import os
 import utils
-from main import mongo, logger
+from datetime import datetime
+from main import async_mongo, logger
 
 api_key = os.getenv("api_key")
 
@@ -31,7 +32,7 @@ class Config(commands.Cog):
             else:
                 id_list = []
                 id_str = "None"
-            mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"counters_alliance_ids": id_list}}, upsert=True)
+            await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"counters_alliance_ids": id_list}}, upsert=True)
             await ctx.respond(f"Alliance id(s) for `/counters` set to `{id_str}`")
         except Exception as e:
             logger.error(e, exc_info=True)
@@ -69,8 +70,67 @@ class Config(commands.Cog):
             elif not alliance_ids:
                 content += f"\nChannel for `war threads` set to `None`"
                 changes['war_threads_channel_id'] = None
-            mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild_id}, {"$set": changes}, upsert=True)
+            await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild_id}, {"$set": changes}, upsert=True)
             await ctx.respond(content)
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+    
+    @config_group.command(
+        name="transactions",
+        description="Configure transactions"
+    )
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def config_transactions(
+        self,
+        ctx: discord.ApplicationContext,
+        banker_role: Option(discord.Role, "The role people must have to accept requests made via /request."),
+        api_keys: Option(str, "The api key(s) you want to use for tracking transactions and for withdrawals via /request.") = [],
+        track_taxes: Option(bool, "If taxes should be tracked and added to people's balances.") = False,
+        retroactive: Option(bool, "If taxes and transactions should be tracked retroactively (up to 14 days).") = False
+    ):      
+        try:  
+            await ctx.defer(ephemeral=True)
+            content = ""
+            changes = {}
+
+            key_list = utils.str_to_api_key_list(api_keys)
+            if len(key_list) > 5:
+                await ctx.edit(content=f"A maximum of 5 API keys is allowed, but you supplied {len(key_list)}!")
+                return
+            for key in key_list.copy():
+                # similar check in scanner.py
+                try:
+                    res = (await utils.call(f"{{me{{nation{{alliance_position_info{{withdraw_bank view_bank}}}}}}}}", key))['data']['me']['nation']
+                    if not res['alliance_position_info']['withdraw_bank']:
+                        await ctx.edit(content=f"API key `{key}` does not have the `withdraw_bank` permission!")
+                        return
+                    elif not res['alliance_position_info']['view_bank']:
+                        await ctx.edit(content=f"API key `{key}` does not have the `view_bank` permission!")
+                        return
+                    else:
+                        pass
+                except Exception as e:
+                    if "Invalid API key" in str(e):
+                        await ctx.edit(content=f"API key `{key}` is invalid!")
+                        return
+
+            changes['transactions_api_keys'] = key_list
+            content += f"Api key(s) for tracking taxes and bank transactions as well as sending the withdrawals via `/request` set to `{key_list}`\n"
+
+            changes['transactions_banker_role'] = banker_role.id
+            content += f"Banker role set to set to {banker_role.mention}\n"
+
+            changes['transactions_track_taxes'] = track_taxes
+            content += f"Track taxes set to `{track_taxes}`\n"
+        
+            changes['transactions_retroactive'] = retroactive
+            changes['transactions_retroactive_date'] = datetime.utcnow()
+            content += f"Retroactive set to `{retroactive}`\n"
+
+            await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild_id}, {"$set": changes}, upsert=True)
+            await ctx.edit(content=content, allowed_mentions=discord.AllowedMentions.none())
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
@@ -86,14 +146,15 @@ class Config(commands.Cog):
         ctx: discord.ApplicationContext,
     ):      
         try:  
-            server = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+            await ctx.defer(ephemeral=True)
+            server = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
             if not server:
-                await ctx.respond("No configurable commands have been configured in this server!")
+                await ctx.edit("No configurable commands have been configured in this server!")
             else:
                 content = "The configuration for this guild is as follows:\n\n```\n"
                 for k,v in server.items():
                     content += f"{k}: {v}\n"
-                await ctx.respond(content + "```")
+                await ctx.edit(content=content + "```")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
@@ -117,7 +178,7 @@ class Config(commands.Cog):
             
             if add_alliance:
                 alliance_id = None
-                for aa in mongo.alliances.find({}):
+                for aa in await utils.listify(async_mongo.alliances.find({})):
                     if add_alliance == f"{aa['name']} ({aa['id']})":
                         alliance_id = aa['id']
                         break
@@ -135,7 +196,7 @@ class Config(commands.Cog):
                     await ctx.respond(f"I could not find a match to `{add_alliance}` in the database!")
                     return
                 
-                config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+                config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
                 try:
                     if alliance_id in config['targets_alliance_ids']:
                         await ctx.respond(f"An alliance with the id of `{alliance_id}` is already in the list of targeted alliances!")
@@ -143,12 +204,12 @@ class Config(commands.Cog):
                 except:
                     pass
 
-                mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$push": {"targets_alliance_ids": alliance_id}}, upsert=True)
+                await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$push": {"targets_alliance_ids": alliance_id}}, upsert=True)
                 await ctx.respond(f"Added `{aa['name']} ({aa['id']})` to the `/targets` command")
             
             if remove_alliance:
                 alliance_id = None
-                config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+                config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
                 if config is None:
                     await ctx.respond(f"I could not find a match to `{remove_alliance}` amongst the targeted alliances!")
                     return
@@ -158,7 +219,7 @@ class Config(commands.Cog):
                     except:
                         await ctx.respond(f"I could not find a match to `{remove_alliance}` amongst the targeted alliances!")
                         return
-                alliances = list(mongo.alliances.find({"id": {"$in": ids}}))
+                alliances = await utils.listify(async_mongo.alliances.find({"id": {"$in": ids}}))
                 for aa in alliances:
                     if remove_alliance == f"{aa['name']} ({aa['id']})":
                         alliance_id = aa['id']
@@ -177,21 +238,21 @@ class Config(commands.Cog):
                     await ctx.respond(f"I could not find a match to `{remove_alliance}` amongst the targeted alliances!")
                     return
 
-                mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$pull": {"targets_alliance_ids": alliance_id}}, upsert=True)
+                await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$pull": {"targets_alliance_ids": alliance_id}}, upsert=True)
                 await ctx.respond(f"Removed `{aa['name']} ({aa['id']})` from the `/targets` command")
             
             if set_alliances != []:
                 id_list, id_str = utils.str_to_id_list(set_alliances)
-                mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"targets_alliance_ids": id_list}}, upsert=True)
+                await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"targets_alliance_ids": id_list}}, upsert=True)
                 await ctx.respond(f"Alliance id(s) for `/targets` set to `{id_str}`")
             elif not add_alliance and not remove_alliance and not view_alliances:
                 id_list = []
                 id_str = "None"
-                mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"targets_alliance_ids": id_list}}, upsert=True)
+                await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"targets_alliance_ids": id_list}}, upsert=True)
                 await ctx.respond(f"Alliance id(s) for `/targets` set to `{id_str}`")
             
             if view_alliances:
-                config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+                config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
                 if config is None:
                     ids = None
                 else:
@@ -199,7 +260,7 @@ class Config(commands.Cog):
                         ids = config['targets_alliance_ids']
                     except:
                         ids = None
-                alliances = list(mongo.alliances.find({"id": {"$in": ids}}))
+                alliances = await utils.listify(async_mongo.alliances.find({"id": {"$in": ids}}))
                 alliance_list = []
                 for aa in alliances:
                     alliance_list.append(f"`{aa['name']} ({aa['id']})`")
