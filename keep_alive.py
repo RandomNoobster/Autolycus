@@ -8,9 +8,9 @@ from datetime import datetime
 import motor.motor_asyncio
 import os
 import asyncio
-import utils
 from motor.core import AgnosticClient
 import logging
+import utils
 
 # to avoid "RuntimeError: Event loop is closed" error
 AgnosticClient.get_io_loop = asyncio.get_running_loop

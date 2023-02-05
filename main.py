@@ -9,6 +9,7 @@ import logging
 import datetime
 import pnwkit
 import motor.motor_asyncio
+from keep_alive import run
 from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
 intents = discord.Intents.default()
@@ -111,5 +112,5 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
-asyncio.ensure_future(keep_alive.run())
+asyncio.ensure_future(run())
 bot.run(os.getenv("bot_token"))
