@@ -5,10 +5,7 @@ from datetime import datetime, timedelta
 import pathlib
 import math
 import json
-from mako.template import Template
 import re
-from keep_alive import app
-from flask.views import MethodView
 from discord.commands import slash_command, Option, SlashCommandGroup, permissions
 import dload
 from csv import DictReader

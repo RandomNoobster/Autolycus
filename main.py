@@ -45,7 +45,7 @@ bot = commands.Bot(intents=intents)
 # creating files if they do not exist and reseting them
 cwd = pathlib.Path.cwd()
 pathlib.Path(f"{cwd}/data/web").mkdir(exist_ok=True)
-for directory in ["data/web/builds.json", "data/web/damage.json", "data/web/raids.json"]:
+for directory in ["data/web/builds.json", "data/web/damage.json", "data/web/raids.json", "data/web/attacksheet.json"]:
     with open(f"{cwd}/{directory}", "w+") as f:
         f.write("[]")
 pathlib.Path(f"{cwd}/data/nations.json").touch(exist_ok=True)
@@ -109,5 +109,10 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 @bot.slash_command(name="ping", description="Pong!")
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
+
+import asyncio
+from server import run
+
+asyncio.ensure_future(run())
 
 bot.run(os.getenv("bot_token"))

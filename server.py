@@ -93,6 +93,22 @@ async def builds(user_id):
         logger.error(e, exc_info=True)
         raise e
 
+@app.route('/attacksheet/<int:user_id>', methods=['GET'])
+async def attacksheet(user_id):
+    try:
+        data = await utils.read_web("attacksheet", user_id)
+        
+        allies = data['allies']
+        enemies = data['enemies']
+        
+        async with aiofiles.open(pathlib.Path.cwd() / "templates" / "attacksheet.txt", "r") as file:
+            template = await file.read()
+
+        result = Template(template).render(allies=allies, enemies=enemies, datetime=datetime, weird_division=utils.weird_division)
+        return str(result)
+    except Exception as e:
+        logger.error(e, exc_info=True)
+        raise e
 
 async def run():
     Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()

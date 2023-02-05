@@ -1,8 +1,6 @@
 import discord
 from discord.ext import commands
-import aiohttp
 from discord.commands import slash_command, Option, SlashCommandGroup
-from mako.template import Template
 import random
 import pathlib
 import json
@@ -13,9 +11,6 @@ import utils
 import math
 import queries
 from main import async_mongo, logger
-import aiofiles
-from keep_alive import app
-from flask.views import MethodView
 
 api_key = os.getenv("api_key")
 
@@ -1123,17 +1118,9 @@ class TargetFinding(commands.Cog):
                 enemy['winchance'] = chances
                 enemy['milt'] = utils.militarization_checker(enemy)
                 
-            endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
+            await utils.write_web("attacksheet", ctx.author.id, {"allies": allied_nations, "enemies": enemy_nations})
 
-            class websheet(MethodView):
-                def get(sheetclass):
-                    with open(pathlib.Path.cwd() / "templates" / "attacksheet.txt", "r") as file:
-                        template = file.read()
-                    result = Template(template).render(allies=allied_nations, enemies=enemy_nations, datetime=datetime, weird_division=utils.weird_division)
-                    return str(result)
-
-            app.add_url_rule(f"/attacksheet/{endpoint}", view_func=websheet.as_view(str(datetime.utcnow())), methods=["GET"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-            await ctx.respond("The sheet can be found here: http://132.145.71.195:5000/attacksheet/" + endpoint)
+            await ctx.respond("The sheet can be found here: http://132.145.71.195:5000/attacksheet/" + ctx.author.id)
             
         except Exception as e:
             logger.error(e, exc_info=True)
