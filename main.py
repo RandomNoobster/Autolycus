@@ -44,10 +44,12 @@ kit = pnwkit.QueryKit(api_key)
 bot = commands.Bot(intents=intents)
 
 # creating files if they do not exist and reseting them
+cwd = pathlib.Path.cwd()
+pathlib.Path(f"{cwd}/data/web").mkdir(exist_ok=True)
 for directory in ["data/web/builds.json", "data/web/damage.json", "data/web/raids.json"]:
-    with open(f"{pathlib.Path.cwd()}/{directory}", "w+") as f:
+    with open(f"{cwd}/{directory}", "w+") as f:
         f.write("[]")
-pathlib.Path("data/nations.json").touch(exist_ok=True)
+pathlib.Path(f"{cwd}/data/nations.json").touch(exist_ok=True)
 
 # cogs
 for filename in os.listdir('./cogs'):
