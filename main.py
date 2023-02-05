@@ -1,14 +1,13 @@
 from dotenv import load_dotenv
-import keep_alive
 import pymongo
 import os
-import asyncio
 import pathlib
 import discord
 import logging
 import datetime
 import pnwkit
 import motor.motor_asyncio
+import asyncio
 from keep_alive import run
 from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
