@@ -2,7 +2,7 @@ import os
 import traceback
 from discord.ext import commands
 from datetime import datetime, timedelta, timezone
-from main import mongo, logger, channel_id, kit, async_mongo, main_async_db, dependent_async_db
+from main import async_mongo, logger, channel_id, kit, main_async_db, dependent_async_db
 import utils
 import discord
 from typing import Union, Tuple
@@ -20,8 +20,6 @@ class General(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        #self.bot.bg_task = self.bot.loop.create_task(self.nation_scanner())
-        #self.bot.bg_task = self.bot.loop.create_task(self.alert_scanner())
         self.bot.bg_task = self.bot.loop.create_task(self.wars())
 
     async def alert_scanner(self):
@@ -77,13 +75,13 @@ class General(commands.Cog):
 
     
     async def add_to_thread(self, thread, friend_id: Union[str, int], friend: dict = None):
-        person = utils.find_user(self, friend_id)
+        person = await utils.find_user(self, friend_id)
         if not person:
-            print("tried to add, but could not find", friend_id)
+            #print("tried to add, but could not find", friend_id)
             if friend:
                 await thread.send(f"I was unable to add https://politicsandwar.com/nation/id={friend['id']} to the thread. Have they not verified with `/verify`?")
             else:
-                await thread.send(f"I was unable to add https://politicsandwar.com/nation/id={friend['id']} to the thread. Have they not verified with `/verify`?")
+                await thread.send(f"I was unable to add https://politicsandwar.com/nation/id={friend_id} to the thread. Have they not verified with `/verify`?")
             return
         user = await self.bot.fetch_user(person['user'])
         try:
@@ -92,13 +90,13 @@ class General(commands.Cog):
             await thread.send(f"I was unable to add {user} to the thread.\n```{e}```")
     
     async def remove_from_thread(self, thread, friend_id: Union[str, int], friend: dict = None):
-        person = utils.find_user(self, friend_id)
+        person = await utils.find_user(self, friend_id)
         if not person:
-            print("tried to remove, but could not find", friend_id)
+            #print("tried to remove, but could not find", friend_id)
             if friend:
-                await thread.send(f"I was unable to remove {friend['leader_name']} of {friend['nation_name']} from the thread. Have they not verified with `/verify`?")
+                await thread.send(f"I was unable to remove https://politicsandwar.com/nation/id={friend['id']} from the thread. Have they not verified with `/verify`?")
             else:
-                await thread.send(f"I was unable to remove nation {friend_id} from the thread. Have they not verified with `/verify`?")
+                await thread.send(f"I was unable to remove https://politicsandwar.com/nation/id={friend_id} from the thread. Have they not verified with `/verify`?")
             return
         user = await self.bot.fetch_user(person['user'])
         try:
@@ -122,9 +120,9 @@ class General(commands.Cog):
                 else:
                     war_type = "Defensive"
                 footer = f"<t:{round((war['date']).timestamp())}:R> <t:{round((war['date']).timestamp())}>"
-                try:
+                if not isinstance(war["war_type"], str):
                     type_of_war = war["war_type"].name
-                except:
+                else:
                     type_of_war = war["war_type"]
                 embed = discord.Embed(title=f"New {war_type} War", url=url, description=f"[{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) declared a{'n'[:(len(type_of_war)-5)^1]} {type_of_war.lower()} war on [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) for the reason of: ```{war['reason']}```\n{footer}", color=0x2F3136)
                 name = f"{enemy['nation_name']} ({enemy['id']})"
@@ -150,6 +148,7 @@ class General(commands.Cog):
                 
                 attack_logs = {"id": war['id'], "guild_id": channel.guild.id, "attacks": [], "detected": datetime.utcnow(), "finished": False}
                 await async_mongo.war_logs.insert_one(attack_logs)
+                print(war['id'], " created ", round((datetime.utcnow().timestamp()-(war['date']).timestamp())/60), datetime.utcnow())
                 return attack_logs, matching_thread
 
             # find_thread is to find the thread for the enemy nation and add the friend to it
@@ -170,7 +169,7 @@ class General(commands.Cog):
                         if f"({enemy['id']})" in thread.name:
                             matching_thread = thread
                             found = True
-                            person = utils.find_user(self, friend['id'])
+                            person = await utils.find_user(self, friend['id'])
                             if not person:
                                 print("tried to add to archived thread, but could not find", friend['id'])
                                 # await thread.send(f"I was unable to add https://politicsandwar.com/nation/id={friend['id']} to the thread. Have they not verified with `/verify`?")
@@ -191,16 +190,17 @@ class General(commands.Cog):
                 
                 if not found:
                     print("making thread")
-                    attack_logs, thread = await cthread(war, enemy, friend, channel)
+                    attack_logs, matching_thread = await cthread(war, enemy, friend, channel)
+                    found = True
                 # since found is not set to true, the attack is skipped and is sent in the next iteration of the wars
                     
                 if found:
                     thread = matching_thread
                     url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
                     footer = f"<t:{round((attack['date']).timestamp())}:R> <t:{round((attack['date']).timestamp())}>"
-                    try:
+                    if not isinstance(attack['type'], str):
                         attack_type = attack['type'].name
-                    except:
+                    else:
                         attack_type = attack['type']
                     if attack_type in ["GROUND", "NAVAL", "AIRVINFRA", "AIRVSOLDIERS", "AIRVTANKS", "AIRVMONEY", "AIRVSHIPS", "AIRVAIR"]:
                         for nation in [friend, enemy]:
@@ -295,6 +295,8 @@ class General(commands.Cog):
                                 color = 0xff0000
                             try:
                                 loot = attack['loot_info'].replace('\r\n                            ', '')
+                                nation_loot = utils.beige_loot_value(loot, prices)
+                                loot += f"\n\nTotal loot value: ${nation_loot:,}"
                             except:
                                 loot = "No loot information."
                             content = f"[{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) is no longer fighting an offensive war against [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}).\n\n{loot}"
@@ -306,6 +308,8 @@ class General(commands.Cog):
                             title = "Alliance loot"
                             try:
                                 loot = attack['loot_info'].replace('\r\n                            ', '')
+                                nation_loot = utils.beige_loot_value(loot, prices)
+                                loot += f"\n\nTotal loot value: ${nation_loot:,}"
                             except:
                                 loot = "No loot information."
                             content = f"{loot}"
@@ -316,6 +320,7 @@ class General(commands.Cog):
                         embed = discord.Embed(title=title, url=url, description=content, color=color)
                         embed.add_field(name="\u200b", value=footer, inline=False)
                         await thread.send(embed=embed)
+                        await close_thread(thread, friend, war)
 
                     else:
                         for nation in [friend, enemy]:
@@ -355,15 +360,39 @@ class General(commands.Cog):
                 else:
                     logger.error(f"Could not find or create thread for war {war['id']}\nFriend: {friend}\nEnemy: {enemy}\nGuild: {guild}\nWar: {war}\nAttack: {attack}")
                     print(f"Could not find or create thread for war {war['id']}\nFriend: {friend}\nEnemy: {enemy}\nGuild: {guild}\nWar: {war}\nAttack: {attack}")
-                             
+            
+            async def close_thread(thread: discord.Thread, friend: dict, war: dict) -> None:
+                try:
+                    await self.remove_from_thread(thread, friend['id'], friend)
+                    members = await thread.fetch_members()
+                    member_count = 0
+                    for member in members:
+                        user = await self.bot.fetch_user(member.id)
+                        if user.bot:
+                            continue
+                        else:
+                            member_count += 1
+                    if member_count == 0:
+                        await thread.edit(archived=True)
+                    await async_mongo.war_logs.find_one_and_update({"id": war['id'], "guild_id": thread.guild.id}, {"$set": {"finished": True}})
+                except Exception as e:
+                    logger.error(e, exc_info=True)
+                    await debug_channel.send(f'**Exception caught!**\nWhere: close_thread()\n\nError:```{traceback.format_exc()}```')
 
             async def ensure_nations(war: dict) -> dict:
+                if isinstance(war['date'], datetime):
+                    war['date'] = war['date'].replace(tzinfo=None)
+
+                if not isinstance(war["war_type"], str):
+                    war["war_type"] = war["war_type"].name
+
                 for k,v in war.items():
                     try:
-                        if "id" in k:
+                        if "id" in k or k in ["ground_control", "air_superiority", "naval_blockade"]:
                             war[k] = str(v)
                     except:
                         pass
+
                 for x in ["attacker", "defender"]:
                     if not war[f"{x[:3]}_id"]:
                         war[x] = {"nation_name": "Deleted", "leader_name": "Deleted", "id": "0"}
@@ -401,6 +430,8 @@ class General(commands.Cog):
                 while True:
                     try:
                         async for war in subscription:
+                            sub_war = war
+                            print(sub_war.id, " registered ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
                             #subby = vars(subscription)
                             #logger.info("New war: " + str(subby))
                             war = vars(war)
@@ -410,7 +441,10 @@ class General(commands.Cog):
                                 channel, friend, enemy = await get_war_vars(war, guild)
                                 if not (channel and friend and enemy):
                                     continue
-                                await cthread(war, enemy, friend, channel)
+                                attack_logs = await async_mongo.war_logs.find_one({"id": war['id'], "guild_id": channel.guild.id})
+                                if not attack_logs:
+                                    await cthread(war, enemy, friend, channel)
+                            print(sub_war.id, " wrote off ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
                             await dependent_async_db.wars.find_one_and_replace({"id": war['id']}, war, upsert=True)
                     except Exception as e:
                         logger.error(e, exc_info=True)
@@ -448,13 +482,13 @@ class General(commands.Cog):
                                     footer = f"<t:{round((datetime.utcnow()).timestamp())}:R> <t:{round((datetime.utcnow()).timestamp())}>"
                                     if not old_record['att_peace'] and war['att_peace'] and not war['def_peace']:
                                         offerer = war['attacker']
-                                        reciever = war['defender']
-                                        content = f"[{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) is offering peace to [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}). The peace offering will be cancelled if either side performs an act of aggression."
+                                        receiver = war['defender']
+                                        content = f"[{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) is offering peace to [{receiver['nation_name']}](https://politicsandwar.com/nation/id={receiver['id']}). The peace offering will be cancelled if either side performs an act of aggression."
 
                                     elif not old_record['def_peace'] and war['def_peace'] and not war['att_peace']:
                                         offerer = war['defender']
-                                        reciever = war['attacker']
-                                        content = f"[{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) is offering peace to [{reciever['nation_name']}](https://politicsandwar.com/nation/id={reciever['id']}). The peace offering will be cancelled if either side performs an act of aggression."
+                                        receiver = war['attacker']
+                                        content = f"[{offerer['nation_name']}](https://politicsandwar.com/nation/id={offerer['id']}) is offering peace to [{receiver['nation_name']}](https://politicsandwar.com/nation/id={receiver['id']}). The peace offering will be cancelled if either side performs an act of aggression."
 
                                     if old_record['att_peace'] and not war['att_peace']:
                                         content = f"The pending peace offer between [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) and [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']}) was cancelled."
@@ -482,45 +516,44 @@ class General(commands.Cog):
                             attack = vars(attack)
                             for k,v in attack.items():
                                 try:
-                                    if "id" in k:
+                                    if "id" in k or k == "victor":
                                         attack[k] = str(v)
                                 except:
                                     pass
                             war = await dependent_async_db.wars.find_one({"id": attack['war_id']})
                             if not war:
-                                print("skipping attack, war id:", attack['war_id'])
+                                #print("skipping attack, war id:", attack['war_id'])
                                 continue
                             war = await ensure_nations(war)
-                            print("NOT skipping attack, war id:", attack['war_id'])
+                            #print("NOT skipping attack, war id:", attack['war_id'])
 
                             for guild in guilds.copy():
                                 channel, friend, enemy = await get_war_vars(war, guild)
                                 if not (channel and friend and enemy):
                                     continue
-                                await smsg(attack, war, friend, enemy, guild, channel)
+                                attack_logs = await async_mongo.war_logs.find_one({"id": war['id'], "guild_id": channel.guild.id})
+                                if not attack_logs:
+                                    continue
+                                if attack['id'] not in attack_logs['attacks']:
+                                    await smsg(attack, war, friend, enemy, guild, channel)
                     except Exception as e:
                         logger.error(e, exc_info=True)
                         await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> scan_war_attacks()\n\nError:```{traceback.format_exc()}```')
                         await asyncio.sleep(60)
 
-            guilds = await utils.listify(async_mongo.guild_configs.find({"war_threads_alliance_ids": {"$exists": True, "$not": {"$size": 0}}}))
+            # prices update when the bot restarts
+            prices = await utils.get_prices()
 
+            guilds = await utils.listify(async_mongo.guild_configs.find({"war_threads_alliance_ids": {"$exists": True, "$not": {"$size": 0}}}))
             async def update_guilds():
-                nonlocal guilds
+                nonlocal guilds, prices
                 while True:
                     guilds = await utils.listify(async_mongo.guild_configs.find({"war_threads_alliance_ids": {"$exists": True, "$not": {"$size": 0}}}))
                     await asyncio.sleep(300)
-            
-            #alliance_ids = []
-            #for guild in guilds:
-            #    for aa in guild['war_threads_alliance_ids']:
-            #       alliance_ids.append(aa)
-            #unique_ids = list(set(alliance_ids))
 
             new_wars = await kit.subscribe("war", "create")
             updated_wars = await kit.subscribe("war", "update")
             attacks = await kit.subscribe("warattack", "create")
-
             
             asyncio.ensure_future(scan_new_wars(new_wars))
             asyncio.ensure_future(scan_updated_wars(updated_wars))
@@ -545,8 +578,8 @@ class General(commands.Cog):
                     done_wars = []
                     all_wars = []
                     while has_more_pages:
-                        temp1 = await utils.call(f"{{wars(alliance_id:[{','.join(unique_ids)}] page:{n} active:false days_ago:5 first:200) {{paginatorInfo{{hasMorePages}} data{queries.WARS_SCANNER}}}}}")
-                        await asyncio.sleep(10)
+                        temp1 = await utils.call(f"{{wars(alliance_id:[{','.join(unique_ids)}] page:{n} active:false days_ago:5 first:200) {{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.WARS_SCANNER)}}}}}")
+                        await asyncio.sleep(30)
                         n += 1
                         try:
                             all_wars += temp1['data']['wars']['data']
@@ -555,9 +588,13 @@ class General(commands.Cog):
                             e = temp1['errors']
                             logger.error(e, exc_info=True)
                             await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Fetching from API\n\nError:```{e}```')
-                            await asyncio.sleep(60)
+                            await asyncio.sleep(300)
                             continue
+                    registered_war_ids = []
                     for war in all_wars:
+                        if war['id'] in registered_war_ids:
+                            continue
+                        registered_war_ids.append(war['id'])
                         war = await ensure_nations(war)
                         declaration = datetime.strptime(war['date'], '%Y-%m-%dT%H:%M:%S%z').replace(tzinfo=None)
                         war["date"] = declaration
@@ -579,8 +616,10 @@ class General(commands.Cog):
                                     continue
                                 attack_logs = await async_mongo.war_logs.find_one({"id": new_war['id'], "guild_id": channel.guild.id})
                                 if not attack_logs:
+                                    #logger.debug(f"NO ATTACK LOG, new_war id: '{new_war['id']}'\nguild id: '{channel.guild.id}'")
                                     attack_logs, temp = await cthread(new_war, enemy, friend, channel)
                                 for attack in new_war['attacks']:
+                                    #logger.debug(f"new war attackid: {attack['id']} {type(attack['id'])}\nlogs: {attack_logs['attacks']}")
                                     if attack['id'] not in attack_logs['attacks']:
                                         await smsg(attack, new_war, friend, enemy, guild, channel)
                         except discord.errors.Forbidden:
@@ -596,11 +635,13 @@ class General(commands.Cog):
                                     continue
                                 attack_logs = await async_mongo.war_logs.find_one({"id": done_war['id'], "guild_id": channel.guild.id})
                                 if not attack_logs:
+                                    #logger.debug(f"NO ATTACK LOG, new_war id: '{new_war['id']}'\nguild id: '{channel.guild.id}'")
                                     attack_logs, temp = await cthread(done_war, enemy, friend, channel)
                                 elif attack_logs['finished']:
                                     continue
                                 else:
                                     for attack in done_war['attacks']:
+                                        #logger.debug(f"old war attackid: {attack['id']} {type(attack['id'])}\nlogs: {attack_logs['attacks']}")
                                         if attack['id'] not in attack_logs['attacks']:
                                             await smsg(attack, done_war, friend, enemy, guild, channel)
                                 attack = {"type": "EXPIRATION", "id": -1, "date": done_war['date'] + timedelta(days=5)}
@@ -608,25 +649,6 @@ class General(commands.Cog):
                                     await smsg(attack, done_war, friend, enemy, guild, channel)
                                 elif done_war['attacks'][-1]['type'] not in ["PEACE", "VICTORY", "ALLIANCELOOT"]:
                                     await smsg(attack, done_war, friend, enemy, guild, channel)
-                                for thread in channel.threads:
-                                    if f"({enemy['id']})" in thread.name:
-                                        try:
-                                            await self.remove_from_thread(thread, friend['id'], friend)
-                                            members = await thread.fetch_members()
-                                            member_count = 0
-                                            for member in members:
-                                                user = await self.bot.fetch_user(member.id)
-                                                if user.bot:
-                                                    continue
-                                                else:
-                                                    member_count += 1
-                                            if member_count == 0:
-                                                await thread.edit(archived=True)
-                                        except Exception as e:
-                                            logger.error(e, exc_info=True)
-                                            await debug_channel.send(f'**Exception caught!**\nWhere: Scanning wars -> Fetching members of closing thread\n\nError:```{traceback.format_exc()}```')
-                                        await async_mongo.war_logs.find_one_and_update({"id": done_war['id'], "guild_id": channel.guild.id}, {"$set": {"finished": True}})
-                                        break
                         except discord.errors.Forbidden:
                             pass
                         except Exception as e:
