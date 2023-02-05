@@ -15,6 +15,7 @@ from discord.ext import commands
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
+# REMEMEBR: cannot import a file which is also imported by cogs
 
 # async mongo fuquiem
 client = pymongo.MongoClient(os.getenv("pymongolink"))
