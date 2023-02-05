@@ -43,16 +43,16 @@ kit = pnwkit.QueryKit(api_key)
 # discord bot
 bot = commands.Bot(intents=intents)
 
-# cogs
-for filename in os.listdir('./cogs'):
-    if filename.endswith('.py'):
-        bot.load_extension(f'cogs.{filename[:-3]}')
-
 # creating files if they do not exist and reseting them
 for directory in ["data/web/builds.json", "data/web/damage.json", "data/web/raids.json"]:
     with open(f"{pathlib.Path.cwd()}/{directory}", "w+") as f:
         f.write("[]")
 pathlib.Path("data/nations.json").touch(exist_ok=True)
+
+# cogs
+for filename in os.listdir('./cogs'):
+    if filename.endswith('.py'):
+        bot.load_extension(f'cogs.{filename[:-3]}')
 
 @bot.event
 async def on_ready():
