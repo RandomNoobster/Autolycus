@@ -13,8 +13,9 @@ from discord.commands import slash_command, Option, SlashCommandGroup, permissio
 import dload
 from csv import DictReader
 import utils
+import queries
 
-from main import mongo, logger
+from main import async_mongo, logger
 
 api_key = os.getenv("api_key")
 
@@ -36,15 +37,15 @@ class Background(commands.Cog):
             await ctx.defer()
             if person == None:
                 person = ctx.author.id
-            nation = utils.find_nation_plus(self, person)
+            nation = await utils.find_nation_plus(self, person)
             if nation == None:
                 await ctx.respond(content="I did not find that nation!")
                 return
 
-            nation = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id nation_name discord leader_name num_cities cia spy_satellite warpolicy population dompolicy flag vmode color beige_turns last_active soldiers tanks aircraft ships nukes missiles mlp nrf vds irond propaganda_bureau wars{{attid turnsleft}} cities{{barracks factory airforcebase drydock}} score alliance_position alliance_seniority alliance{{name id score color nations{{alliance_position}}}}}}}}}}"))['data']['nations']['data'][0]
+            nation = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{utils.get_query(queries.WHO)}}}}}"))['data']['nations']['data'][0]
 
             embed = discord.Embed(title=nation['nation_name'], url=f"https://politicsandwar.com/nation/id={nation['id']}", color=0xff5100)
-            user = utils.find_user(self, nation['id'])
+            user = await utils.find_user(self, nation['id'])
             if not user:
                 discord_info = "> Autolycus Verified: <:redcross:862669500977905694>"
                 if nation['discord']:
@@ -125,21 +126,20 @@ class Background(commands.Cog):
             now = datetime.now()
             yesterday = now + timedelta(days=-1)
             date = yesterday.strftime("%Y-%m-%d")
-            if os.path.isfile(pathlib.Path.cwd() / 'data' / f'cities-{date}.csv'):
+            if os.path.isfile(pathlib.Path.cwd() / 'data' / 'dumps' / f'cities-{date}.csv'):
                 #print('That file already exists')
                 pass
             else:
-                dload.save_unzip(f"https://politicsandwar.com/data/cities/cities-{date}.csv.zip", str(
-                    pathlib.Path.cwd() / 'data'), True)
+                dload.save_unzip(f"https://politicsandwar.com/data/cities/cities-{date}.csv.zip", str(pathlib.Path.cwd() / 'data' / 'dumps'), True)
             
             if person == None:
                 person = ctx.author.id
-            db_nation = utils.find_nation_plus(self, person)
+            db_nation = await utils.find_nation_plus(self, person)
             if not db_nation:
                 await ctx.edit(content="I could not find the specified person!")
                 return
 
-            nation = (await utils.call(f"{{nations(first:1 id:{db_nation['id']}){{data{{id continent date color dompolicy alliance{{name}} alliance_id num_cities ironw bauxitew armss egr massirr resource_production_center itc recycling_initiative fallout_shelter telecom_satellite green_tech clinical_research_center specialized_police_training uap}}}}}}"))['data']['nations']['data']
+            nation = (await utils.call(f"{{nations(first:1 id:{db_nation['id']}){{data{utils.get_query(queries.REVENUE)}}}}}"))['data']['nations']['data']
             if len(nation) == 0:
                 await ctx.edit(content="That person was not in the API!")
                 return
@@ -201,7 +201,7 @@ class Background(commands.Cog):
 
             await ctx.edit(content="Scanning cities...")
 
-            with open(pathlib.Path.cwd() / 'data' / f'cities-{date}.csv', encoding='cp437') as f1:
+            with open(pathlib.Path.cwd() / 'data' / 'dumps' / f'cities-{date}.csv', encoding='cp437') as f1:
                 csv_dict_reader = DictReader(f1)
                 nation_age = nation['date'][:nation['date'].index("T")]
                 for city in csv_dict_reader:
@@ -299,7 +299,7 @@ class Background(commands.Cog):
             except:
                 pass
                 
-            temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=False, parsed_nation=nation)
+            temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(ctx, query_for_nation=False, parsed_nation=nation)
 
             cities = []
             for city in to_scan:
@@ -354,19 +354,13 @@ class Background(commands.Cog):
     }}"""
             top_unique_builds = [dict(t) for t in {tuple(d.items()) for d in top_builds}]
 
-            class webbuild(MethodView):
-                def get(arg):
-                    with open('./templates/buildspage.txt', 'r', encoding='UTF-8') as file:
-                        template = file.read()
-                    result = Template(template).render(builds=builds, rss=rss, land=land, unique_builds=top_unique_builds, datetime=datetime)
-                    return str(result)
-            endpoint = datetime.utcnow().strftime('%d%H%M%S')
-            app.add_url_rule(f"/builds/{datetime.utcnow().strftime('%d%H%M%S')}", view_func=webbuild.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
+            await utils.write_web("builds", ctx.author.id, {"builds": builds, "rss": rss, "land": land, "top_unique_builds": top_unique_builds})
+
             if str(mmr).lower() in "any":
                 mmr = "no military requirement"
             else:
                 mmr = "a military requirement of " + '/'.join(mmr[i:i+1] for i in range(0, len(mmr), 1))
-            await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): http://132.145.71.195:5000/builds/{endpoint}")
+            await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): http://132.145.71.195:5000/builds/{ctx.author.id}")
             return
         except Exception as e:
             logger.error(e, exc_info=True)
@@ -387,16 +381,16 @@ class Background(commands.Cog):
             await ctx.respond('Stay with me...')
             if person == None:
                 person = ctx.author.id
-            db_nation = utils.find_user(self, person)
+            db_nation = await utils.find_user(self, person)
 
             if not db_nation:
-                db_nation = utils.find_nation(person)
+                db_nation = await utils.find_nation(person)
                 if not db_nation:
                     await ctx.edit(content='I could not find that person!')
                     return
                 db_nation['nationid'] = db_nation['id']
 
-            nation, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=True, nationid=db_nation['id'])
+            nation, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(ctx, query_for_nation=True, nationid=db_nation['id'])
 
             build_txt = "daily revenue"
             single_city = False
@@ -431,7 +425,7 @@ class Background(commands.Cog):
             await ctx.defer()
 
             alliance_id = None
-            for aa in mongo.alliances.find({}):
+            for aa in await utils.listify(async_mongo.alliances.find({})):
                 if alliance == f"{aa['name']} ({aa['id']})":
                     alliance_id = aa['id']
                     break
@@ -451,9 +445,9 @@ class Background(commands.Cog):
 
             await ctx.respond('Calling the API...')
 
-            nations = await utils.paginate_call(f"{{nations(alliance_id:{alliance_id} page:page_number alliance_position:[2,3,4,5]){{paginatorInfo{{hasMorePages}} data{{id continent color warpolicy cia dompolicy alliance_id alliance{{name id}} num_cities soldiers tanks aircraft ships missiles nukes wars{{turnsleft}} ironw bauxitew armss egr massirr resource_production_center itc recycling_initiative telecom_satellite green_tech clinical_research_center specialized_police_training fallout_shelter uap cities{{date powered infrastructure land oilpower windpower coalpower nuclearpower coalmine oilwell uramine barracks farm policestation hospital recyclingcenter subway supermarket bank mall stadium leadmine ironmine bauxitemine gasrefinery aluminumrefinery steelmill munitionsfactory factory airforcebase drydock}}}}}}}}", "nations")
+            nations = await utils.paginate_call(f"{{nations(alliance_id:{alliance_id} page:page_number alliance_position:[2,3,4,5]){{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.REVENUE)}}}}}", "nations")
 
-            nation, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx)
+            nation, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(ctx)
 
             income = {}
             RSS = ['coal', 'oil', 'uranium', 'iron', 'bauxite', 'lead', 'gasoline', 'munitions', 'steel', 'aluminum', 'food', 'net_cash_num', 'monetary_net_num']
@@ -503,11 +497,11 @@ class Background(commands.Cog):
         try:
             if not person:
                 person = ctx.author.id
-            db_person = utils.find_nation_plus(self, person)
+            db_person = await utils.find_nation_plus(self, person)
             if not db_person:
                 await ctx.respond("I could not find that person!")
                 return
-            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy advanced_engineering_corps center_for_civil_engineering government_support_agency}}}}}}"))['data']['nations']['data'][0]
+            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{utils.get_query(queries.INFRA_COST)}}}}}"))['data']['nations']['data'][0]
 
             starting_infra = utils.str_to_int(starting_infra)
             ending_infra = utils.str_to_int(ending_infra)
@@ -533,11 +527,11 @@ class Background(commands.Cog):
         try:
             if not person:
                 person = ctx.author.id
-            db_person = utils.find_nation_plus(self, person)
+            db_person = await utils.find_nation_plus(self, person)
             if not db_person:
                 await ctx.respond("I could not find that person!")
                 return
-            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy advanced_engineering_corps arable_land_agency government_support_agency}}}}}}"))['data']['nations']['data'][0]
+            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{utils.get_query(queries.LAND_COST)}}}}}"))['data']['nations']['data'][0]
 
             starting_land = utils.str_to_int(starting_land)
             ending_land = utils.str_to_int(ending_land)
@@ -560,17 +554,24 @@ class Background(commands.Cog):
         person: Option(str, "The person purchasing a city. Defaults to you.") = None
     ):
         try:
+            await ctx.defer()
+
             if not person:
                 person = ctx.author.id
-            db_person = utils.find_nation_plus(self, person)
+            db_person = await utils.find_nation_plus(self, person)
             if not db_person:
-                await ctx.respond("I could not find that person!")
+                await ctx.edit(content="I could not find that person!")
                 return
-            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy urban_planning advanced_urban_planning government_support_agency}}}}}}"))['data']['nations']['data'][0]
+
+            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{utils.get_query(queries.CITY_COST, {'nations': ['num_cities']})}}}}}"))['data']['nations']['data'][0]
+            
+            if city < nation["num_cities"]:
+                await ctx.edit(content=f"`{db_person['leader_name']}` already has `{city}` cities!")
+                return
 
             cost = utils.city_cost(int(city), nation)
 
-            await ctx.respond(f"For `{db_person['leader_name']}`, purchasing city `{city}` will cost `${cost:,.2f}`.")
+            await ctx.edit(content=f"For `{db_person['leader_name']}`, purchasing city `{city}` will cost `${cost:,.2f}`.")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
@@ -588,23 +589,373 @@ class Background(commands.Cog):
         person: Option(str, "The person expanding. Defaults to you.") = None
     ):
         try:
+            await ctx.defer()
+
             if not person:
                 person = ctx.author.id
-            db_person = utils.find_nation_plus(self, person)
+            db_person = await utils.find_nation_plus(self, person)
             if not db_person:
-                await ctx.respond("I could not find that person!")
+                await ctx.edit(content="I could not find that person!")
                 return
-            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{{domestic_policy num_cities advanced_engineering_corps center_for_civil_engineering government_support_agency arable_land_agency urban_planning advanced_urban_planning}}}}}}"))['data']['nations']['data'][0]
+            nation = (await utils.call(f"{{nations(first:1 id:{db_person['id']}){{data{utils.get_query(queries.INFRA_COST, queries.LAND_COST, queries.CITY_COST, {'nations': ['num_cities']})}}}}}"))['data']['nations']['data'][0]
+
+            if city < nation["num_cities"]:
+                await ctx.edit(content=f"`{db_person['leader_name']}` already has `{city}` cities!")
+                return
 
             infra = utils.str_to_int(infra)
             land = utils.str_to_int(land)
             
             cost = utils.expansion_cost(nation['num_cities'], int(city), infra, land, nation)
 
-            await ctx.respond(f"For `{db_person['leader_name']}`, going from city `{nation['num_cities']}` to city `{city}` (with `{infra}` infra and `{land}` land) will cost `${cost:,.2f}`.")   
+            await ctx.edit(content=f"For `{db_person['leader_name']}`, going from city `{nation['num_cities']}` to city `{city}` (with `{infra}` infra and `{land}` land) will cost `${cost:,.2f}`.")   
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
+    
+    
+    @slash_command(
+        name="balance",
+        description="See your balance with the allliance bank",
+    )
+    async def balance(
+        self,
+        ctx: discord.ApplicationContext,
+        person: Option(str, "The person to check the balance of. Defaults to you.") = None
+    ):
+        try:
+            await ctx.defer()
+            prices = await utils.get_prices()
+
+            rss = utils.RSS
+            rss.remove('credits')
+
+            def total_bal(k):
+                nonlocal prices
+                x = 0
+                for rs in rss:
+                    x += k[rs] * prices[rs]
+                return x
+            
+            if not person:
+                person = await utils.find_nation_plus(self, ctx.author.id)
+
+            elif person.lower() in ['top', 'max', 'min', 'low', 'high']:
+                reverse = True
+                name = 'highest'
+                if person in ['min', 'low']:
+                    reverse = False
+                    name = 'lowest'
+                
+                people = await utils.listify(async_mongo.balance.find({"guild_id": ctx.guild.id}))
+
+                people = sorted(people, key=lambda k: total_bal(k), reverse=reverse)
+                embed = discord.Embed(title=f"The {name} balances:", description="", color=0xff5100)
+
+                n = 0
+                for ind in people:
+                    if n == 10:
+                        break
+                    user = await async_mongo.world_nations.find_one({"id": ind['id']})
+                    if user == None:
+                        continue
+                    embed.add_field(name=user['leader_name'], inline=False, value=f"Cumulative balance: ${round(total_bal(ind)):,}")
+                    n += 1
+                await ctx.edit(embed=embed, content='')
+                return
+            else:
+                person = await utils.find_nation_plus(self, person)
+
+            if not person:
+                await ctx.edit(content='I could not find that person, please try again.', embed=None)
+                return
+            
+            bal = await async_mongo.balance.find_one({"guild_id": ctx.guild.id, "nation_id": person['id']})
+            if not bal:
+                await ctx.edit(content='I was not able to find their balance.', embed=None)
+                return
+            
+            bal_embed = discord.Embed(title=f"{person['leader_name']}'s balance", description="", color=0xff5100)
+
+            for rs in rss:
+                amount = bal[rs]
+                bal_embed.add_field(name=rs.capitalize(), value=f"{round(amount):,}")
+
+            bal_embed.add_field(name="Converted total", value=f"{round(total_bal(bal)):,}",inline=False)
+            await ctx.edit(content='', embed=bal_embed)
+
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+
+
+    @slash_command(
+        name="request",
+        description="Request resorces from the allliance bank",
+    )
+    async def request(
+        self,
+        ctx: discord.ApplicationContext,
+        reason: Option(str, "The reason for the request."),
+        aluminum: Option(str, "The amount of aluminum you want to request.")="0",
+        bauxite: Option(str, "The amount of bauxite you want to request.")="0",
+        coal: Option(str, "The amount of coal you want to request.")="0",
+        food: Option(str, "The amount of food you want to request.")="0",
+        gasoline: Option(str, "The amount of gasoline you want to request.")="0",
+        iron: Option(str, "The amount of iron you want to request.")="0",
+        lead: Option(str, "The amount of lead you want to request.")="0",
+        money: Option(str, "The amount of money you want to request.")="0",
+        munitions: Option(str, "The amount of munitions you want to request.")="0",
+        oil: Option(str, "The amount of oil you want to request.")="0",
+        steel: Option(str, "The amount of steel you want to request.")="0",
+        uranium: Option(str, "The amount of uranium you want to request.")="0",
+    ):
+        await ctx.defer()
+
+        try:
+            person = await utils.find_nation_plus(self, ctx.author.id)
+            if person == None:
+                await ctx.edit(content="I was unable to find your nation!")
+                return
+            
+            guild_config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+
+            if guild_config == None:
+                await ctx.edit(content="This server does not have a transaction key set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            elif "transactions_api_keys" not in guild_config:
+                await ctx.edit(content="This server does not have a transaction key set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            elif len(guild_config["transactions_api_keys"]) == 0:
+                await ctx.edit(content="This server does not have a transaction key set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            elif not guild_config['transactions_banker_role']:
+                await ctx.edit(content="This server does not have a banker role set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            else:
+                keys = guild_config["transactions_api_keys"]
+                guild = self.bot.get_guild(ctx.guild.id)
+                banker_role = guild.get_role(guild_config['transactions_banker_role'])
+                if not banker_role:
+                    await ctx.edit(content="This server does not have a valid banker role set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                    return
+            
+            resource_list = [(utils.str_to_int(aluminum), "aluminum"), (utils.str_to_int(bauxite), "bauxite"), (utils.str_to_int(coal), "coal"), (utils.str_to_int(food), "food"), (utils.str_to_int(gasoline), "gasoline"), (utils.str_to_int(iron), "iron"), (utils.str_to_int(lead), "lead"), (utils.str_to_int(money), "money"), (utils.str_to_int(munitions), "munitions"), (utils.str_to_int(oil), "oil"), (utils.str_to_int(steel), "steel"), (utils.str_to_int(uranium), "uranium")]
+            
+            something = False
+            for amount, name in resource_list:
+                if amount in [0, "0"]:
+                    continue
+                else:
+                    something = True
+            
+            if not something:
+                await ctx.edit(content="You did not request anything!")
+                return
+
+            withdraw_data = {
+                "money": '0',
+                "food": '0',
+                "coal": '0',
+                "oil": '0',
+                "uranium": '0',
+                "lead": '0',
+                "iron": '0',
+                "bauxite": '0',
+                "gasoline": '0',
+                "munitions": '0',
+                "steel": '0',
+                "aluminum": '0',
+                "receiver_type": '1',
+                "receiver": person['id'],
+            }
+
+            for x in withdraw_data:
+                for amount, name in resource_list:
+                    if name == x:
+                        withdraw_data[x] = amount
+            
+            balance_before = await async_mongo.balance.find_one({"nation_id": person['id'], "guild_id": ctx.guild.id})
+            if balance_before == None:
+                balance_before = {}
+                for amount, name in resource_list:
+                    balance_before[name] = 0
+
+            balance_after = balance_before.copy()
+            for amount, name in resource_list:
+                balance_after[name] -= amount
+            
+            confirmation = None
+            interactor = None
+            message = None
+            api_key = None
+            sent_from = None
+
+            class yes_or_no(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=None)
+                
+                @discord.ui.button(label="Accept", style=discord.ButtonStyle.success)
+                async def callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal confirmation
+                    confirmation = True
+                    await i.response.edit_message()
+                    for x in view.children:
+                        x.disabled = True
+                    await i.message.edit(view=view)
+                    self.stop()
+                
+                @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger)
+                async def one_two_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal confirmation
+                    confirmation = False
+                    await i.response.edit_message()
+                    for x in view.children:
+                        x.disabled = True
+                    await i.message.edit(view=view)
+                    self.stop()
+                
+                async def interaction_check(self, i: discord.Interaction)-> bool:
+                    if banker_role not in i.user.roles:
+                        await i.response.send_message(f"Only people with the banker role ({banker_role.mention}) can approve of transactions!", ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+                        return False
+                    else:
+                        nonlocal interactor, message
+                        message = i.message
+                        interactor = i.user
+                        return True
+            
+            class Dropdown(discord.ui.Select):
+                def __init__(self, bot_: discord.Bot, keys_info, parent):
+                    self.bot = bot_
+                    options = []
+                    self.parent = parent
+                    self.key_option_pairs = []
+                    self.keys_info = keys_info
+
+                    for key_info in keys_info:
+                        new_option = discord.SelectOption(label=key_info['nation']['alliance']['name'], value=key_info['key'], description="Send from this bank")
+                        if new_option not in options:
+                            options.append(new_option)
+
+                    super().__init__(
+                        placeholder="Choose the bank to send from...",
+                        min_values=1,
+                        max_values=1,
+                        options=options,
+                    )
+
+                async def callback(self, i: discord.Interaction):
+                    nonlocal api_key, sent_from
+                    api_key = self.values[0]
+                    for x in self.keys_info:
+                        if x['key'] == api_key:
+                            sent_from = x['nation']['alliance']['name']
+                            break
+                    await i.response.edit_message()
+                    self.parent.stop()
+
+            class DropdownView(discord.ui.View):
+                def __init__(self, bot_: discord.Bot, keys_info):
+                    super().__init__(timeout=None)
+                    self.add_item(Dropdown(bot_, keys_info, self))
+                
+                @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, disabled=True)
+                async def callback(self, b: discord.Button, i: discord.Interaction):
+                    pass
+
+                @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, disabled=True)
+                async def one_two_callback(self, b: discord.Button, i: discord.Interaction):
+                    pass
+                    
+                async def interaction_check(self, i: discord.Interaction)-> bool:
+                    if banker_role not in i.user.roles:
+                        await i.response.send_message(f"Only people with the banker role ({banker_role.mention}) can approve of transactions!", ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+                        return False
+                    else:
+                        nonlocal interactor, message
+                        message = i.message
+                        interactor = i.user
+                        return True
+                
+            bal_embed = discord.Embed(title=f"{ctx.author} made a request", description="", color=0xffb700)    
+
+            balance_before_txt = ""
+            transaction_txt = ""
+            balance_after_txt = ""
+
+            for value, name in resource_list:
+                if value == 0:
+                    bold_start = ""
+                    bold_end = ""
+                else:
+                    bold_start = "**"
+                    bold_end = "**"
+                balance_before_txt += f"{bold_start}{name.capitalize()}: {balance_before[name]:,.0f}{bold_end}\n"
+                transaction_txt += f"{bold_start}{name.capitalize()}: {value:,}{bold_end}\n"
+                balance_after_txt += f"{bold_start}{name.capitalize()}: {balance_after[name]:,.0f}{bold_end}\n"
+
+            balance_before_txt += f"\n**Total: {await utils.total_value(balance_before):,.0f}**\n\u200b"
+            transaction_data = {}
+            for value, name in resource_list:
+                transaction_data[name] = value
+            transaction_txt += f"\n**Total: {await utils.total_value(transaction_data):,.0f}**\n\u200b"
+            balance_after_txt += f"\n**Total: {await utils.total_value(balance_after):,.0f}**\n\u200b"
+
+            bal_embed.add_field(name="Balance Before", value=balance_before_txt, inline=True)
+            bal_embed.add_field(name="Requested Transaction", value=transaction_txt, inline=True)
+            bal_embed.add_field(name="Balance After", value=balance_after_txt, inline=True)
+            bal_embed.add_field(name="Reason", value=reason, inline=False)
+            bal_embed.add_field(name="Recipient", value=f"[{person['leader_name']} of {person['nation_name']}](https://politicsandwar.com/nation/id={person['id']})", inline=False)
+            
+            view = yes_or_no()
+            await ctx.edit(content=":clock1: Pending approval...", embed=bal_embed, view=view)
+            timed_out = await view.wait()
+            if timed_out:
+                return
+            if not confirmation:
+                bal_embed.color = 0xff0000
+                await message.edit(content=f"<:redcross:862669500977905694> Request was denied by {interactor}", embed=bal_embed)
+                return
+            
+            if len(keys) > 1:
+                keys_info = []
+                for key in keys:
+                    nation = (await utils.call("{me{key nation{alliance{name id}}}}", key))['data']['me']
+                    keys_info.append(nation)
+                drop_view = DropdownView(self.bot, keys_info)
+                await message.edit(view=drop_view)
+                timed_out = await drop_view.wait()
+                if timed_out:
+                    return
+                if not api_key:
+                    timestamp = f"<t:{round(datetime.utcnow().timestamp())}:R>"
+                    bal_embed.color = 0xff0000
+                    await message.edit(content=f"<:redcross:862669500977905694> Request was denied by {interactor.mention} {timestamp}", embed=bal_embed)
+                    return
+            else:
+                api_key = keys[0]
+            
+            await message.edit("Performing transaction...")
+
+            timestamp = f"<t:{round(datetime.utcnow().timestamp())}:R>"
+            withdraw_data['note'] = f'"Approved by {interactor} via Discord."'
+            success = await utils.withdraw(api_key, withdraw_data)  
+
+            if sent_from:
+                sent_from = f":information_source: Sent from {sent_from}\n"
+            else:
+                sent_from = ""
+
+            if success:
+                bal_embed.color = 0x2bff00
+                await message.edit(content=f':white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}', embed=bal_embed, view=view)
+            else:
+                await message.edit(content=f":white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed, view=view)
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+
 
     @slash_command(
         name="botinfo",
@@ -613,7 +964,7 @@ class Background(commands.Cog):
     async def botinfo(self, ctx: discord.ApplicationContext):
         try:
             await ctx.defer()
-            content = f"{len(self.bot.users)} people across {len(self.bot.guilds)} servers have access to me, but only {len(list(mongo.global_users.find({})))} have verified themselves.\n\nHere you can find the:\n> [GitHub Repository](https://github.com/RandomNoobster/Autolycus/tree/oracle)\n> [Invite Link](https://discord.com/api/oauth2/authorize?client_id=946351598223888414&permissions=326417827840&scope=applications.commands%20bot)\n> [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/)\n> [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)\n\u200b"
+            content = f"{len(self.bot.users)} people across {len(self.bot.guilds)} servers have access to me, but only {len(await utils.listify(async_mongo.global_users.find({})))} have verified themselves.\n\nHere you can find the:\n> [GitHub Repository](https://github.com/RandomNoobster/Autolycus/tree/oracle)\n> [Invite Link](https://discord.com/api/oauth2/authorize?client_id=946351598223888414&permissions=326417827840&scope=applications.commands%20bot)\n> [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/)\n> [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)\n\u200b"
             embed = discord.Embed(title="About me", description=content, color=0xff5100)
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
             await ctx.respond(embed=embed)
@@ -631,15 +982,15 @@ class Background(commands.Cog):
         nation_id: Option(str, "Your nation id or nation link"),
     ):
         try:
-            user = mongo.global_users.find_one({"user": ctx.author.id})
+            user = await async_mongo.global_users.find_one({"user": ctx.author.id})
             if user != None:
                 await ctx.respond("You are already verified!")
                 return
             nation_id = re.sub("[^0-9]", "", nation_id)
-            res = await utils.call(f'{{nations(first:1 id:{nation_id}){{data{{id nation_name leader_name discord}}}}}}')
+            res = await utils.call(f'{{nations(first:1 id:{nation_id}){{data{utils.get_query(queries.VERIFY)}}}}}')
             try:
                 if res['data']['nations']['data'][0]['discord'] == str(ctx.author):
-                    mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
+                    await async_mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
                     await ctx.respond("You have successfully verified your nation!")
                 else:
                     await ctx.respond(f'1. Go to <https://politicsandwar.com/nation/edit/>\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field\n4. Come back to discord\n5. Write `/verify {nation_id}` again')
@@ -658,7 +1009,7 @@ class Background(commands.Cog):
         ctx: discord.ApplicationContext,
     ):
         try:
-            user = mongo.global_users.find_one_and_delete({"user": ctx.author.id})
+            user = await async_mongo.global_users.find_one_and_delete({"user": ctx.author.id})
             if user == None:
                 await ctx.respond("You are not verified!")
                 return
