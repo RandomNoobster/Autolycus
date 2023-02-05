@@ -3,7 +3,7 @@ import keep_alive
 import pymongo
 import os
 import asyncio
-import sys
+import pathlib
 import discord
 import logging
 import datetime
@@ -15,31 +15,44 @@ intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
 
+# async mongo fuquiem
 client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
 async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
 async_mongo = async_client[str(version)]
 
+# async mongo autolycus
 db_client = pymongo.MongoClient(os.getenv("databaselink"))
 db_version = os.getenv("version")
 db_async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("databaselink"), serverSelectionTimeoutMS=5000)
 main_async_db = db_async_client["main"]
 dependent_async_db = db_async_client[str(db_version)]
 
+# envs
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
-logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
+# logger
+logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger()
 
+# pnwkit
 kit = pnwkit.QueryKit(api_key)
 
+# discord bot
 bot = commands.Bot(intents=intents)
 
+# cogs
 for filename in os.listdir('./cogs'):
     if filename.endswith('.py'):
         bot.load_extension(f'cogs.{filename[:-3]}')
+
+# creating files if they do not exist and reseting them
+for directory in ["data/web/builds.json", "data/web/damage.json", "data/web/raids.json"]:
+    with open(f"{pathlib.Path.cwd()}/{directory}", "w+") as f:
+        f.write("[]")
+pathlib.Path("data/nations.json").touch(exist_ok=True)
 
 @bot.event
 async def on_ready():
@@ -96,5 +109,5 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
-keep_alive.run()
+asyncio.ensure_future(keep_alive.run())
 bot.run(os.getenv("bot_token"))
