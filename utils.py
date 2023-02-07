@@ -7,21 +7,27 @@ from typing import Union, Tuple
 import aiohttp
 import re
 import pathlib
-from flask.views import MethodView
-from mako.template import Template
 import os
 import logging
 import queries
 import pymongo
+import motor.motor_asyncio
+import aiofiles
+
 
 client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
 mongo = client[str(version)]
+async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
+async_mongo = async_client[str(version)]
 
 logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger()
 
 api_key = os.getenv("api_key")
+
+RSS = ['aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium', 'credits']
+
 
 async def paginate_call(data: str, path: str, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
     """
@@ -42,32 +48,137 @@ async def paginate_call(data: str, path: str, key: str = api_key) -> Union[dict,
 
     return data_to_return
 
-async def call(data: str, key: str = api_key, retry_limit: int = 2) -> Union[dict, aiohttp.ClientResponse]:
+async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key = False) -> Union[dict, aiohttp.ClientResponse]:
     async with aiohttp.ClientSession() as session:
         retry = 0
         while True:
-            async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}) as response:
-                try:
+            if use_bot_key:
+                headers = {'X-Bot-Key': "4ba04e11ee113594", 'X-Api-Key': key}
+            else:
+                headers = {}
+            async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}, headers=headers) as response:
+                if "X-Ratelimit-Remaining" in response.headers:
                     if response.headers['X-Ratelimit-Remaining'] == '0':
                         await asyncio.sleep(int(response.headers['X-Ratelimit-Reset-After']))
                         continue
-                except:
-                    try:
-                        await asyncio.sleep(int(response.headers['Retry-After']))
-                        continue
-                    except:
-                        pass
+                elif "Retry-After" in response.headers:
+                    await asyncio.sleep(int(response.headers['Retry-After']))
+                    continue
+                if response.status == 401:
+                    raise ConnectionError("Invalid API key.")
                 json_response = await response.json()
-                try:
-                    json_response['data']
-                except:
+                if "data" not in json_response:
                     if retry < retry_limit:
                         retry += 1
                         await asyncio.sleep(1)
                         continue
                 return json_response
 
-def str_to_id_list(str_var):
+def get_query(*queries: Union[dict, tuple]) -> str:
+    def unpack(x: tuple) -> list:
+        to_return = []
+        for y in x:
+            if isinstance(y, tuple):
+                to_return += unpack(y)
+            else:
+                to_return.append(y)
+        return to_return
+
+    queries = list(queries)
+    for idx, query in enumerate(queries.copy()):
+        if isinstance(query, tuple):
+            unpacked = unpack(query)
+            del queries[idx]
+            queries += unpacked
+    merged = list(merge(*queries).values())[0]
+    #print(merged)
+    query = str(merged).replace("{", "").replace("}", "").replace(",", "").replace("[", "{").replace("]","}").replace("'", "").replace(": ", "")
+    return query
+
+def merge(*queries: dict) -> dict:
+    paths = []
+    for query in queries:
+        paths.append(list(query.keys())[0])
+    if len(set(paths)) != 1:
+        raise Exception(f"Paths {paths} are not the same.")
+    composite_query = {} # the composite query to return
+    for query in queries: # for each query
+        for key, line in query.items(): # nations, cities etc
+            if key not in composite_query: # the key is NOT in the composite query yet
+                composite_query[key] = line 
+            else: # the key is already in the composite query
+                if isinstance(line, dict): # the value is a dictionary
+                    composite_query[key] = merge(composite_query[key], line) # merge the two dictionaries
+                elif isinstance(line, list): # the value is a list
+                    for item in line: # for each item in the line
+                        if item not in composite_query[key]: # if the item is not in the composite query
+                            if isinstance(item, dict): # if the item is a dictionary
+                                similar_item = [(x, y) for y, x in enumerate(composite_query[key]) if isinstance(x, dict) and list(item.keys())[0] in x] # find similar items
+                                if len(similar_item) == 0: # if there are no similar items
+                                    composite_query[key].append(item) # add the item to the composite query
+                                else: # if there are similar items
+                                    similar_dict = similar_item[0][0] # get the similar dictionary
+                                    similar_idx = similar_item[0][1] # get the index of the similar dictionary
+                                    composite_query[key][similar_idx] = (merge(similar_dict, item)) # merge the similar dictionary with the item
+                            elif isinstance(item, str): # if the item is a string
+                                composite_query[key].append(item) # add the item to the composite query
+                            else: # the value is wrong
+                                raise Exception(f"Value {item} is not a dictionary or a string.")
+                else: # the value is wrong
+                    raise Exception(f"Value {line} is not a dictionary or a list.")
+    return composite_query
+
+def beige_loot_value(loot_string: str, prices: dict) -> int:
+    loot_string = loot_string[loot_string.index('$'):loot_string.index('Food.')]
+    loot_string = re.sub(r"[^0-9-]+", "", loot_string.replace(", ", "-"))
+    rss = ['money', 'coal', 'oil', 'uranium', 'iron', 'bauxite', 'lead', 'gasoline', 'munitions', 'steel', 'aluminum', 'food']
+    n = 0
+    loot = {}
+    for sub in loot_string.split("-"):
+        loot[rss[n]] = int(sub)
+        n += 1
+    nation_loot = 0
+    for rs in rss:
+        amount = loot[rs]
+        price = int(prices[rs])
+        nation_loot += amount * price
+    return nation_loot
+
+async def get_prices() -> dict:
+    prices = (await call(f"{{tradeprices(page:1 first:1){{data{get_query(queries.PRICES)}}}}}"))['data']['tradeprices']['data'][0]
+    prices['money'] = 1
+    return prices
+
+async def total_value(resources: dict) -> int:
+    """
+    Returns the total value of a nation's resources. The parsed dict can include any fields, but only the ones that are resources will be used.
+    """
+    prices = await get_prices()
+    x = 0
+    for rs in prices:
+        if rs in RSS and rs in resources: # if the resource is a resource and is in the resources dict
+            x += resources[rs] * prices[rs]
+    return x
+
+async def withdraw(api_key: str, resources: dict) -> bool:
+    try:
+        call_string = ""
+        for rs in resources:
+            call_string += f"{rs}:{resources[rs]} "
+        res = await call(f"mutation{{bankWithdraw({call_string}){{id}}}}", use_bot_key=True)
+        print(res)
+        return True
+    except Exception as e:
+        logger.error(f"Error withdrawing resources.\nApi key: {api_key}\nResources: {resources}", exc_info=True)
+        return False
+                
+async def listify(cursor):
+    new_list = []
+    async for x in cursor:
+        new_list.append(x)
+    return new_list
+
+def str_to_id_list(str_var: str) -> list:
     try:
         str_var = re.sub("[^0-9]", " ", str_var)
         str_var = str_var.strip().replace(" ", ",")
@@ -85,16 +196,54 @@ def str_to_id_list(str_var):
         logger.error(e, exc_info=True)
         raise e
 
-async def damage_page(results: dict, app) -> str:
-    endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
-    class webraid(MethodView):
-        def get(raidclass):
-            with open(pathlib.Path.cwd() / "templates" / "damage.txt", "r") as file:
-                template = file.read()
-            result = Template(template).render(results=results, weird_division=weird_division)
-            return str(result)
-    app.add_url_rule(f"/damage/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-    return endpoint
+def str_to_api_key_list(str_var: str) -> list:
+    try:
+        str_var = re.sub("[^0-9a-zA-Z]", " ", str_var)
+        str_var = str_var.strip().replace(" ", ",")
+        index = 0
+        while True:
+            try:
+                if str_var[index] == str_var[index+1] and not str_var[index].isdigit():
+                    str_var = str_var[:index] + str_var[index+1:]
+                    index -= 1
+                index += 1
+            except Exception as e: 
+                break
+        return str_var.split(",")
+    except Exception as e:
+        logger.error(e, exc_info=True)
+        raise e
+
+async def write_web(file: str, user_id: int, template: dict) -> None:
+    """
+    template should always include user_id
+    """
+    ## write to file here 
+    current_data = []
+    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / f"{file}.json", "r") as f:
+        current_data = json.loads(await f.read())
+
+    for x in current_data:
+        if int(x['user_id']) == user_id:
+            current_data.remove(x)
+            break
+    
+    new_dict = {"user_id": user_id}
+    for x in template:
+        new_dict[x] = template[x]
+    
+    current_data.append(new_dict)    
+
+    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / f"{file}.json", "w") as f:
+        await f.write(json.dumps(current_data))
+
+async def read_web(file: str, user_id: int) -> dict:
+    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / f"{file}.json", "r") as f:
+        current_data = json.loads(await f.read())
+    for x in current_data:
+        if int(x['user_id']) == user_id:
+            return x
+    return None
 
 def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
     embeds = []
@@ -119,13 +268,13 @@ class yes_or_no_view(discord.ui.View):
     @discord.ui.button(label="Yes", style=discord.ButtonStyle.green)
     async def primary_callback(self, b: discord.Button, i: discord.Interaction):
         self.result = True
-        await i.response.pong()
+        await i.response.edit_message()
         self.stop()
     
     @discord.ui.button(label="No", style=discord.ButtonStyle.red)
     async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
         self.result = False
-        await i.response.pong()
+        await i.response.edit_message()
         self.stop()
 
     async def interaction_check(self, interaction) -> bool:
@@ -250,111 +399,75 @@ async def run_timeout(ctx, view):
 def weird_division(a, b):
     return a / b if b else 0
 
-def find_user(self, arg):
+async def find_user(self, arg):
     if isinstance(arg, str):
         arg = arg.strip()
-    found = False
 
-    db = mongo.global_users
+    db = async_mongo.global_users
 
-    try:
-        int(arg)
-        x = db.find_one({"id": str(arg)})
-        if x:
-            found = True
-            return x        
-    except:
-        pass
-    
-    if not found:
-        try:
-            x = db.find_one({"user": int(arg)})
-            if x:
-                found = True
-                return x        
-        except:
-            pass
-            
-    current = list(db.find({}))
-
-    if not found:
-        try:
-            members = self.bot.get_all_members()
-            for member in members:
-                if arg.lower() in member.name.lower():
-                    x = db.find_one({"user": member.id})
-                    found = True
+    if str(arg).isdigit():
+        if x := await db.find_one({"id": str(arg)}):
+            return x
+        elif x := await db.find_one({"user": int(arg)}):
+            return x
+    elif "@" in arg or ".com" in arg:
+        if x := await db.find_one({"id": re.sub("[^0-9]", "", arg)}):
+            return x
+        elif x := await db.find_one({"user": int(re.sub("[^0-9]", "", arg))}):
+            return x
+    else:            
+        members = self.bot.get_all_members()
+        for member in members:
+            if arg.lower() in member.name.lower():
+                if x := await db.find_one({"user": member.id}):
                     return x
-                elif arg.lower() in member.display_name.lower():
-                    x = db.find_one({"user": member.id})
-                    found = True
+            elif arg.lower() in member.display_name.lower():
+                if x := await db.find_one({"user": member.id}):
                     return x
-                elif str(member).lower() == arg.lower():
-                    x = db.find_one({"user": member.id})
-                    found = True
+            elif str(member).lower() == arg.lower():
+                if x := await db.find_one({"user": member.id}):
                     return x
-        except:
-            pass
-
-    if not found:
-        try:
-            for x in current:
-                if x['id'] == re.sub("[^0-9]", "", arg):
-                    found = True
-                    return x
-                elif x['user'] == int(re.sub("[^0-9]", "", arg)):
-                    found = True
-                    return x
-        except:
-            pass
 
     return {}   
 
-def find_nation(arg: Union[str, int]) -> Union[dict, None]:
+async def find_nation(arg: Union[str, int]) -> Union[dict, None]:
     if isinstance(arg, str):
         arg = arg.strip()
-    try:
-        new_arg = int(re.sub("[^0-9]", "", arg))
-        result = list(mongo.world_nations.find({"id": str(new_arg)}).collation(
-            {"locale": "en", "strength": 1}))[0]
-    except:
-        try:
-            result = list(mongo.world_nations.find({"nation_name": arg}).collation(
-                {"locale": "en", "strength": 1}))[0]
-        except:
-            try:
-                result = list(mongo.world_nations.find({"leader_name": arg}).collation(
-                    {"locale": "en", "strength": 1}))[0]
-            except:
-                try:
-                    result = list(mongo.world_nations.find({"discord": arg}).collation(
-                        {"locale": "en", "strength": 1}))[0]
-                except:
-                    result = None
-    return result
+    
+    new_arg = int(re.sub("[^0-9]", "", str(arg)))
+    if result := await listify(async_mongo.world_nations.find({"id": str(new_arg)}).collation({"locale": "en", "strength": 1})):
+        return result[0]
+    elif result := await listify(async_mongo.world_nations.find({"nation_name": arg}).collation({"locale": "en", "strength": 1})):
+        return result[0]
+    elif result := await listify(async_mongo.world_nations.find({"leader_name": arg}).collation({"locale": "en", "strength": 1})):
+        return result[0]
+    elif result := await listify(async_mongo.world_nations.find({"discord": arg}).collation({"locale": "en", "strength": 1})):
+        return result[0]
+    else:
+        return None
 
-def find_nation_plus(self, arg: Union[str, int]) -> Union[dict, None]: # only returns a nation if it is at least 1 hour old
+async def find_nation_plus(self, arg: Union[str, int]) -> Union[dict, None]: # only returns a nation if it is at least 1 hour old
     if isinstance(arg, str):
         arg = arg.strip()
-    nation = find_nation(arg)
+    nation = await find_nation(arg)
     if nation == None:
-        nation = find_user(self, arg)
+        nation = await find_user(self, arg)
         if not nation:
             return None
         else:
-            nation = find_nation(nation['id'])
+            nation = await find_nation(nation['id'])
             if nation == None:
                 return None
     return nation
 
 async def get_alliances(ctx: discord.AutocompleteContext):
     """Returns a list of alliances that begin with the characters entered so far."""
-    alliances = list(mongo.alliances.find({}))
+    alliances = await listify(async_mongo.alliances.find({}))
     return [f"{aa['name']} ({aa['id']})" for aa in alliances if (ctx.value.lower()) in aa['id'] or (ctx.value.lower()) in aa['name'].lower() or (ctx.value.lower()) in aa['acronym'].lower()]
     
 async def get_target_alliances(ctx: discord.AutocompleteContext):
     """Returns a list of alliances that begin with the characters entered so far."""
-    config = mongo.guild_configs.find_one({"guild_id": ctx.interaction.guild_id})
+    config = await async_mongo.guild_configs.find_one({"guild_id": ctx.interaction.guild_id})
     if config is None:
         return []
     else:
@@ -362,7 +475,7 @@ async def get_target_alliances(ctx: discord.AutocompleteContext):
             ids = config['targets_alliance_ids']
         except:
             return []
-    alliances = list(mongo.alliances.find({"id": {"$in": ids}}))
+    alliances = await listify(async_mongo.alliances.find({"id": {"$in": ids}}))
     return [f"{aa['name']} ({aa['id']})" for aa in alliances if (ctx.value.lower()) in aa['id'] or (ctx.value.lower()) in aa['name'].lower() or (ctx.value.lower()) in aa['acronym'].lower()]
 
 async def yes_or_no(self, ctx) -> Union[bool, None]:
@@ -377,7 +490,7 @@ async def yes_or_no(self, ctx) -> Union[bool, None]:
 
 def militarization_checker(nation: dict) -> float:
     """
-    Requires `cities` with `barracks`, `factory`, `airforcebase` and `drydock`. Also `soldiers`, `tanks`, `aircraft`, `ships` and `population`
+    Requires `cities` with `barracks`, `factory`, `airforcebase` and `drydock`. Also `soldiers`, `tanks`, `aircraft`, `ships`, `propaganda_bureau` and `population`
     """
     milt = {}
     cities = len(nation['cities'])
@@ -402,22 +515,16 @@ def militarization_checker(nation: dict) -> float:
     milt['max_aircraft'] = math.floor(min(15 * hangars, nation['population']/1000))
     milt['max_ships'] = math.floor(min(5 * drydocks, nation['population']/10000))
 
-    try:
-        milt['soldiers_days'] = math.ceil((milt['max_soldiers'] - nation['soldiers']) / (milt['max_soldiers']/3))
-    except ZeroDivisionError:
-        milt['soldiers_days'] = 0
-    try:
-        milt['tanks_days'] = math.ceil((milt['max_tanks'] - nation['tanks']) / (milt['max_tanks']/5))
-    except ZeroDivisionError:
-        milt['tanks_days'] = 0
-    try:
-        milt['aircraft_days'] = math.ceil((milt['max_aircraft'] - nation['aircraft']) / (milt['max_aircraft']/5))
-    except ZeroDivisionError:
-        milt['aircraft_days'] = 0
-    try:
-        milt['ships_days'] = math.ceil((milt['max_ships'] - nation['ships']) / (milt['max_ships']/5))
-    except ZeroDivisionError:
-        milt['ships_days'] = 0
+    pg_mod = (int(nation["propaganda_bureau"]) * 0.1 + 1) 
+    milt['soldiers_daily'] = round(milt['max_soldiers']/3) * pg_mod
+    milt['tanks_daily'] = round(milt['max_tanks']/5) * pg_mod
+    milt['aircraft_daily'] = round(milt['max_aircraft']/5) * pg_mod
+    milt['ships_daily'] = round(milt['max_ships']/5) * pg_mod
+
+    milt['soldiers_days'] = math.ceil(weird_division(milt['max_soldiers'] - nation['soldiers'], milt['max_soldiers']/3))
+    milt['tanks_days'] = math.ceil(weird_division(milt['max_tanks'] - nation['tanks'], milt['max_tanks']/5))
+    milt['aircraft_days'] = math.ceil(weird_division(milt['max_aircraft'] - nation['aircraft'], milt['max_aircraft']/5))
+    milt['ships_days'] = math.ceil(weird_division(milt['max_ships'] - nation['ships'], milt['max_ships']/5))
 
     milt['total_milt'] = (nation['soldiers'] / (cities * 5 * 3000) + nation['tanks'] / (cities * 5 * 250) + nation['aircraft'] / (cities * 5 * 15) + nation['ships'] / (cities * 3 * 5)) / 4
     milt['soldiers_milt'] = nation['soldiers'] / (cities * 5 * 3000)
@@ -550,6 +657,8 @@ def city_cost(city: int, nation: dict = None) -> float:
             modifier -= 50000000
         if nation['advanced_urban_planning']:
             modifier -= 100000000
+        if nation['metropolitan_planning']:
+            modifier -= 100000000
         if nation['domestic_policy'] == "MANIFEST_DESTINY":
             if nation['government_support_agency']:
                 multiplier -= 0.075
@@ -613,53 +722,52 @@ def str_to_int(string: str) -> int:
 
     return amount
 
-async def pre_revenue_calc(api_key, message: discord.Message, query_for_nation: bool = False, nationid: Union[int, str] = None, parsed_nation: dict = None):
-    async with aiohttp.ClientSession() as session:
-        if query_for_nation:
-            nation = (await call(f"{{nations(first:1 id:{nationid}){{data{queries.REVENUE}}}}}"))['data']['nations']['data']
-            if len(nation) == 0:
-                print("That person was not in the API!")
-                raise 
-            else:
-                nation = nation[0]
+async def pre_revenue_calc(message: discord.Message, query_for_nation: bool = False, nationid: Union[int, str] = None, parsed_nation: dict = None):
+    if query_for_nation:
+        nation = (await call(f"{{nations(first:1 id:{nationid}){{data{get_query(queries.REVENUE)}}}}}"))['data']['nations']['data']
+        if len(nation) == 0:
+            print("That person was not in the API!")
+            raise 
         else:
-            nation = parsed_nation
+            nation = nation[0]
+    else:
+        nation = parsed_nation
 
-        await message.edit(content="Getting income modifiers...")
-        res = await call(f"{{colors{{color turn_bonus}} game_info{{game_date radiation{{global north_america south_america africa europe asia australia antarctica}}}} tradeprices(page:1 first:1){{data{{coal oil uranium iron bauxite lead gasoline munitions steel aluminum food}}}} treasures{{bonus nation{{id alliance_id}}}}}}")
-        res_colors = res['data']['colors']
-        colors = {}
-        for color in res_colors:
-            colors[color['color']] = color['turn_bonus'] * 12
+    await message.edit(content="Getting income modifiers...")
+    res = await call(f"{{colors{{color turn_bonus}} game_info{{game_date radiation{{global north_america south_america africa europe asia australia antarctica}}}} tradeprices(first:1){{data{get_query(queries.PRICES)}}} treasures{{bonus nation{{id alliance_id}}}}}}")
+    res_colors = res['data']['colors']
+    colors = {}
+    for color in res_colors:
+        colors[color['color']] = color['turn_bonus'] * 12
 
-        prices = res['data']['tradeprices']['data'][0]
-        prices['money'] = 1
+    prices = res['data']['tradeprices']['data'][0]
+    prices['money'] = 1
 
-        treasures = res['data']['treasures']
+    treasures = res['data']['treasures']
 
-        game_info = res['data']['game_info']
+    game_info = res['data']['game_info']
 
-        rad = game_info['radiation']
-        radiation = {"na": 1 - (rad['north_america'] + rad['global'])/1000, "sa": 1 - (rad['south_america'] + rad['global'])/1000, "eu": (rad['europe'] + rad['global'])/1000, "as": 1 - (rad['asia'] + rad['global'])/1000, "af": 1 - (rad['africa'] + rad['global'])/1000, "au": 1 - (rad['australia'] + rad['global'])/1000, "an": 1 - (rad['antarctica'] + rad['global'])/1000}
-        
-        month = int(game_info['game_date'][5:7])
-        seasonal_mod = {"na": 1, "sa": 1, "eu": 1, "as": 1, "af": 1, "au": 1, "an": 0.5}
-        if month in [6,7,8]:
-            seasonal_mod['na'] = 1.2
-            seasonal_mod['as'] = 1.2
-            seasonal_mod['eu'] = 1.2
-            seasonal_mod['sa'] = 0.8
-            seasonal_mod['af'] = 0.8
-            seasonal_mod['au'] = 0.8
-        elif month in [12,1,2]:
-            seasonal_mod['na'] = 0.8
-            seasonal_mod['as'] = 0.8
-            seasonal_mod['eu'] = 0.8
-            seasonal_mod['sa'] = 1.2
-            seasonal_mod['af'] = 1.2
-            seasonal_mod['au'] = 1.2
+    rad = game_info['radiation']
+    radiation = {"na": 1 - (rad['north_america'] + rad['global'])/1000, "sa": 1 - (rad['south_america'] + rad['global'])/1000, "eu": (rad['europe'] + rad['global'])/1000, "as": 1 - (rad['asia'] + rad['global'])/1000, "af": 1 - (rad['africa'] + rad['global'])/1000, "au": 1 - (rad['australia'] + rad['global'])/1000, "an": 1 - (rad['antarctica'] + rad['global'])/1000}
+    
+    month = int(game_info['game_date'][5:7])
+    seasonal_mod = {"na": 1, "sa": 1, "eu": 1, "as": 1, "af": 1, "au": 1, "an": 0.5}
+    if month in [6,7,8]:
+        seasonal_mod['na'] = 1.2
+        seasonal_mod['as'] = 1.2
+        seasonal_mod['eu'] = 1.2
+        seasonal_mod['sa'] = 0.8
+        seasonal_mod['af'] = 0.8
+        seasonal_mod['au'] = 0.8
+    elif month in [12,1,2]:
+        seasonal_mod['na'] = 0.8
+        seasonal_mod['as'] = 0.8
+        seasonal_mod['eu'] = 0.8
+        seasonal_mod['sa'] = 1.2
+        seasonal_mod['af'] = 1.2
+        seasonal_mod['au'] = 1.2
 
-        return nation, colors, prices, treasures, radiation, seasonal_mod
+    return nation, colors, prices, treasures, radiation, seasonal_mod
 
 async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, treasures: dict, prices: dict, colors: dict, seasonal_mod: dict, build: str = None, single_city: bool = False, include_spies: bool = False) -> dict:
     max_commerce = 100
@@ -977,14 +1085,14 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
             military_upkeep += nation['aircraft'] * 500
             military_upkeep += nation['ships'] * 3375
             military_upkeep += nation['missiles'] * 21000
-            military_upkeep += nation['nukes'] * 31500 
+            military_upkeep += nation['nukes'] * 35000
         else:
             military_upkeep += nation['soldiers'] * 1.88
             food -= nation['soldiers'] / 500
             military_upkeep += nation['tanks'] * 75
             military_upkeep += nation['aircraft'] * 750
             military_upkeep += nation['ships'] * 5062.50
-            military_upkeep += nation['missiles'] * 35000 
+            military_upkeep += nation['missiles'] * 31500 
             military_upkeep += nation['nukes'] * 52500
     else:
         military_upkeep += int(city['barracks']) * 3000 * 1.25
@@ -1072,3 +1180,29 @@ async def spy_calc(nation: dict) -> int:
         elif enemyspy < 2:
             enemyspy = 0
     return enemyspy
+
+import sys
+from types import ModuleType, FunctionType
+from gc import get_referents
+
+# Custom objects know their class.
+# Function objects seem to know way too much, including modules.
+# Exclude modules as well.
+BLACKLIST = type, ModuleType, FunctionType
+
+def getsize(obj):
+    """sum size of object & members."""
+    if isinstance(obj, BLACKLIST):
+        raise TypeError('getsize() does not take argument of type: '+ str(type(obj)))
+    seen_ids = set()
+    size = 0
+    objects = [obj]
+    while objects:
+        need_referents = []
+        for obj in objects:
+            if not isinstance(obj, BLACKLIST) and id(obj) not in seen_ids:
+                seen_ids.add(id(obj))
+                size += sys.getsizeof(obj)
+                need_referents.append(obj)
+        objects = get_referents(*need_referents)
+    return size

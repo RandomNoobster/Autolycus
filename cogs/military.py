@@ -1,9 +1,6 @@
 import discord
 from discord.ext import commands
-import aiohttp
-import re
 from discord.commands import slash_command, Option, SlashCommandGroup
-from mako.template import Template
 import random
 import pathlib
 import json
@@ -11,12 +8,9 @@ from typing import Union
 import os
 from datetime import datetime, timedelta
 import utils
-from keep_alive import app
-from flask.views import MethodView
 import math
-from flask import request
 import queries
-from main import mongo, logger
+from main import async_mongo, logger
 
 api_key = os.getenv("api_key")
 
@@ -27,18 +21,20 @@ class TargetFinding(commands.Cog):
 
     def winrate_calc(self, attacker_value, defender_value):
         try:
-            try:
-                if attacker_value == 0 and defender_value == 0:
-                    return 0
-                x = attacker_value / defender_value
-                if x > 2:
-                    winrate = 1
-                elif x < 0.4:
-                    winrate = 0
-                else:
-                    winrate = (12.832883444301027*x**(11)-171.668262561212487*x**(10)+1018.533858483560834*x**(9)-3529.694284997589875*x**(8)+7918.373606722701879*x**(7)-12042.696852729619422*x**(6)+12637.399722721022044*x**(5)-9128.535790660698694*x**(4)+4437.651655224382012*x**(3)-1378.156072477675025*x**(2)+245.439740545813436*x-18.980551645186498)
-            except ZeroDivisionError:
+            if attacker_value == 0 and defender_value == 0:
+                return 0
+            elif defender_value == 0:
+                return 1
+            
+            x = attacker_value / defender_value
+
+            # should be 2.5 and not 2 but the function would have to be redone
+            if x > 2:
                 winrate = 1
+            elif x < 0.4:
+                winrate = 0
+            else:
+                winrate = (12.832883444301027*x**(11)-171.668262561212487*x**(10)+1018.533858483560834*x**(9)-3529.694284997589875*x**(8)+7918.373606722701879*x**(7)-12042.696852729619422*x**(6)+12637.399722721022044*x**(5)-9128.535790660698694*x**(4)+4437.651655224382012*x**(3)-1378.156072477675025*x**(2)+245.439740545813436*x-18.980551645186498)
             return winrate
         except Exception as e:
             logger.error(e, exc_info=True)
@@ -54,502 +50,533 @@ class TargetFinding(commands.Cog):
             
             when_to_timeout = datetime.utcnow() + timedelta(minutes=10)
 
-            invoker = str(ctx.author.id)
-            async with aiohttp.ClientSession() as session:
-                attacker = utils.find_nation_plus(self, ctx.author.id)
-                if not attacker:
-                    await ctx.edit(content='I could not find your nation, make sure that you are verified by using `/verify`!')
-                    return
-                atck_ntn = (await utils.call(f"{{nations(first:1 id:{attacker['id']}){{data{{nation_name score id population soldiers tanks aircraft ships}}}}}}"))['data']['nations']['data'][0]
-                if atck_ntn == None:
-                    await ctx.edit(content='I did not find that person!')
-                    return
-                
-                minscore = round(atck_ntn['score'] * 0.75)
-                maxscore = round(atck_ntn['score'] * 1.75)
-                
-                webpage = None
-                discord_embed = None
-                class stage_one(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                    @discord.ui.button(label="Embed on discord", style=discord.ButtonStyle.primary)
-                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal webpage, discord_embed
-                        webpage = False
-                        discord_embed = True
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="Message on discord", style=discord.ButtonStyle.primary)
-                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal webpage, discord_embed
-                        webpage = False
-                        discord_embed = False
-                        await i.response.pong()
-                        self.stop()
-
-                    @discord.ui.button(label="As a webpage", style=discord.ButtonStyle.primary)
-                    async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal webpage, discord_embed
-                        webpage = True
-                        discord_embed = False
-                        await i.response.pong()
-                        self.stop()
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await utils.run_timeout(ctx, view)
-                
-                who = None
-                class stage_three(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                    @discord.ui.button(label="All nations", style=discord.ButtonStyle.primary)
-                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal who
-                        who = ""
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="Applicants and nations not in alliances", style=discord.ButtonStyle.primary)
-                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal who
-                        who = " alliance_position:[0,1]"
-                        await i.response.pong()
-                        self.stop()
-
-                    @discord.ui.button(label="Nations not affiliated with any alliance", style=discord.ButtonStyle.primary)
-                    async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal who
-                        who = " alliance_id:0"
-                        await i.response.pong()
-                        self.stop()
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await utils.run_timeout(ctx, view)               
-                    
-                max_wars = None
-                class stage_four(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                    @discord.ui.button(label="0", style=discord.ButtonStyle.primary)
-                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal max_wars
-                        max_wars = 0
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="1 or less", style=discord.ButtonStyle.primary)
-                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal max_wars
-                        max_wars = 1
-                        await i.response.pong()
-                        self.stop()
-
-                    @discord.ui.button(label="2 or less", style=discord.ButtonStyle.primary)
-                    async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal max_wars
-                        max_wars = 2
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="3 or less", style=discord.ButtonStyle.primary)
-                    async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal max_wars
-                        max_wars = 3
-                        await i.response.pong()
-                        self.stop()
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await utils.run_timeout(ctx, view)
+            attacker = await utils.find_nation_plus(self, ctx.author.id)
+            if not attacker:
+                await ctx.edit(content='I could not find your nation, make sure that you are verified by using `/verify`!')
+                return
+            atck_ntn = (await utils.call(f"{{nations(first:1 id:{attacker['id']}){{data{utils.get_query(queries.WINRATE_CALC, {'nations': ['nation_name', 'score', 'id', 'population']})}}}}}"))['data']['nations']['data'][0]
+            if atck_ntn == None:
+                await ctx.edit(content='I did not find that person!')
+                return
             
-                inactive_limit = None
-                class stage_five(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+            minscore = round(atck_ntn['score'] * 0.75)
+            maxscore = round(atck_ntn['score'] * 1.75)
+            
+            use_same = None
+            class stage_one(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
-                    @discord.ui.button(label="I don't care", style=discord.ButtonStyle.primary)
-                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal inactive_limit
-                        inactive_limit = 0
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="7+ days inactive", style=discord.ButtonStyle.primary)
-                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal inactive_limit
-                        inactive_limit = 7
-                        await i.response.pong()
-                        self.stop()
-
-                    @discord.ui.button(label="14+ days inactive", style=discord.ButtonStyle.primary)
-                    async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal inactive_limit
-                        inactive_limit = 14
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="30+ days inactive", style=discord.ButtonStyle.primary)
-                    async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal inactive_limit
-                        inactive_limit = 30
-                        await i.response.pong()
-                        self.stop()
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await utils.run_timeout(ctx, view)
+                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal use_same
+                    use_same = True
+                    await i.response.edit_message()
+                    self.stop()
                 
-                beige = None
-                class stage_six(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal use_same
+                    use_same = False
+                    await i.response.edit_message()
+                    self.stop()
 
-                    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal beige
-                        beige = True
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal beige
-                        beige = False
-                        await i.response.pong()
-                        self.stop()
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await utils.run_timeout(ctx, view)
-                                    
-                performace_filter = None
-                class stage_seven(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-                    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal performace_filter
-                        performace_filter = True
-                        await i.response.pong()
-                        self.stop()
-                    
-                    @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-                    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal performace_filter
-                        performace_filter = False
-                        await i.response.pong()
-                        self.stop()
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await utils.run_timeout(ctx, view)
-
-                target_list = []
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
                 
-                with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
-                    file_content = json.load(json_file)
-                    last_fetched = file_content['last_fetched']
-                    
-                embed0 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
-                embed2 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
-                embed3 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
-                embed4 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
-                embed5 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
-                embed6 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)
 
-                for embed, view in [(embed0, stage_one()), (embed2, stage_three()), (embed3, stage_four()), (embed4, stage_five()), (embed5, stage_six()), (embed6, stage_seven())]:
-                    await ctx.edit(content="", embed=embed, view=view)
-                    timed_out = await view.wait()
-                    if timed_out:
-                        return
+            webpage = None
+            discord_embed = None
+            class stage_two(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                @discord.ui.button(label="Embed on discord", style=discord.ButtonStyle.primary)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal webpage, discord_embed
+                    webpage = False
+                    discord_embed = True
+                    await i.response.edit_message()
+                    self.stop()
                 
-                view = None
+                @discord.ui.button(label="Message on discord", style=discord.ButtonStyle.primary)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal webpage, discord_embed
+                    webpage = False
+                    discord_embed = False
+                    await i.response.edit_message()
+                    self.stop()
 
-                await ctx.edit(content="Getting targets...", view=view, embed=None)
-                done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
+                @discord.ui.button(label="As a webpage", style=discord.ButtonStyle.primary)
+                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal webpage, discord_embed
+                    webpage = True
+                    discord_embed = False
+                    await i.response.edit_message()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)
+            
+            who = None
+            class stage_three(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
-                await ctx.edit(content="Caching targets...")
-                for done_job in done_jobs:
-                    for x in done_job['data']['nations']['data']:
-                        if who == " alliance_position:[0,1]":
-                            if x['alliance_position'] not in ["NOALLIANCE", "APPLICANT"]:
-                                continue
-                        elif who == " alliance_id:0":
-                            if x['alliance_id'] != "0":
-                                continue
-                        if not minscore < x['score'] < maxscore:
+                @discord.ui.button(label="All nations", style=discord.ButtonStyle.primary)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal who
+                    who = ""
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="Applicants and nations not in alliances", style=discord.ButtonStyle.primary)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal who
+                    who = " alliance_position:[0,1]"
+                    await i.response.edit_message()
+                    self.stop()
+
+                @discord.ui.button(label="Nations not affiliated with any alliance", style=discord.ButtonStyle.primary)
+                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal who
+                    who = " alliance_id:0"
+                    await i.response.edit_message()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)               
+                
+            max_wars = None
+            class stage_four(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                @discord.ui.button(label="0", style=discord.ButtonStyle.primary)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal max_wars
+                    max_wars = 0
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="1 or less", style=discord.ButtonStyle.primary)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal max_wars
+                    max_wars = 1
+                    await i.response.edit_message()
+                    self.stop()
+
+                @discord.ui.button(label="2 or less", style=discord.ButtonStyle.primary)
+                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal max_wars
+                    max_wars = 2
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="3 or less", style=discord.ButtonStyle.primary)
+                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal max_wars
+                    max_wars = 3
+                    await i.response.edit_message()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)
+        
+            inactive_limit = None
+            class stage_five(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                @discord.ui.button(label="I don't care", style=discord.ButtonStyle.primary)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal inactive_limit
+                    inactive_limit = 0
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="7+ days inactive", style=discord.ButtonStyle.primary)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal inactive_limit
+                    inactive_limit = 7
+                    await i.response.edit_message()
+                    self.stop()
+
+                @discord.ui.button(label="14+ days inactive", style=discord.ButtonStyle.primary)
+                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal inactive_limit
+                    inactive_limit = 14
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="30+ days inactive", style=discord.ButtonStyle.primary)
+                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal inactive_limit
+                    inactive_limit = 30
+                    await i.response.edit_message()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)
+            
+            beige = None
+            class stage_six(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal beige
+                    beige = True
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal beige
+                    beige = False
+                    await i.response.edit_message()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)
+                                
+            performace_filter = None
+            class stage_seven(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal performace_filter
+                    performace_filter = True
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal performace_filter
+                    performace_filter = False
+                    await i.response.edit_message()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)
+
+            target_list = []
+            
+            with open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
+                file_content = json.load(json_file)
+                last_fetched = file_content['last_fetched']
+                
+            embed1 = discord.Embed(title=f"Configuration", description="Do you want to use the same configuration (presenatation & filters) that you used last time running this command?", color=0xff5100)
+            embed2 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
+            embed3 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
+            embed4 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
+            embed5 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
+            embed6 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
+            embed7 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
+
+            option_list = [(embed1, stage_one()), (embed2, stage_two()), (embed3, stage_three()), (embed4, stage_four()), (embed5, stage_five()), (embed6, stage_six()), (embed7, stage_seven())]
+            user = await async_mongo.global_users.find_one({"user": ctx.author.id})
+            if "raids_config" not in user:
+                option_list.pop(0)
+
+            for embed, view in option_list:
+                await ctx.edit(content="", embed=embed, view=view)
+                timed_out = await view.wait()
+                if timed_out:
+                    return
+                if use_same == True:
+                    webpage = user['raids_config']['webpage']
+                    discord_embed = user['raids_config']['discord_embed']
+                    who = user['raids_config']['who']
+                    max_wars = user['raids_config']['max_wars']
+                    inactive_limit = user['raids_config']['inactive_limit']
+                    beige = user['raids_config']['beige']
+                    performace_filter = user['raids_config']['performace_filter']
+                    break
+            
+            view = None
+
+            await ctx.edit(content="Getting targets...", view=view, embed=None)
+            done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
+
+            await ctx.edit(content="Caching targets...")
+            for done_job in done_jobs:
+                for x in done_job['data']['nations']['data']:
+                    if who == " alliance_position:[0,1]":
+                        if x['alliance_position'] not in ["NOALLIANCE", "APPLICANT"]:
                             continue
-                        if beige:
+                    elif who == " alliance_id:0":
+                        if x['alliance_id'] != "0":
+                            continue
+                    if not minscore < x['score'] < maxscore:
+                        continue
+                    if beige:
+                        pass
+                    else:
+                        if x['color'] == "beige":
+                            continue
+                        else: 
                             pass
-                        else:
-                            if x['color'] == "beige":
-                                continue
-                            else: 
-                                pass
-                        used_slots = 0
-                        for war in x['wars']:
-                            if war['turnsleft'] > 0 and war['defid'] == x['id']:
-                                used_slots += 1
+                    used_slots = 0
+                    for war in x['wars']:
+                        if war['turnsleft'] > 0 and war['defid'] == x['id']:
+                            used_slots += 1
+                        for attack in war['attacks']:
+                            if attack['loot_info']:
+                                attack['loot_info'] = attack['loot_info'].replace("\r\n", "")
+                    if x['alliance_id'] in ["4729", "7531"]:
+                        continue
+                    if used_slots > max_wars:
+                        continue
+                    if (datetime.utcnow() - datetime.strptime(x['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days < inactive_limit:
+                        continue
+                    target_list.append(x)
+                    
+            if len(target_list) == 0:
+                await ctx.edit(content="No targets matched your criteria!", attachments=[])
+                return
+
+            filters = f"Nation information was fetched <t:{last_fetched}:R>\n"
+            filter_list = []
+            if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0:
+                filters += "Active filters: "
+                if not beige:
+                    filter_list.append("hide beige nations")
+                if who != "":
+                    if who == " alliance_position:[0,1]":
+                        filter_list.append("hide full alliance members")
+                    elif who == " alliance_id:0":
+                        filter_list.append("hide full alliance members and applicants")
+                if max_wars != 3:
+                    if max_wars == 0:
+                        filter_list.append("0 active wars")
+                    else:
+                        filter_list.append(f"{max_wars} or less active wars")
+                if performace_filter:
+                    filter_list.append('omit "bad" targets')
+                if inactive_limit != 0:
+                    filter_list.append(f"hide nations that logged in within the last {inactive_limit} days")
+                filters = filters + ", ".join(filter_list)
+            else:
+                filters += "No active filters"
+            
+            await async_mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$set": {"raids_config": {"webpage": webpage, "discord_embed": discord_embed, "who": who, "max_wars": max_wars, "inactive_limit": inactive_limit, "beige": beige, "performace_filter": performace_filter}}})
+
+            temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(ctx, query_for_nation=False, parsed_nation=atck_ntn)
+
+            await ctx.edit(content='Calculating best targets...')
+
+            for target in target_list:
+                embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
+                prev_nat_loot = False
+                target['infrastructure'] = 0
+                target['def_slots'] = 0
+                target['time_since_war'] = "14+"
+                
+                if target['wars'] != []:
+                    for war in target['wars']:
+                        if war['date'] == '-0001-11-30 00:00:00':
+                            target['wars'].remove(war)
+                        elif war['defid'] == target['id']:
+                            if war['turnsleft'] > 0:
+                                target['def_slots'] += 1
+                            
+                    wars = sorted(target['wars'], key=lambda k: k['date'], reverse=True)
+                    war = wars[0]
+                    if target['def_slots'] == 0:
+                        target['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
+                    else:
+                        target['time_since_war'] = "Ongoing"
+                    for war in wars:
+                        if war['turnsleft'] <= 0:
+                            nation_loot = 0
                             for attack in war['attacks']:
+                                if attack['victor'] == target['id']:
+                                    continue
                                 if attack['loot_info']:
-                                    attack['loot_info'] = attack['loot_info'].replace("\r\n", "")
-                        if x['alliance_id'] in ["4729", "7531"]:
-                            continue
-                        if used_slots > max_wars:
-                            continue
-                        if (datetime.utcnow() - datetime.strptime(x['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days < inactive_limit:
-                            continue
-                        target_list.append(x)
-                        
+                                    text = attack['loot_info']
+                                    if "won the war and looted" in text:
+                                        nation_loot += utils.beige_loot_value(text, prices)
+                                    else:
+                                        continue
+                            try:
+                                if war['attacker']['war_policy'] == "ATTRITION":
+                                    nation_loot = nation_loot / 80 * 100
+                                elif war['attacker']['war_policy'] == "PIRATE":
+                                    nation_loot = nation_loot / 140 * 100
+                                if war['war_type'] == "ATTRITION":
+                                    nation_loot = nation_loot * 4
+                                elif war['war_type'] == "ORDINARY":
+                                    nation_loot = nation_loot * 2
+                                target['nation_loot'] = f"{round(nation_loot):,}"
+                                target['nation_loot_value'] = nation_loot
+                                embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
+                                prev_nat_loot = True
+                            except:
+                                # if you are here, it is probably because the attacker has deleted their nation
+                                pass
+                            break
+
+                if prev_nat_loot == False:
+                    embed.add_field(name="Previous nation loot", value="NaN")
+                    target['nation_loot'] = "NaN"
+                    target['nation_loot_value'] = 0
+
+                rev_obj = await utils.revenue_calc(ctx, target, radiation, treasures, prices, colors, seasonal_mod)
+
+                target['monetary_net_num'] = rev_obj['monetary_net_num']
+                embed.add_field(name="Monetary Net Income", value=rev_obj['mon_net_txt'])
+                
+                target['net_cash_num'] = rev_obj['net_cash_num']
+                target['money_txt'] = rev_obj['money_txt']
+                embed.add_field(name="Net Cash Income", value=rev_obj['money_txt'])
+
+                target['treasures'] = len(target['treasures'])
+                embed.add_field(name="Treasures", value=target['treasures'])
+
+                embed.add_field(name="Slots", value=f"{target['def_slots']}/3 used slots") 
+
+                if target['last_active'] == '-0001-11-30 00:00:00':
+                    days_inactive = 0
+                else:
+                    days_inactive = (datetime.utcnow() - datetime.strptime(target['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
+
+                for city in target['cities']:
+                    target['infrastructure'] += city['infrastructure']
+
+                embed.add_field(name="Beige", value=f"{target['beige_turns']} turns")
+
+                embed.add_field(name="Inactivity", value=f"{days_inactive} days")
+
+                if target['alliance']:
+                    embed.add_field(name="Alliance", value=f"[{target['alliance']['name']}](https://politicsandwar.com/alliance/id={target['alliance_id']})\n{target['alliance_position'].lower().capitalize()}")
+                else:
+                    target['alliance'] = {"name": "None"}
+                    embed.add_field(name="Alliance", value=f"No alliance")
+
+                target['max_infra'] = rev_obj['max_infra']
+                target['avg_infra'] = rev_obj['avg_infra']
+                embed.add_field(name="Infra", value=f"Max: {rev_obj['max_infra']}\nAvg: {rev_obj['avg_infra']}")
+
+                embed.add_field(name="Soldiers", value=f"{target['soldiers']:,} soldiers")
+
+                embed.add_field(name="Tanks", value=f"{target['tanks']:,} tanks")
+
+                embed.add_field(name="Aircraft", value=f"{target['aircraft']} aircraft")
+
+                embed.add_field(name="Ships", value=f"{target['ships']:,} ships")
+
+                embed.add_field(name="Nukes", value=f"{target['nukes']:,} nukes")
+
+                embed.add_field(name="Missiles", value=f"{target['missiles']:,} missiles")
+                
+                # works perfectly fine, but the API is broken....
+                # target['bounty_txt'] = "0"
+                # bounty_info = {"ATTRITION": 0, "RAID": 0, "ORDINARY": 0, "NUCLEAR": 0}
+                # for bounty in target['bounties']:
+                #     if bounty['type'] == None:
+                #         bounty['type'] = "NUCLEAR"
+                #     bounty_info[bounty['type']] += bounty['amount']   
+                # temp_list = []
+                # for k, v in bounty_info.items():
+                #     if v != 0:
+                #         temp_list.append(f"{k.capitalize()}: ${v:,}")
+                # target['bounty_txt'] = ", ".join(temp_list)
+
+                ground_win_rate = self.winrate_calc((atck_ntn['soldiers'] * 1.75 + atck_ntn['tanks'] * 40), (target['soldiers'] * 1.75 + target['tanks'] * 40 + target['population'] * 0.0025))
+
+                target['groundwin'] = ground_win_rate
+                embed.add_field(name="Chance to get ground IT", value=str(round(100*ground_win_rate**3)) + "%")
+
+                air_win_rate = self.winrate_calc((atck_ntn['aircraft'] * 3), (target['aircraft'] * 3))
+                
+                target['airwin'] = air_win_rate
+                embed.add_field(name="Chance to get air IT", value=str(round(100*air_win_rate**3)) + "%")
+
+                naval_win_rate = self.winrate_calc((atck_ntn['ships'] * 4), (target['ships'] * 4))
+                
+                target['navalwin'] = naval_win_rate
+                embed.add_field(name="Chance to get naval IT", value=str(round(100*naval_win_rate**3)) + "%\n\u200b")
+
+                target['winchance'] = round((ground_win_rate+air_win_rate+naval_win_rate)*100/3)
+
+                if not webpage:
+                    target['embed'] = embed
+
+            if performace_filter:
+                def determine(x):
+                    if x['groundwin'] < .4 or x['nation_loot'] == "0" or x['net_cash_num'] < 10000:
+                        return False
+                    else:
+                        return True
+                target_list[:] = [target for target in target_list if determine(target)]
                 if len(target_list) == 0:
                     await ctx.edit(content="No targets matched your criteria!", attachments=[])
+                    no_timeout = True
                     return
-
-                filters = f"Nation information was fetched <t:{last_fetched}:R>\n"
-                filter_list = []
-                if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0:
-                    filters += "Active filters: "
-                    if not beige:
-                        filter_list.append("hide beige nations")
-                    if who != "":
-                        if who == " alliance_position:[0,1]":
-                            filter_list.append("hide full alliance members")
-                        elif who == " alliance_id:0":
-                            filter_list.append("hide full alliance members and applicants")
-                    if max_wars != 3:
-                        if max_wars == 0:
-                            filter_list.append("0 active wars")
-                        else:
-                            filter_list.append(f"{max_wars} or less active wars")
-                    if performace_filter:
-                        filter_list.append('omit "bad" targets')
-                    if inactive_limit != 0:
-                        filter_list.append(f"hide nations that logged in within the last {inactive_limit} days")
-                    filters = filters + ", ".join(filter_list)
-                else:
-                    filters += "No active filters"
-
-                temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(api_key, ctx, query_for_nation=False, parsed_nation=atck_ntn)
-
-                await ctx.edit(content='Calculating best targets...')
-
-                for target in target_list:
-                    embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
-                    prev_nat_loot = False
-                    target['infrastructure'] = 0
-                    target['def_slots'] = 0
-                    target['time_since_war'] = "14+"
-                    
-                    if target['wars'] != []:
-                        for war in target['wars']:
-                            if war['date'] == '-0001-11-30 00:00:00':
-                                target['wars'].remove(war)
-                            elif war['defid'] == target['id']:
-                                if war['turnsleft'] > 0:
-                                    target['def_slots'] += 1
-                                
-                        wars = sorted(target['wars'], key=lambda k: k['date'], reverse=True)
-                        war = wars[0]
-                        if target['def_slots'] == 0:
-                            target['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
-                        else:
-                            target['time_since_war'] = "Ongoing"
-                        for war in wars:
-                            if war['turnsleft'] <= 0:
-                                nation_loot = 0
-                                for attack in war['attacks']:
-                                    if attack['victor'] == target['id']:
-                                        continue
-                                    if attack['loot_info']:
-                                        text = attack['loot_info']
-                                        if "won the war and looted" in text:
-                                            text = text[text.index('looted') + 7 :text.index(' Food. ')]
-                                            text = re.sub(r"[^0-9-]+", "", text.replace(", ", "-"))
-                                            rss = ['money', 'coal', 'oil', 'uranium', 'iron', 'bauxite', 'lead', 'gasoline', 'munitions', 'steel', 'aluminum', 'food']
-                                            n = 0
-                                            loot = {}
-                                            for sub in text.split("-"):
-                                                loot[rss[n]] = int(sub)
-                                                n += 1
-                                            for rs in rss:
-                                                amount = loot[rs]
-                                                price = int(prices[rs])
-                                                nation_loot += amount * price
-                                        else:
-                                            continue
-                                try:
-                                    if war['attacker']['war_policy'] == "ATTRITION":
-                                        nation_loot = nation_loot / 80 * 100
-                                    elif war['attacker']['war_policy'] == "PIRATE":
-                                        nation_loot = nation_loot / 140 * 100
-                                    if war['war_type'] == "ATTRITION":
-                                        nation_loot = nation_loot * 4
-                                    elif war['war_type'] == "ORDINARY":
-                                        nation_loot = nation_loot * 2
-                                    target['nation_loot'] = f"{round(nation_loot):,}"
-                                    target['nation_loot_value'] = nation_loot
-                                    embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
-                                    prev_nat_loot = True
-                                except:
-                                    # if you are here, it is probably because the attacker has deleted their nation
-                                    pass
-                                break
-
-                    if prev_nat_loot == False:
-                        embed.add_field(name="Previous nation loot", value="NaN")
-                        target['nation_loot'] = "NaN"
-                        target['nation_loot_value'] = 0
-
-                    rev_obj = await utils.revenue_calc(ctx, target, radiation, treasures, prices, colors, seasonal_mod)
-
-                    target['monetary_net_num'] = rev_obj['monetary_net_num']
-                    embed.add_field(name="Monetary Net Income", value=rev_obj['mon_net_txt'])
-                    
-                    target['net_cash_num'] = rev_obj['net_cash_num']
-                    target['money_txt'] = rev_obj['money_txt']
-                    embed.add_field(name="Net Cash Income", value=rev_obj['money_txt'])
-
-                    target['treasures'] = len(target['treasures'])
-                    embed.add_field(name="Treasures", value=target['treasures'])
-
-                    embed.add_field(name="Slots", value=f"{target['def_slots']}/3 used slots") 
-
-                    if target['last_active'] == '-0001-11-30 00:00:00':
-                        days_inactive = 0
-                    else:
-                        days_inactive = (datetime.utcnow() - datetime.strptime(target['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
-
-                    for city in target['cities']:
-                        target['infrastructure'] += city['infrastructure']
-
-                    embed.add_field(name="Beige", value=f"{target['beige_turns']} turns")
-
-                    embed.add_field(name="Inactivity", value=f"{days_inactive} days")
-
-                    if target['alliance']:
-                        embed.add_field(name="Alliance", value=f"[{target['alliance']['name']}](https://politicsandwar.com/alliance/id={target['alliance_id']})\n{target['alliance_position'].lower().capitalize()}")
-                    else:
-                        target['alliance'] = {"name": "None"}
-                        embed.add_field(name="Alliance", value=f"No alliance")
-
-                    target['max_infra'] = rev_obj['max_infra']
-                    target['avg_infra'] = rev_obj['avg_infra']
-                    embed.add_field(name="Infra", value=f"Max: {rev_obj['max_infra']}\nAvg: {rev_obj['avg_infra']}")
-
-                    embed.add_field(name="Soldiers", value=f"{target['soldiers']:,} soldiers")
-
-                    embed.add_field(name="Tanks", value=f"{target['tanks']:,} tanks")
-
-                    embed.add_field(name="Aircraft", value=f"{target['aircraft']} aircraft")
-
-                    embed.add_field(name="Ships", value=f"{target['ships']:,} ships")
-
-                    embed.add_field(name="Nukes", value=f"{target['nukes']:,} nukes")
-
-                    embed.add_field(name="Missiles", value=f"{target['missiles']:,} missiles")
-                    
-                    # works perfectly fine, but the API is broken....
-                    # target['bounty_txt'] = "0"
-                    # bounty_info = {"ATTRITION": 0, "RAID": 0, "ORDINARY": 0, "NUCLEAR": 0}
-                    # for bounty in target['bounties']:
-                    #     if bounty['type'] == None:
-                    #         bounty['type'] = "NUCLEAR"
-                    #     bounty_info[bounty['type']] += bounty['amount']   
-                    # temp_list = []
-                    # for k, v in bounty_info.items():
-                    #     if v != 0:
-                    #         temp_list.append(f"{k.capitalize()}: ${v:,}")
-                    # target['bounty_txt'] = ", ".join(temp_list)
-
-                    ground_win_rate = self.winrate_calc((atck_ntn['soldiers'] * 1.75 + atck_ntn['tanks'] * 40), (target['soldiers'] * 1.75 + target['tanks'] * 40 + target['population'] * 0.0025))
-
-                    target['groundwin'] = ground_win_rate
-                    embed.add_field(name="Chance to get ground IT", value=str(round(100*ground_win_rate**3)) + "%")
-
-                    air_win_rate = self.winrate_calc((atck_ntn['aircraft'] * 3), (target['aircraft'] * 3))
-                    
-                    target['airwin'] = air_win_rate
-                    embed.add_field(name="Chance to get air IT", value=str(round(100*air_win_rate**3)) + "%")
-
-                    naval_win_rate = self.winrate_calc((atck_ntn['ships'] * 4), (target['ships'] * 4))
-                    
-                    target['navalwin'] = naval_win_rate
-                    embed.add_field(name="Chance to get naval IT", value=str(round(100*naval_win_rate**3)) + "%\n\u200b")
-
-                    target['winchance'] = round((ground_win_rate+air_win_rate+naval_win_rate)*100/3)
-
-                    if not webpage:
-                        target['embed'] = embed
-
-                if performace_filter:
-                    def determine(x):
-                        if x['groundwin'] < .4 or x['nation_loot'] == "0" or x['net_cash_num'] < 10000:
-                            return False
-                        else:
-                            return True
-                    target_list[:] = [target for target in target_list if determine(target)]
-                    if len(target_list) == 0:
-                        await ctx.edit(content="No targets matched your criteria!", attachments=[])
-                        no_timeout = True
-                        return
-                    
+                
             best_targets = sorted(target_list, key=lambda k: k['monetary_net_num'], reverse=True)
 
             if webpage:
                 webpage_embed = discord.Embed(title=f"Targets successfully gathered", description=f"{filters}\n\nYou can view your targets by pressing the button below.", color=0xff5100)
-                endpoint = datetime.utcnow().strftime('%d%H%M%S')
                 class webpage_view(discord.ui.View):
                     def __init__(self):
                         super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
                     @discord.ui.button(label=f"See your targets", style=discord.ButtonStyle.primary)
                     async def targets_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal endpoint
-                        await i.response.send_message(ephemeral=True, content=f"Go to http://132.145.71.195:5000/raids/{endpoint}")
+                        await i.response.send_message(ephemeral=True, content=f"Go to http://132.145.71.195:5000/raids/{ctx.author.id}")
                     
                     async def interaction_check(self, interaction) -> bool:
                         if interaction.user != ctx.author:
@@ -560,22 +587,9 @@ class TargetFinding(commands.Cog):
                     
                     async def on_timeout(self):
                         await utils.run_timeout(ctx, view)
+                
+                await utils.write_web("raids", ctx.author.id, {"atck_ntn": atck_ntn, "best_targets": best_targets, "beige": beige, "user_id": ctx.author.id})
 
-                class webraid(MethodView):
-                    def get(raidclass):
-                        beige_alerts = mongo.global_users.find_one({"user": int(invoker)})['beige_alerts']
-                        with open(pathlib.Path.cwd() / "templates" / "raidspage.txt", "r") as file:
-                            template = file.read()
-                        result = Template(template).render(attacker=atck_ntn, targets=best_targets, endpoint=endpoint, invoker=str(invoker), beige_alerts=beige_alerts, beige=beige, datetime=datetime)
-                        return str(result)
-
-                    def post(raidclass):
-                        data = request.json
-                        reminder = str(data['id'])
-                        mongo.global_users.find_one_and_update({"user": int(data['invoker'])}, {"$push": {"beige_alerts": reminder}})
-                        return "you good"
-
-                app.add_url_rule(f"/raids/{endpoint}", view_func=webraid.as_view(str(datetime.utcnow())), methods=["GET", "POST"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
                 view = webpage_view()
                 await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
                 return
@@ -600,9 +614,9 @@ class TargetFinding(commands.Cog):
                     def __init__(self):
                             super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
-                    def button_check(self, x):
+                    async def button_check(self, x):
                         beige_button = [x for x in self.children if x.custom_id == "beige"][0]
-                        user = mongo.global_users.find_one({"user": ctx.author.id})
+                        user = await async_mongo.global_users.find_one({"user": ctx.author.id})
                         for entry in user['beige_alerts']:
                             if x['id'] == entry:
                                 beige_button.disabled = True
@@ -617,7 +631,7 @@ class TargetFinding(commands.Cog):
                         nonlocal cur_page
                         cur_page = 1
                         msg_embd = get_embed(best_targets[cur_page-1])
-                        self.button_check(best_targets[cur_page-1])
+                        await self.button_check(best_targets[cur_page-1])
                         await i.response.edit_message(content="", embed=msg_embd, view=view)
 
                     @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
@@ -626,12 +640,12 @@ class TargetFinding(commands.Cog):
                         if cur_page > 1:
                             cur_page -= 1
                             msg_embd = get_embed(best_targets[cur_page-1])
-                            self.button_check(best_targets[cur_page-1])
+                            await self.button_check(best_targets[cur_page-1])
                             await i.response.edit_message(content="", embed=msg_embd, view=view)
                         else:
                             cur_page = pages
                             msg_embd = get_embed(best_targets[cur_page-1])
-                            self.button_check(best_targets[cur_page-1])
+                            await self.button_check(best_targets[cur_page-1])
                             await i.response.edit_message(content="", embed=msg_embd, view=view)
                     
                     @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
@@ -640,12 +654,12 @@ class TargetFinding(commands.Cog):
                         if cur_page != pages:
                             cur_page += 1
                             msg_embd = get_embed(best_targets[cur_page-1])
-                            self.button_check(best_targets[cur_page-1])
+                            await self.button_check(best_targets[cur_page-1])
                             await i.response.edit_message(content="", embed=msg_embd, view=view)
                         else:
                             cur_page = 1
                             msg_embd = get_embed(best_targets[cur_page-1])
-                            self.button_check(best_targets[cur_page-1])
+                            await self.button_check(best_targets[cur_page-1])
                             await i.response.edit_message(content="", embed=msg_embd, view=view)
 
                     @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
@@ -653,7 +667,7 @@ class TargetFinding(commands.Cog):
                         nonlocal cur_page
                         cur_page = pages
                         msg_embd = get_embed(best_targets[cur_page-1])
-                        self.button_check(best_targets[cur_page-1])
+                        await self.button_check(best_targets[cur_page-1])
                         await i.response.edit_message(content="", embed=msg_embd, view=view)
                 
                     if best_targets[0]['beige_turns'] > 0:
@@ -673,7 +687,7 @@ class TargetFinding(commands.Cog):
                             await i.response.send_message(content=f"They are not in beige!", ephemeral=True)
                             return
                         reminder = cur_embed['id']
-                        user = mongo.global_users.find_one({"user": ctx.author.id})
+                        user = await async_mongo.global_users.find_one({"user": ctx.author.id})
                         if user == None:
                             await i.response.send_message(content=f"I didn't find you in the database! Make sure to `/verify`!", ephemeral=True)
                             return
@@ -683,7 +697,7 @@ class TargetFinding(commands.Cog):
                                 await ctx.edit(view=view)
                                 await i.response.send_message(content=f"You already have a beige reminder for this nation!", ephemeral=True)
                                 return
-                        mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
+                        await async_mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
                         beige_button.disabled = True
                         await ctx.edit(view=view)
                         await i.response.send_message(content=f"A beige reminder for <https://politicsandwar.com/nation/id={cur_embed['id']}> was added!", ephemeral=True)
@@ -724,7 +738,7 @@ class TargetFinding(commands.Cog):
     async def reminders(self, ctx: discord.ApplicationContext):
         try:
             await ctx.defer()
-            person = mongo.global_users.find_one({"user": ctx.author.id})
+            person = await async_mongo.global_users.find_one({"user": ctx.author.id})
 
             if person == None:
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
@@ -736,7 +750,7 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content=f"You have no beige reminders!\n\n||{insult}||")
                 return
 
-            res = (await utils.call(f"{{nations(id:[{','.join(person['beige_alerts'])}]){{data{{id nation_name vacation_mode_turns beige_turns}}}}}}"))['data']['nations']['data']
+            res = (await utils.call(f"{{nations(id:[{','.join(person['beige_alerts'])}]){{data{utils.get_query(queries.REMINDERS)}}}}}"))['data']['nations']['data']
 
             reminders = []
             for alert in person['beige_alerts']:
@@ -817,11 +831,11 @@ class TargetFinding(commands.Cog):
     ):
         try:
             await ctx.defer()
-            person = mongo.global_users.find_one({"user": ctx.author.id})
+            person = await async_mongo.global_users.find_one({"user": ctx.author.id})
             if person == None:
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
                 return
-            parsed_nation = utils.find_nation(nation)
+            parsed_nation = await utils.find_nation(nation)
             if parsed_nation == None:
                 await ctx.respond("I could not find that nation!")
                 return
@@ -839,7 +853,7 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content="I did not find a reminder for that nation!")
                 return
 
-            mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$pull": {"beige_alerts": id}})
+            await async_mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$pull": {"beige_alerts": id}})
             await ctx.respond(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
 
         except Exception as e:
@@ -857,20 +871,20 @@ class TargetFinding(commands.Cog):
     ):
         try:
             await ctx.defer()
-            nation = utils.find_nation(nation)
+            nation = await utils.find_nation(nation)
 
             if nation == None:
                 await ctx.respond(content='I could not find that nation!')
                 return
 
-            res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{{id beige_turns vacation_mode_turns}}}}}}"))['data']['nations']['data'][0]
+            res = (await utils.call(f"{{nations(first:1 id:{nation['id']}){{data{utils.get_query(queries.REMINDERS)}}}}}"))['data']['nations']['data'][0]
 
             if res['beige_turns'] == 0 and res['vacation_mode_turns'] == 0:
                 await ctx.respond(content="They are not in beige or vacation mode!")
                 return
 
             reminder = nation['id']
-            user = mongo.global_users.find_one({"user": ctx.author.id})
+            user = await async_mongo.global_users.find_one({"user": ctx.author.id})
 
             if user == None:
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
@@ -881,7 +895,7 @@ class TargetFinding(commands.Cog):
                     await ctx.respond(content=f"You already have a beige reminder for this nation!")
                     return
 
-            mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
+            await async_mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
             await ctx.respond(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
 
         except Exception as e:
@@ -907,7 +921,7 @@ class TargetFinding(commands.Cog):
 
             if nation1 == None:
                 nation1 = ctx.author.id
-            nation1_nation = utils.find_nation_plus(self, nation1)
+            nation1_nation = await utils.find_nation_plus(self, nation1)
             if not nation1_nation:
                 if nation2 == None:
                     await ctx.respond(content='I could not find that nation!')
@@ -929,7 +943,7 @@ class TargetFinding(commands.Cog):
             if not done:
                 if nation2 == None:
                     nation2 = ctx.author.id
-                nation2_nation = utils.find_nation_plus(self, nation2)
+                nation2_nation = await utils.find_nation_plus(self, nation2)
                 if not nation2_nation:
                     if nation2 == None:
                         await ctx.respond(content='I was able to find the nation you linked, but I could not find *your* nation!')
@@ -977,8 +991,8 @@ class TargetFinding(commands.Cog):
 
             cur_page = 1
 
-            endpoint = await utils.damage_page(results, app)
-            url = f"http://132.145.71.195:5000/damage/{endpoint}"
+            await utils.write_web("damage", ctx.author.id, {"results": results})
+            url = f"http://132.145.71.195:5000/damage/{ctx.author.id}"
 
             class switch(discord.ui.View):
                 def __init__(self):
@@ -1021,12 +1035,12 @@ class TargetFinding(commands.Cog):
         try:
             await ctx.defer()
 
-            result = utils.find_nation_plus(self, nation)
+            result = await utils.find_nation_plus(self, nation)
             if result is None:
                 await ctx.respond(f"I could not find that nation!")
                 return
 
-            config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+            config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
 
             fail = False
             if not config:
@@ -1065,7 +1079,7 @@ class TargetFinding(commands.Cog):
             allied_id_list, id_str = utils.str_to_id_list(allied_alliance_ids or "")
             if id_str == "":
                 try:
-                    allied_id_list = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['counters_alliance_ids']
+                    allied_id_list = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['counters_alliance_ids']
                 except:
                     await ctx.respond("I could not find any allied alliances for this server! Someone with the `manage_server` permission must use `/config counters`, or you must supply some id(s) when you call this command!")
                     return
@@ -1073,13 +1087,13 @@ class TargetFinding(commands.Cog):
             enemy_id_list, id_str = utils.str_to_id_list(enemy_alliance_ids or "")
             if id_str == "":
                 try:
-                    enemy_id_list = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['targets_alliance_ids']
+                    enemy_id_list = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})['targets_alliance_ids']
                 except:
                     await ctx.respond("I could not find any enemy alliances for this server! Someone with the `manage_server` permission must use `/config targets`, or you must supply some id(s) when you call this command!")
                     return
 
-            allied_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(allied_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond fallout_shelter military_salvage population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
-            enemy_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(enemy_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond fallout_shelter military_salvage population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
+            allied_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(allied_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond fallout_shelter military_salvage propaganda_bureau population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
+            enemy_nations = await utils.paginate_call(f"{{nations(page:page_number vmode:false alliance_position:[2,3,4,5] first:500 alliance_id:[{','.join(enemy_id_list)}]) {{paginatorInfo{{hasMorePages}} data{{id discord leader_name nation_name warpolicy vacation_mode_turns flag last_active alliance_position_id continent dompolicy vds irond fallout_shelter military_salvage propaganda_bureau population alliance_id beige_turns score color soldiers tanks aircraft ships missiles nukes bounties{{amount type}} treasures{{name}} alliance{{name acronym id}} wars{{date winner attacker{{war_policy}} defender{{war_policy}} war_type attid defid groundcontrol airsuperiority navalblockade att_fortify def_fortify attpeace defpeace turnsleft attacks{{loot_info}}}} alliance_position num_cities cities{{infrastructure land barracks factory airforcebase drydock}}}}}}}}", "nations")
 
             for enemy in enemy_nations:
                 off_wars = 0
@@ -1104,17 +1118,9 @@ class TargetFinding(commands.Cog):
                 enemy['winchance'] = chances
                 enemy['milt'] = utils.militarization_checker(enemy)
                 
-            endpoint = datetime.utcnow().strftime('%d%H%M%S%f')
+            await utils.write_web("attacksheet", ctx.author.id, {"allies": allied_nations, "enemies": enemy_nations})
 
-            class websheet(MethodView):
-                def get(sheetclass):
-                    with open(pathlib.Path.cwd() / "templates" / "attacksheet.txt", "r") as file:
-                        template = file.read()
-                    result = Template(template).render(allies=allied_nations, enemies=enemy_nations, datetime=datetime, weird_division=utils.weird_division)
-                    return str(result)
-
-            app.add_url_rule(f"/attacksheet/{endpoint}", view_func=websheet.as_view(str(datetime.utcnow())), methods=["GET"]) # this solution of adding a new page instead of updating an existing for the same nation is kinda dependent on the bot resetting every once in a while, bringing down all the endpoints
-            await ctx.respond("The sheet can be found here: http://132.145.71.195:5000/attacksheet/" + endpoint)
+            await ctx.respond("The sheet can be found here: http://132.145.71.195:5000/attacksheet/" + ctx.author.id)
             
         except Exception as e:
             logger.error(e, exc_info=True)
@@ -1136,31 +1142,24 @@ class TargetFinding(commands.Cog):
                 int(nation_id) # throw an error if not a number
             else:
                 try:
-                    person = utils.find_user(self, ctx.author.id)
+                    person = await utils.find_user(self, ctx.author.id)
                     nation_id = person['id']
                 except:
                     await ctx.respond("I do not know who to find the war status of.")
                     return
         else:
-            person = utils.find_nation_plus(self, nation)
+            person = await utils.find_nation_plus(self, nation)
             if not person:
                 await ctx.respond("I could not find that nation!")
                 return
             nation_id = str(person['id'])
 
-        nation = (await utils.call(f"{{nations(first:1 id:{nation_id}) {{data{{nation_name leader_name warpolicy cia fallout_shelter military_salvage id alliance{{name}} cities{{barracks factory airforcebase drydock}} population score last_active beigeturns vmode pirate_economy color dompolicy alliance_id num_cities soldiers tanks aircraft ships missiles nukes wars{{defender{{nation_name leader_name population alliance_id alliance{{name}} cities{{barracks factory airforcebase drydock}} wars{{attid defid turnsleft}} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} attacker{{ nation_name leader_name population alliance_id alliance{{ name }} cities{{ barracks factory airforcebase drydock }} wars{{ attid defid turnsleft }} id pirate_economy score last_active beigeturns vmode num_cities color soldiers tanks aircraft ships nukes missiles }} date id attid defid winner att_resistance def_resistance attpoints defpoints attpeace defpeace war_type groundcontrol airsuperiority navalblockade turnsleft att_fortify def_fortify }} }} }}}}"))['data']['nations']['data'][0]
+        nation = (await utils.call(f"{{nations(first:1 id:{nation_id}) {{data{utils.get_query(queries.WAR_STATUS)}}}}}"))['data']['nations']['data'][0]
 
         if nation['pirate_economy']:
             max_offense = 6
         else:
             max_offense = 5
-
-        if nation['cia']:
-            max_spies = 60
-        else:
-            max_spies = 50
-
-        spies = await utils.spy_calc(nation)
 
         milt = utils.militarization_checker(nation)
         max_sol = milt['max_soldiers']
@@ -1177,7 +1176,7 @@ class TargetFinding(commands.Cog):
         else:
             alliance = "No alliance"
 
-        desc = f"[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']}) | {alliance}\n\nLast login: <t:{round(datetime.strptime(nation['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R>\nOffensive wars: {len(nation['offensive_wars'])}/{max_offense}\nDefensive wars: {len(nation['defensive_wars'])}/3\nDefensive range: {round(nation['score'] / 1.75)} - {round(nation['score'] / 0.75)}\nCities: {nation['num_cities']}\nBeige (turns): {nation['beigeturns']}\n\nSoldiers: **{nation['soldiers']:,}** / {max_sol:,}\nTanks: **{nation['tanks']:,}** / {max_tnk:,}\nPlanes: **{nation['aircraft']:,}** / {max_pln:,}\nShips: **{nation['ships']:,}** / {max_shp:,}\nSpies: **{spies}** / {max_spies}"
+        desc = f"[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']}) | {alliance}\n\nLast login: <t:{round(datetime.strptime(nation['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R>\nOffensive wars: {len(nation['offensive_wars'])}/{max_offense}\nDefensive wars: {len(nation['defensive_wars'])}/3\nDefensive range: {round(nation['score'] / 1.75)} - {round(nation['score'] / 0.75)}\nCities: {nation['num_cities']}\nBeige (turns): {nation['beigeturns']}\n\nSoldiers: **{nation['soldiers']:,}** / {max_sol:,}\nTanks: **{nation['tanks']:,}** / {max_tnk:,}\nPlanes: **{nation['aircraft']:,}** / {max_pln:,}\nShips: **{nation['ships']:,}** / {max_shp:,}"
         embed = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
         embed1 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
         embed2 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
@@ -1320,12 +1319,12 @@ class TargetFinding(commands.Cog):
         try:
             await ctx.respond("Let me think for a second...")
             
-            user = utils.find_nation_plus(self, ctx.author.id)
+            user = await utils.find_nation_plus(self, ctx.author.id)
             if not user:
                 await ctx.edit(content="Make sure that you are verified with `/verify`!")
                 return
             
-            config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+            config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
 
             fail = False
             if not config:
@@ -1346,10 +1345,10 @@ class TargetFinding(commands.Cog):
                     return
                 if view.result == True:
                     await ctx.edit(content="Let me think for a second...", view=None, embed=None)
-                    with open(pathlib.Path.cwd() / 'nations.json', 'r') as json_file:
+                    with open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
                         file_content = json.load(json_file)
                     res = {"data": {"alliances": {"data": [file_content]}}}
-                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}"))['data']['nations']['data'][0]
+                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}}}}"))['data']['nations']['data'][0]
                 elif view.result == False:
                     await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
                     return
@@ -1357,7 +1356,7 @@ class TargetFinding(commands.Cog):
                     return
 
             if not fail:
-                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{{nation_name population warpolicy score id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}} alliances(id:[{','.join(alliance_ids)}]){{data{{nations{{nation_name population vacation_mode_turns warpolicy id soldiers tanks aircraft ships irond vds fallout_shelter military_salvage score alliance_position alliance{{name id}} cities{{infrastructure land}} wars{{groundcontrol airsuperiority navalblockade attpeace defpeace attid defid att_fortify def_fortify turnsleft war_type}}}}}}}}}}")
+                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}}}}")
                 user_nation = res['data']['nations']['data'][0]
 
             minscore = round(user_nation['score'] * 0.75)
@@ -1435,12 +1434,12 @@ class TargetFinding(commands.Cog):
         try:
             await ctx.defer()
             
-            nation = utils.find_nation_plus(self, ctx.author.id)
+            nation = await utils.find_nation_plus(self, ctx.author.id)
             if not nation:
                 await ctx.respond("Make sure that you are verified with `/verify`!")
                 return
 
-            config = mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+            config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
 
             fail = False
             if not config:
@@ -1482,7 +1481,7 @@ class TargetFinding(commands.Cog):
                 
             if nation1 == None:
                 nation1 = ctx.author.id
-            nation1_nation = utils.find_nation_plus(self, nation1)
+            nation1_nation = await utils.find_nation_plus(self, nation1)
             if not nation1_nation:
                 if nation2 == None:
                     await ctx.respond(content='I could not find that nation!')
@@ -1504,7 +1503,7 @@ class TargetFinding(commands.Cog):
             if not done:
                 if nation2 == None:
                     nation2 = ctx.author.id
-                nation2_nation = utils.find_nation_plus(self, nation2)
+                nation2_nation = await utils.find_nation_plus(self, nation2)
                 if not nation2_nation:
                     if nation2 == None:
                         await ctx.respond(content='I was able to find the nation you linked, but I could not find *your* nation!')
@@ -1515,9 +1514,10 @@ class TargetFinding(commands.Cog):
                 nation2_id = str(nation2_nation['id'])
             
             results = await self.battle_calc(nation1_id, nation2_id)
-            endpoint = await utils.damage_page(results, app)
 
-            await ctx.respond(content=f"Go to http://132.145.71.195:5000/damage/{endpoint}")
+            await utils.write_web("damage", ctx.author.id, {"results": results})
+
+            await ctx.respond(content=f"Go to http://132.145.71.195:5000/damage/{ctx.author.id}")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
@@ -1541,7 +1541,7 @@ class TargetFinding(commands.Cog):
                     ids.append(nation1_id)
                 if nation2_id:
                     ids.append(nation2_id)
-                nations = (await utils.call(f"{{nations(id:[{','.join(list(set(ids)))}]){{data{queries.BATTLE_CALC}}}}}"))['data']['nations']['data']
+                nations = (await utils.call(f"{{nations(id:[{','.join(list(set(ids)))}]){{data{utils.get_query(queries.BATTLE_CALC)}}}}}"))['data']['nations']['data']
                 nations = sorted(nations, key=lambda x: int(x['id']))
                 for nation in nations:
                     if nation['id'] == nation1_id:
