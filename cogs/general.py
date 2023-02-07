@@ -624,7 +624,7 @@ class Background(commands.Cog):
             await ctx.defer()
             prices = await utils.get_prices()
 
-            rss = utils.RSS
+            rss = utils.RSS.copy()
             rss.remove('credits')
 
             def total_bal(k):
