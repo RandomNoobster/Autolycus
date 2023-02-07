@@ -64,16 +64,10 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
                 elif "Retry-After" in response.headers:
                     await asyncio.sleep(int(response.headers['Retry-After']))
                     continue
-                if response.status == 200:
-                    json_response = await response.json()
-                elif response.status == 401:
-                    json_response = await response.json()
-                    if "errors" in json_response:
-                        if "invalid api_key" in json_response["errors"][0]:
-                            raise ConnectionError("Invalid API key.")
-                try:
-                    json_response['data']
-                except:
+                if response.status == 401:
+                    raise ConnectionError("Invalid API key.")
+                json_response = await response.json()
+                if "data" not in json_response:
                     if retry < retry_limit:
                         retry += 1
                         await asyncio.sleep(1)
@@ -175,7 +169,7 @@ async def withdraw(api_key: str, resources: dict) -> bool:
         print(res)
         return True
     except Exception as e:
-        logger.info(f"Error withdrawing resources.\nApi key: {api_key}\nResources: {resources}", exc_info=True)
+        logger.error(f"Error withdrawing resources.\nApi key: {api_key}\nResources: {resources}", exc_info=True)
         return False
                 
 async def listify(cursor):
@@ -473,7 +467,7 @@ async def get_alliances(ctx: discord.AutocompleteContext):
     
 async def get_target_alliances(ctx: discord.AutocompleteContext):
     """Returns a list of alliances that begin with the characters entered so far."""
-    config = mongo.guild_configs.find_one({"guild_id": ctx.interaction.guild_id})
+    config = await async_mongo.guild_configs.find_one({"guild_id": ctx.interaction.guild_id})
     if config is None:
         return []
     else:
