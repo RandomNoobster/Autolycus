@@ -653,7 +653,7 @@ class Background(commands.Cog):
                 for ind in people:
                     if n == 10:
                         break
-                    user = await async_mongo.world_nations.find_one({"id": ind['id']})
+                    user = await async_mongo.world_nations.find_one({"id": ind['nation_id']})
                     if user == None:
                         continue
                     embed.add_field(name=user['leader_name'], inline=False, value=f"Cumulative balance: ${round(total_bal(ind)):,}")
