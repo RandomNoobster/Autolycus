@@ -125,7 +125,95 @@ class General(commands.Cog):
                     if int(city[mine]) > 0:
                         skip = True
                         break
-                if skip:
+                    user = await async_mongo.world_nations.find_one({"id": ind['nation_id']})
+                    if user == None:
+                        continue
+                    embed.add_field(name=user['leader_name'], inline=False, value=f"Cumulative balance: ${round(total_bal(ind)):,}")
+                    n += 1
+                await ctx.edit(embed=embed, content='')
+                return
+            else:
+                person = await utils.find_nation_plus(self, person)
+
+            if not person:
+                await ctx.edit(content='I could not find that person, please try again.', embed=None)
+                return
+            
+            bal = await async_mongo.balance.find_one({"guild_id": ctx.guild.id, "nation_id": person['id']})
+            if not bal:
+                await ctx.edit(content='I was not able to find their balance.', embed=None)
+                return
+            
+            bal_embed = discord.Embed(title=f"{person['leader_name']}'s balance", description="", color=0xff5100)
+
+            for rs in rss:
+                amount = bal[rs]
+                bal_embed.add_field(name=rs.capitalize(), value=f"{round(amount):,}")
+
+            bal_embed.add_field(name="Converted total", value=f"{round(total_bal(bal)):,}",inline=False)
+            await ctx.edit(content='', embed=bal_embed)
+
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+
+
+    @slash_command(
+        name="request",
+        description="Request resorces from the allliance bank",
+    )
+    async def request(
+        self,
+        ctx: discord.ApplicationContext,
+        reason: Option(str, "The reason for the request."),
+        aluminum: Option(str, "The amount of aluminum you want to request.")="0",
+        bauxite: Option(str, "The amount of bauxite you want to request.")="0",
+        coal: Option(str, "The amount of coal you want to request.")="0",
+        food: Option(str, "The amount of food you want to request.")="0",
+        gasoline: Option(str, "The amount of gasoline you want to request.")="0",
+        iron: Option(str, "The amount of iron you want to request.")="0",
+        lead: Option(str, "The amount of lead you want to request.")="0",
+        money: Option(str, "The amount of money you want to request.")="0",
+        munitions: Option(str, "The amount of munitions you want to request.")="0",
+        oil: Option(str, "The amount of oil you want to request.")="0",
+        steel: Option(str, "The amount of steel you want to request.")="0",
+        uranium: Option(str, "The amount of uranium you want to request.")="0",
+    ):
+        await ctx.defer()
+
+        try:
+            person = await utils.find_nation_plus(self, ctx.author.id)
+            if person == None:
+                await ctx.edit(content="I was unable to find your nation!")
+                return
+            
+            guild_config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+
+            if guild_config == None:
+                await ctx.edit(content="This server does not have a transaction key set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            elif "transactions_api_keys" not in guild_config:
+                await ctx.edit(content="This server does not have a transaction key set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            elif len(guild_config["transactions_api_keys"]) == 0:
+                await ctx.edit(content="This server does not have a transaction key set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            elif not guild_config['transactions_banker_role']:
+                await ctx.edit(content="This server does not have a banker role set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                return
+            else:
+                keys = guild_config["transactions_api_keys"]
+                guild = self.bot.get_guild(ctx.guild.id)
+                banker_role = guild.get_role(guild_config['transactions_banker_role'])
+                if not banker_role:
+                    await ctx.edit(content="This server does not have a valid banker role set! Someone with the `Manage Server` permission can set one with `/config transactions`")
+                    return
+            
+            resource_list = [(utils.str_to_int(aluminum), "aluminum"), (utils.str_to_int(bauxite), "bauxite"), (utils.str_to_int(coal), "coal"), (utils.str_to_int(food), "food"), (utils.str_to_int(gasoline), "gasoline"), (utils.str_to_int(iron), "iron"), (utils.str_to_int(lead), "lead"), (utils.str_to_int(money), "money"), (utils.str_to_int(munitions), "munitions"), (utils.str_to_int(oil), "oil"), (utils.str_to_int(steel), "steel"), (utils.str_to_int(uranium), "uranium")]
+            
+            something = False
+            for amount, name in resource_list:
+                if amount in [0, "0"]:
                     continue
                 
                 city.pop('\u2229\u2557\u2510city_id')
