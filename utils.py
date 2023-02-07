@@ -64,9 +64,11 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
                 elif "Retry-After" in response.headers:
                     await asyncio.sleep(int(response.headers['Retry-After']))
                     continue
-                if response.status == 401:
-                    raise ConnectionError("Invalid API key.")
                 json_response = await response.json()
+                if response.status == 401:
+                    if "error" in json_response:
+                        if "invalid api_key" in json_response["error"]["errors"][0]["message"]:
+                            raise ConnectionError("Invalid API key.")
                 if "data" not in json_response:
                     if retry < retry_limit:
                         retry += 1
