@@ -436,7 +436,7 @@ async def find_nation(arg: Union[str, int]) -> Union[dict, None]:
     if isinstance(arg, str):
         arg = arg.strip()
     
-    new_arg = int(re.sub("[^0-9]", "", str(arg)))
+    new_arg = re.sub("[^0-9]", "", str(arg))
     if result := await listify(async_mongo.world_nations.find({"id": str(new_arg)}).collation({"locale": "en", "strength": 1})):
         return result[0]
     elif result := await listify(async_mongo.world_nations.find({"nation_name": arg}).collation({"locale": "en", "strength": 1})):
