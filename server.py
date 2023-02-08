@@ -42,6 +42,7 @@ async def raids(user_id):
         else:
             user = await utils.read_web("raids", user_id)
             if not user:
+                logger.info(f"User {user_id} not found in raids endpoint")
                 return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
 
             atck_ntn = user['atck_ntn']
@@ -62,6 +63,7 @@ async def damage(user_id):
     try:
         data = await utils.read_web("damage", user_id)
         if not data:
+            logger.info(f"User {user_id} not found in damage endpoint")
             return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
 
         async with aiofiles.open(pathlib.Path.cwd() / "templates" / "damage.txt", "r") as file:
@@ -78,6 +80,9 @@ async def damage(user_id):
 async def builds(user_id):
     try:
         data = await utils.read_web("builds", user_id)
+        if not data:
+            logger.info(f"User {user_id} not found in builds endpoint")
+            return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
         
         builds = data['builds']
         rss = data['rss']
@@ -97,6 +102,9 @@ async def builds(user_id):
 async def attacksheet(user_id):
     try:
         data = await utils.read_web("attacksheet", user_id)
+        if not data:
+            logger.info(f"User {user_id} not found in attacksheet endpoint")
+            return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
         
         allies = data['allies']
         enemies = data['enemies']
