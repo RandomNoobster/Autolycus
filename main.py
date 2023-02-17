@@ -114,6 +114,14 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
+import gc
+async def clean():
+    while True:
+        x = gc.collect()
+        print("collected", x, "garbage objects")
+        await asyncio.sleep(60)
+
 from server import run
 asyncio.ensure_future(run())
+asyncio.ensure_future(clean())
 bot.run(os.getenv("bot_token"))
