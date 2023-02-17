@@ -21,6 +21,7 @@ class General(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.bg_task = self.bot.loop.create_task(self.wars())
+        self.bot.bg_task = self.bot.loop.create_task(self.alert_scanner())
 
     async def alert_scanner(self):
         await self.bot.wait_until_ready()
