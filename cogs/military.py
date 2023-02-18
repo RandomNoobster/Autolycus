@@ -1,3 +1,4 @@
+import aiofiles
 import discord
 from discord.ext import commands
 from discord.commands import slash_command, Option, SlashCommandGroup
@@ -1345,24 +1346,26 @@ class TargetFinding(commands.Cog):
                     return
                 if view.result == True:
                     await ctx.edit(content="Let me think for a second...", view=None, embed=None)
-                    with open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
-                        file_content = json.load(json_file)
-                    res = {"data": {"alliances": {"data": [file_content]}}}
-                    user_nation = (await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}}}}"))['data']['nations']['data'][0]
+                    res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}}}}")
+                    user_nation = res['data']['nations']['data'][0]
+                    async with aiofiles.open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
+                        file_content = json.loads(await json_file.read())
+                    alliances = [file_content['nations']]
                 elif view.result == False:
                     await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
                     return
                 else:
                     return
-
+            
             if not fail:
-                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}}}}")
+                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}} alliances(id:[{' '.join(alliance_ids)}]){{data{{nations{utils.get_query(queries.NUKETARGETS)}}}}}}}")
                 user_nation = res['data']['nations']['data'][0]
+                alliances = res['data']['alliances']['data']
 
             minscore = round(user_nation['score'] * 0.75)
             maxscore = round(user_nation['score'] * 1.75)
             nation_list = []
-            for alliance in res['data']['alliances']['data']:
+            for alliance in alliances:
                 for nation in alliance['nations']:
                     try:
                         if nation['vacation_mode_turns'] > 0:

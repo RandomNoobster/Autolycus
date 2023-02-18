@@ -23,7 +23,7 @@ VERIFY = {"nations": ["id", "nation_name", "leader_name", "discord"]}
 WINRATE_CALC = {"nations": ["soldiers", "tanks", "aircraft", "ships"]}
 BATTLE_CALC = (WINRATE_CALC, {"nations": ["nation_name", "population", "warpolicy", "id", "soldiers", "tanks", "aircraft", "ships", "irond", "vds", "fallout_shelter", "military_salvage", {"cities": ["infrastructure", "land"]}, {"wars": ["groundcontrol", "airsuperiority", "navalblockade", "attpeace", "defpeace", "attid", "defid", "att_fortify", "def_fortify", "turnsleft", "war_type"]}]})
 REMINDERS = {"nations": ["id", "nation_name", "vacation_mode_turns", "beige_turns"]}
-NUKETARGETS = (BATTLE_CALC, {'nations': ['vacation_mode_turns', 'score', {'cities': ['infrastructure']}]})
+NUKETARGETS = (BATTLE_CALC, {'nations': ['vacation_mode_turns', 'score', 'alliance_position', {'cities': ['infrastructure']}, {"alliance": ['name', 'id']}]})
 WAR_STATUS_DEPENDENCY = ["nation_name", "leader_name", "alliance_id", {"alliance": ["name"]}, "id", "pirate_economy", "score", "last_active", "beigeturns", "vmode", "num_cities", "color", "nukes", "missiles"]
 WAR_STATUS = (MILITARIZATION_CHECKER, BATTLE_CALC, {"nations": WAR_STATUS_DEPENDENCY + [{"wars": [{"defender": WAR_STATUS_DEPENDENCY + MILITARIZATION_CHECKER["nations"] + [{"wars": ["attid", "defid", "turnsleft"]}]}, {"attacker": WAR_STATUS_DEPENDENCY + MILITARIZATION_CHECKER["nations"] + [{"wars": ["attid", "defid", "turnsleft"]}]}, "date", "id", "attid", "defid", "winner", "att_resistance", "def_resistance", "attpoints", "defpoints", "attpeace", "defpeace", "war_type", "groundcontrol", "airsuperiority", "navalblockade", "turnsleft", "att_fortify", "def_fortify"]}]})
 
