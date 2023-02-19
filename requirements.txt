@@ -10,3 +10,4 @@ dload==0.6
 pnwkit-py==2.6.19
 py-cord==2.3.2
 aiofiles==22.1.0
+waitress==2.1.2
