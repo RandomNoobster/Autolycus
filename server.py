@@ -11,6 +11,7 @@ import asyncio
 from motor.core import AgnosticClient
 import logging
 import utils
+from waitress import serve
 
 # to avoid "RuntimeError: Event loop is closed" error
 AgnosticClient.get_io_loop = asyncio.get_running_loop
@@ -119,4 +120,4 @@ async def attacksheet(user_id):
         raise e
 
 async def run():
-    Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
+    Thread(target=lambda: serve(app, host="0.0.0.0", port=5000)).start()
