@@ -615,6 +615,7 @@ class Background(commands.Cog):
         name="balance",
         description="See your balance with the allliance bank",
     )
+    @commands.guild_only()
     async def balance(
         self,
         ctx: discord.ApplicationContext,
@@ -690,6 +691,7 @@ class Background(commands.Cog):
         name="request",
         description="Request resorces from the allliance bank",
     )
+    @commands.guild_only()
     async def request(
         self,
         ctx: discord.ApplicationContext,
