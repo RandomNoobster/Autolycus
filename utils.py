@@ -130,6 +130,12 @@ def merge(*queries: dict) -> dict:
                     raise Exception(f"Value {line} is not a dictionary or a list.")
     return composite_query
 
+def cut_string(string: str, length: int = 2000) -> str:
+    if len(string) > length:
+        return string[:length-3] + "..."
+    else:
+        return string
+
 def beige_loot_value(loot_string: str, prices: dict) -> int:
     loot_string = loot_string[loot_string.index('$'):loot_string.index('Food.')]
     loot_string = re.sub(r"[^0-9-]+", "", loot_string.replace(", ", "-"))
