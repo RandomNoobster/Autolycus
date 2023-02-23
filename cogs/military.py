@@ -1350,7 +1350,7 @@ class TargetFinding(commands.Cog):
                     user_nation = res['data']['nations']['data'][0]
                     async with aiofiles.open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
                         file_content = json.loads(await json_file.read())
-                    alliances = [file_content['nations']]
+                    alliances = [{"nations": file_content['nations']}]
                 elif view.result == False:
                     await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
                     return

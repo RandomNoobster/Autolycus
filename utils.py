@@ -419,10 +419,12 @@ async def find_user(self, arg):
         elif x := await db.find_one({"user": int(arg)}):
             return x
     elif "@" in arg or ".com" in arg:
-        if x := await db.find_one({"id": re.sub("[^0-9]", "", arg)}):
-            return x
-        elif x := await db.find_one({"user": int(re.sub("[^0-9]", "", arg))}):
-            return x
+        new_arg = re.sub("[^0-9]", "", arg)
+        if len(new_arg) > 0:
+            if x := await db.find_one({"id": new_arg}):
+                return x
+            elif x := await db.find_one({"user": int(new_arg)}):
+                return x
     else:            
         members = self.bot.get_all_members()
         for member in members:
