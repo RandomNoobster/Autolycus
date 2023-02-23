@@ -121,7 +121,16 @@ async def clean():
         print("collected", x, "garbage objects")
         await asyncio.sleep(60)
 
-from server import run
+from server import run, app
+from pympler import asizeof
+async def size_check():
+    while True:
+        print(asizeof.asizeof(bot))
+        #logger.critical(f"app is {asizeof.asizeof(app):,} bytes")
+        logger.critical(f"bot is {asizeof.asizeof(bot):,} bytes")
+        await asyncio.sleep(3600)
+
+asyncio.ensure_future(size_check())
 asyncio.ensure_future(run())
 asyncio.ensure_future(clean())
 bot.run(os.getenv("bot_token"))
