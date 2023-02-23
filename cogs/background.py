@@ -65,13 +65,14 @@ class General(commands.Cog):
                                         content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
                                     try:
                                         await disc_user.send(content)
-                                    except:
+                                    except Exception as e:
+                                        logger.error(e, exc_info=True)
                                         await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
                                     await async_mongo.global_users.find_one_and_update({"user": user['user']}, {"$pull": {"beige_alerts": alert}})
                                 break
             except Exception as e:
-                await debug_channel.send(utils.cut_string(f'**Exception __caught__!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```'))
                 logger.error(e, exc_info=True)
+                await debug_channel.send(utils.cut_string(f'**Exception __caught__!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```'))
             await asyncio.sleep(300)
 
     
@@ -140,6 +141,7 @@ class General(commands.Cog):
                             except:
                                 thread = await channel.create_thread(name=name, message=message, auto_archive_duration=1440, type=discord.ChannelType.private_thread, reason="War declaration")
                         except discord.errors.HTTPException as e:
+                            logger.error(e, exc_info=True)
                             await debug_channel.send(f"I encountered an error when creating a thread: ```{e}```")
                             return
                         await self.add_to_thread(thread, friend['id'], friend)
@@ -656,7 +658,8 @@ class General(commands.Cog):
                             except Exception as e:
                                 logger.error(e, exc_info=True)
                                 await debug_channel.send(utils.cut_string(f'**Exception caught!**\nWhere: Scanning wars -> Iterating `done_wars`\n\nError:```{traceback.format_exc()}```'))
-                    except:
+                    except Exception as e:
+                        logger.error(e, exc_info=True)
                         await debug_channel.send(utils.cut_string(f"I encountered an error whilst scanning for wars:```{traceback.format_exc()}```"))
                         await asyncio.sleep(300)
 
