@@ -120,4 +120,13 @@ async def attacksheet(user_id):
         raise e
 
 async def run():
-    Thread(target=lambda: serve(app, host="0.0.0.0", port=5000)).start()
+    while True:
+        try:
+            t = Thread(target=lambda: serve(app, host="0.0.0.0", port=5000))
+            t.start()
+            await asyncio.sleep(60 * 60 * 12)
+            t.join()
+            logger.info("Restarting server")
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            await asyncio.sleep(600)
