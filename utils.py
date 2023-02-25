@@ -970,7 +970,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
             food += food_prod
         
         commerce = base_com
-        if city['powered']:
+        if unpowered_infra > 0 or city['powered'] == False:
             rss_upkeep += 4000 * city['gasrefinery'] * rss_upkeep_mod
             pollution += 32 * city['gasrefinery'] * manu_poll_mod
             oil -= 3 * city['gasrefinery'] * (1 + ((0.5 * (city['gasrefinery'] - 1)) / (5 - 1))) * gas_mod
