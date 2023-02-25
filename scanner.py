@@ -109,7 +109,7 @@ async def transaction_scanner() -> None:
 
             if str(tx['sender_type']) == "2": # if sender is alliance
                 multiplier = -1
-                if guild['subtract_beige_loot'] and "of the alliance bank inventory." in tx['note']:
+                if guild['transactions_subtract_beige_loot'] and "of the alliance bank inventory." in tx['note']:
                     nation_id = tx['banker_id']
                 else:
                     nation_id = tx['receiver_id']
