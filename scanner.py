@@ -62,11 +62,16 @@ async def transaction_scanner() -> None:
                 new_guilds = await utils.listify(async_mongo.guild_configs.find({"transactions_api_keys": {"$exists": True, "$not": {"$size": 0}}}))
                 for new_guild in new_guilds:
                     found = False
+                    exists = False
                     for old_guild in guilds:
                         if old_guild['guild_id'] == new_guild['guild_id']:
-                            found = True
-                            break
+                            exists = True
+                            if old_guild == new_guild: # if the guild is not in an equal state, we want to update it
+                                found = True
+                                break
                     if not found:
+                        if exists:
+                            guilds.remove(old_guild)
                         guilds.append(await update_keys(new_guild))
             except Exception as e:
                 logger.error(e, exc_info=True)
@@ -74,6 +79,8 @@ async def transaction_scanner() -> None:
     
     async def update_keys(guild) -> dict:
         for i, key in enumerate(guild['transactions_api_keys']):
+            if isinstance(key, tuple):
+                key = key[0]
             await asyncio.sleep(10)
             # similar check in /config transactions
             try:
@@ -95,29 +102,41 @@ async def transaction_scanner() -> None:
             return
         else:
             rss_tx = {}
+
+            for note in guild['transactions_exempt_notes']:
+                if note.lower() == tx['note'].lower():
+                    return
+
+            if str(tx['sender_type']) == "2": # if sender is alliance
+                multiplier = -1
+                if guild['subtract_beige_loot'] and "of the alliance bank inventory." in tx['note']:
+                    nation_id = tx['banker_id']
+                else:
+                    nation_id = tx['receiver_id']
+            elif str(tx['receiver_type']) == "2": # if receiver is alliance
+                multiplier = 1
+                nation_id = tx['sender_id']
+            else:
+                raise ValueError(f"no alliance in transaction {tx['id']}")
+            
             for k,v in tx.items():
                 if k in utils.RSS:
-                    if str(tx['sender_type']) == "2": # if sender is alliance
-                        rss_tx[k] = -float(v)
-                        nation_id = tx['receiver_id']
-                    elif str(tx['receiver_type']) == "2": # if receiver is alliance
-                        rss_tx[k] = float(v)
-                        nation_id = tx['sender_id']
-                    else:
-                        raise ValueError(f"no alliance in transaction {tx['id']}")
+                    rss_tx[k] = float(v) * multiplier
+
             await async_mongo.balance.find_one_and_update({"nation_id": nation_id, "guild_id": guild['guild_id']}, {"$inc": rss_tx}, upsert=True)
             await async_mongo.transactions.insert_one({"_id": str(tx['id']), "guild_id": guild['guild_id']})        
 
     async def subscriber(subscription: pnwkit.Subscription):
-        async for x in subscription:
+        while True:
             try:
-                x = vars(x)
-                for guild in guilds:
-                    for key_data in guild['transactions_api_keys']:
-                        if str(x['receiver_id']) == key_data[1] and str(x['receiver_type']) == "2":
-                            await record(x, guild)
-                        elif str(x['sender_id']) == key_data[1] and str(x['sender_type']) == "2":
-                            await record(x, guild)
+                async for x in subscription:
+                    x = vars(x)
+                    for guild in guilds:
+                        for key_data in guild['transactions_api_keys']:
+                            if str(x['receiver_id']) == key_data[1] and str(x['receiver_type']) == "2":
+                                await record(x, guild)
+                            elif str(x['sender_id']) == key_data[1] and str(x['sender_type']) == "2":
+                                await record(x, guild)
             except Exception as e:
                 logger.error(e, exc_info=True)
 
@@ -157,7 +176,9 @@ async def transaction_scanner() -> None:
                     else:
                         all_recs = bankrecs
                     for tx in all_recs:
-                        if guild['transactions_retroactive']:
+                        if tx["sender_type"] == 2 and tx["receiver_type"] == 2:
+                            continue
+                        if not guild['transactions_retroactive']:
                             if datetime.strptime(tx['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None) < guild['transactions_retroactive_date']:
                                 continue
                         await record(tx, guild)
@@ -177,7 +198,7 @@ async def main():
             f2 = asyncio.ensure_future(transaction_scanner())
             await asyncio.gather(*[f1, f2])
         except Exception as e:
-            logger.critical(e, exc_info=True)
+            logger.critical(f"SCAWY ERROR in scanner.py: {e}", exc_info=True)
         await asyncio.sleep(600)
 
 loop = asyncio.get_event_loop()

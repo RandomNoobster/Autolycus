@@ -88,7 +88,9 @@ class Config(commands.Cog):
         banker_role: Option(discord.Role, "The role people must have to accept requests made via /request."),
         api_keys: Option(str, "The api key(s) you want to use for tracking transactions and for withdrawals via /request.") = [],
         track_taxes: Option(bool, "If taxes should be tracked and added to people's balances.") = False,
-        retroactive: Option(bool, "If taxes and transactions should be tracked retroactively (up to 14 days).") = False
+        retroactive: Option(bool, "If taxes and transactions should be tracked retroactively (up to 14 days).") = False,
+        subtract_beige_loot: Option(bool, "If beige loot should be subtracted from the balance.") = False,
+        exempt_notes: Option(str, "Comma-separated list of phrases that exempt a transaction from tracking.") = ""
     ):      
         try:  
             await ctx.defer(ephemeral=True)
@@ -128,6 +130,13 @@ class Config(commands.Cog):
             changes['transactions_retroactive'] = retroactive
             changes['transactions_retroactive_date'] = datetime.utcnow()
             content += f"Retroactive set to `{retroactive}`\n"
+
+            changes['transactions_subtract_beige_loot'] = subtract_beige_loot
+            content += f"Subtract beige loot set to `{subtract_beige_loot}`\n"
+
+            exempt_list = [x.strip() for x in exempt_notes.split(",")]
+            changes['transactions_exempt_notes'] = exempt_list
+            content += f"Exempt notes (caps are ignored) set to `{exempt_list}`\n"
 
             await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild_id}, {"$set": changes}, upsert=True)
             await ctx.edit(content=content, allowed_mentions=discord.AllowedMentions.none())
