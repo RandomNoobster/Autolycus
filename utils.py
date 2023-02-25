@@ -1030,6 +1030,10 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         else:
             police_stations = 0
             hospitals = 0
+            city['real_pollution'] = pollution
+            city['pollution'] = max(pollution, 0)
+            city['real_commerce'] = 0
+            city['commerce'] = 0
 
         crime_rate = ((103 - commerce)**2 + (city['infrastructure'] * 100))/(111111) - police_stations * pol_cri_red
         city['real_crime_rate'] = crime_rate
