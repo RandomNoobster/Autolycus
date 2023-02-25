@@ -132,7 +132,7 @@ def merge(*queries: dict) -> dict:
 
 def cut_string(string: str, length: int = 2000) -> str:
     if len(string) > length:
-        return string[:length-3] + "..."
+        return string[:length-6] + "...```"
     else:
         return string
 
