@@ -548,12 +548,18 @@ class General(commands.Cog):
                 # prices update when the bot restarts
                 prices = await utils.get_prices()
 
-                guilds = await utils.listify(async_mongo.guild_configs.find({"war_threads_alliance_ids": {"$exists": True, "$not": {"$size": 0}}}))
+                guilds = []
                 async def update_guilds():
                     nonlocal guilds, prices
                     while True:
                         guilds = await utils.listify(async_mongo.guild_configs.find({"war_threads_alliance_ids": {"$exists": True, "$not": {"$size": 0}}}))
+                        for guild in guilds.copy():
+                            channel = self.bot.get_channel(guild["war_threads_channel_id"])
+                            perms = channel.permissions_for(channel.guild.me)
+                            if not perms.send_messages or not perms.manage_threads:
+                                guilds.remove(guild)
                         await asyncio.sleep(300)
+                asyncio.ensure_future(update_guilds())
 
                 new_wars = await kit.subscribe("war", "create")
                 updated_wars = await kit.subscribe("war", "update")
@@ -562,7 +568,6 @@ class General(commands.Cog):
                 asyncio.ensure_future(scan_new_wars(new_wars))
                 asyncio.ensure_future(scan_updated_wars(updated_wars))
                 asyncio.ensure_future(scan_war_attacks(attacks))
-                asyncio.ensure_future(update_guilds())
 
                 #may produce duplicate messages??
 
