@@ -72,6 +72,9 @@ class Config(commands.Cog):
                 elif not perms.embed_links:
                     await ctx.respond(f"I need the `embed_links` permission, but I do not have it in <#{channel.id}>")
                     return
+                elif not perms.read_message_history:
+                    await ctx.respond(f"I need the `read_message_history` permission, but I do not have it in <#{channel.id}>")
+                    return
                 changes['war_threads_channel_id'] = channel.id
             elif not alliance_ids:
                 content += f"\nChannel for `war threads` set to `None`"
