@@ -554,9 +554,13 @@ class General(commands.Cog):
                     while True:
                         guilds = await utils.listify(async_mongo.guild_configs.find({"war_threads_alliance_ids": {"$exists": True, "$not": {"$size": 0}}}))
                         for guild in guilds.copy():
-                            channel = self.bot.get_channel(guild["war_threads_channel_id"])
-                            perms = channel.permissions_for(channel.guild.me)
-                            if not perms.send_messages or not perms.manage_threads or not perms.manage_messages or not perms.embed_links or not perms.read_message_history: 
+                            try:
+                                channel = self.bot.get_channel(guild["war_threads_channel_id"])
+                                perms = channel.permissions_for(channel.guild.me)
+                            except:
+                                guilds.remove(guild)
+                                continue
+                            if not perms.send_messages or not perms.manage_threads or not perms.embed_links or not perms.read_message_history: 
                                 guilds.remove(guild)
                         await asyncio.sleep(300)
                 asyncio.ensure_future(update_guilds())
