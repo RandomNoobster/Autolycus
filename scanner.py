@@ -148,8 +148,11 @@ async def transaction_scanner() -> None:
         try:
             done_alliances = []
 
-            for i, guild in enumerate(guilds):
-                guild = guilds[i] = await update_keys(guild)
+            for i, guild in enumerate(guilds.copy()):
+                try:
+                    guild = guilds[i] = await update_keys(guild)
+                except IndexError as e:
+                    continue
 
                 for key_data in guild['transactions_api_keys']:
 
