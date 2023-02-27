@@ -120,7 +120,7 @@ async def attacksheet(user_id):
         raise e
 
 async def run():
-    Thread(target=lambda: serve(app, host="0.0.0.0", port=5000))
+    Thread(target=lambda: serve(app, host="0.0.0.0", port=5000)).start()
 
     # while True:
     #     try:
