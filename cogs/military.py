@@ -314,9 +314,19 @@ class TargetFinding(commands.Cog):
 
             target_list = []
             
-            with open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
-                file_content = json.load(json_file)
-                last_fetched = file_content['last_fetched']
+            file_content = last_fetched = None
+            for i in range(3):
+                try:
+                    async with aiofiles.open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
+                        file_content = json.loads(await json_file.read())
+                        last_fetched = file_content['last_fetched']
+                        break
+                except:
+                    pass
+            
+            if not last_fetched or not file_content:
+                await ctx.send("I ran into an issue when loading nations. Please try again in a few minutes. If this is a recurring issue, please contact RandomNoobster#0093.")
+                return
                 
             embed1 = discord.Embed(title=f"Configuration", description="Do you want to use the same configuration (presenatation & filters) that you used last time running this command?", color=0xff5100)
             embed2 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
