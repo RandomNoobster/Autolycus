@@ -13,6 +13,7 @@ import queries
 import pymongo
 import motor.motor_asyncio
 import aiofiles
+import pathlib
 
 
 client = pymongo.MongoClient(os.getenv("pymongolink"))
@@ -222,36 +223,24 @@ def str_to_api_key_list(str_var: str) -> list:
         logger.error(e, exc_info=True)
         raise e
 
-async def write_web(file: str, user_id: int, template: dict) -> None:
+async def write_web(file: str, user_id: int, template: dict, timestamp: int) -> None:
     """
     template should always include user_id
     """
     ## write to file here 
-    current_data = []
-    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / f"{file}.json", "r") as f:
-        current_data = json.loads(await f.read())
-
-    for x in current_data:
-        if int(x['user_id']) == user_id:
-            current_data.remove(x)
-            break
-    
     new_dict = {"user_id": user_id}
     for x in template:
         new_dict[x] = template[x]
     
-    current_data.append(new_dict)    
+    pathlib.Path(pathlib.Path.cwd() / "data" / "web" / file / str(user_id)).mkdir(exist_ok=True)
+    pathlib.Path(pathlib.Path.cwd() / "data" / "web" / file / str(user_id) / f"{timestamp}.json").touch(exist_ok=True)
 
-    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / f"{file}.json", "w") as f:
-        await f.write(json.dumps(current_data))
+    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / file / str(user_id) / f"{timestamp}.json", "w+") as f:
+        await f.write(json.dumps(new_dict))
 
-async def read_web(file: str, user_id: int) -> dict:
-    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / f"{file}.json", "r") as f:
-        current_data = json.loads(await f.read())
-    for x in current_data:
-        if int(x['user_id']) == user_id:
-            return x
-    return None
+async def read_web(file: str, user_id: int, timestamp: int) -> dict:
+    async with aiofiles.open(pathlib.Path.cwd() / "data" / "web" / file / str(user_id) / f"{timestamp}.json", "r") as f:
+        return json.loads(await f.read())
 
 def embed_pager(title: str, fields: list, description: str = "", color: int = 0xff5100, inline: bool = True) -> list:
     embeds = []

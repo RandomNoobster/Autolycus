@@ -29,8 +29,8 @@ app = Flask('')
 async def main():
     return "It lives!!"
 
-@app.route('/raids/<int:user_id>', methods=['GET', 'POST'])
-async def raids(user_id):
+@app.route('/raids/<int:user_id>/<int:timestamp>', methods=['GET', 'POST'])
+async def raids(user_id: int, timestamp: int):
     try:
         # if POST
         if request.method == 'POST':
@@ -41,14 +41,14 @@ async def raids(user_id):
         
         # otherwise GET    
         else:
-            user = await utils.read_web("raids", user_id)
-            if not user:
-                logger.info(f"User {user_id} not found in raids endpoint")
+            file = await utils.read_web("raids", user_id, timestamp)
+            if not file:
+                logger.info(f"User {user_id}/{timestamp} not found in raids endpoint")
                 return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
 
-            atck_ntn = user['atck_ntn']
-            best_targets = user['best_targets']
-            beige = user['beige']
+            atck_ntn = file['atck_ntn']
+            best_targets = file['best_targets']
+            beige = file['beige']
             beige_alerts = (await async_mongo.global_users.find_one({"user": user_id}))['beige_alerts']
         
             async with aiofiles.open(pathlib.Path.cwd() / "templates" / "raidspage.txt", "r") as file:
@@ -59,12 +59,12 @@ async def raids(user_id):
         logger.error(e, exc_info=True)
         raise e
 
-@app.route('/damage/<int:user_id>', methods=['GET'])
-async def damage(user_id):
+@app.route('/damage/<int:user_id>/<int:timestamp>', methods=['GET'])
+async def damage(user_id: int, timestamp: int):
     try:
-        data = await utils.read_web("damage", user_id)
+        data = await utils.read_web("damage", user_id, timestamp)
         if not data:
-            logger.info(f"User {user_id} not found in damage endpoint")
+            logger.info(f"User {user_id}/{timestamp} not found in damage endpoint")
             return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
 
         async with aiofiles.open(pathlib.Path.cwd() / "templates" / "damage.txt", "r") as file:
@@ -77,12 +77,12 @@ async def damage(user_id):
         logger.error(e, exc_info=True)
         raise e
 
-@app.route('/builds/<int:user_id>', methods=['GET'])
-async def builds(user_id):
+@app.route('/builds/<int:user_id>/<int:timestamp>', methods=['GET'])
+async def builds(user_id: int, timestamp: int):
     try:
-        data = await utils.read_web("builds", user_id)
+        data = await utils.read_web("builds", user_id, timestamp)
         if not data:
-            logger.info(f"User {user_id} not found in builds endpoint")
+            logger.info(f"User {user_id}/{timestamp} not found in builds endpoint")
             return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
         
         builds = data['builds']
@@ -99,12 +99,12 @@ async def builds(user_id):
         logger.error(e, exc_info=True)
         raise e
 
-@app.route('/attacksheet/<int:user_id>', methods=['GET'])
-async def attacksheet(user_id):
+@app.route('/attacksheet/<int:user_id>/<int:timestamp>', methods=['GET'])
+async def attacksheet(user_id: int, timestamp: int):
     try:
-        data = await utils.read_web("attacksheet", user_id)
+        data = await utils.read_web("attacksheet", user_id, timestamp)
         if not data:
-            logger.info(f"User {user_id} not found in attacksheet endpoint")
+            logger.info(f"User {user_id}/{timestamp} not found in attacksheet endpoint")
             return "Whoa whoa whoa, calm down there chief! Something went wrong! It seems... I don't recognize this URL endpoint! Please go yell at RandomNoobster#0093."
         
         allies = data['allies']

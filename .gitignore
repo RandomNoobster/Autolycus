@@ -133,4 +133,4 @@ dmypy.json
 .vscode/launch.json
 cities*.csv
 /data/nations.json
-/data/web/*.json
+/data/web/*

@@ -11,6 +11,7 @@ import asyncio
 import asyncio
 from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
+import shutil
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
@@ -46,11 +47,21 @@ bot = commands.Bot(intents=intents)
 
 # creating files if they do not exist and reseting them
 cwd = pathlib.Path.cwd()
-pathlib.Path(f"{cwd}/data/web").mkdir(exist_ok=True)
-for directory in ["data/web/builds.json", "data/web/damage.json", "data/web/raids.json", "data/web/attacksheet.json"]:
-    with open(f"{cwd}/{directory}", "w+") as f:
-        f.write("[]")
-pathlib.Path(f"{cwd}/data/nations.json").touch(exist_ok=True)
+
+if os.path.exists(f"{cwd}/data/web"):
+    shutil.rmtree(f"{cwd}/data/web")
+
+for make_directory in [
+    "data",
+    "data/web",
+    "data/web/builds", "data/web/damage", "data/web/raids", "data/web/attacksheet",
+    ]:
+    pathlib.Path(f"{cwd}/{make_directory}").mkdir(exist_ok=True)
+
+for touch_file in [
+    "data/nations.json"
+    ]:
+    pathlib.Path(f"{cwd}/{touch_file}").touch(exist_ok=True)
 
 # cogs
 for filename in os.listdir('./cogs'):
@@ -114,14 +125,6 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
-import gc
-async def clean():
-    while True:
-        x = gc.collect()
-        print("collected", x, "garbage objects")
-        await asyncio.sleep(60)
-
-from server import run, app
 from pympler import asizeof
 async def size_check():
     while True:
@@ -130,7 +133,7 @@ async def size_check():
         logger.critical(f"bot is {asizeof.asizeof(bot):,} bytes")
         await asyncio.sleep(3600)
 
+from server import run
 asyncio.ensure_future(size_check())
 asyncio.ensure_future(run())
-asyncio.ensure_future(clean())
 bot.run(os.getenv("bot_token"))

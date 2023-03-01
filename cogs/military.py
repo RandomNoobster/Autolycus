@@ -580,6 +580,7 @@ class TargetFinding(commands.Cog):
             best_targets = sorted(target_list, key=lambda k: k['monetary_net_num'], reverse=True)
 
             if webpage:
+                timestamp = round(datetime.utcnow().timestamp())
                 webpage_embed = discord.Embed(title=f"Targets successfully gathered", description=f"{filters}\n\nYou can view your targets by pressing the button below.", color=0xff5100)
                 class webpage_view(discord.ui.View):
                     def __init__(self):
@@ -587,7 +588,7 @@ class TargetFinding(commands.Cog):
 
                     @discord.ui.button(label=f"See your targets", style=discord.ButtonStyle.primary)
                     async def targets_callback(self, b: discord.Button, i: discord.Interaction):
-                        await i.response.send_message(ephemeral=True, content=f"Go to http://132.145.71.195:5000/raids/{ctx.author.id}")
+                        await i.response.send_message(ephemeral=True, content=f"Go to http://132.145.71.195:5000/raids/{ctx.author.id}/{timestamp} to see your targets!")
                     
                     async def interaction_check(self, interaction) -> bool:
                         if interaction.user != ctx.author:
@@ -599,7 +600,7 @@ class TargetFinding(commands.Cog):
                     async def on_timeout(self):
                         await utils.run_timeout(ctx, view)
                 
-                await utils.write_web("raids", ctx.author.id, {"atck_ntn": atck_ntn, "best_targets": best_targets, "beige": beige, "user_id": ctx.author.id})
+                await utils.write_web("raids", ctx.author.id, {"atck_ntn": atck_ntn, "best_targets": best_targets, "beige": beige, "user_id": ctx.author.id}, timestamp)
 
                 view = webpage_view()
                 await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
@@ -1002,8 +1003,9 @@ class TargetFinding(commands.Cog):
 
             cur_page = 1
 
-            await utils.write_web("damage", ctx.author.id, {"results": results})
-            url = f"http://132.145.71.195:5000/damage/{ctx.author.id}"
+            timestamp = round(datetime.utcnow().timestamp())
+            await utils.write_web("damage", ctx.author.id, {"results": results}, timestamp)
+            url = f"http://132.145.71.195:5000/damage/{ctx.author.id}/{timestamp}"
 
             class switch(discord.ui.View):
                 def __init__(self):
@@ -1129,9 +1131,11 @@ class TargetFinding(commands.Cog):
                 enemy['winchance'] = chances
                 enemy['milt'] = utils.militarization_checker(enemy)
                 
-            await utils.write_web("attacksheet", ctx.author.id, {"allies": allied_nations, "enemies": enemy_nations})
+            timestamp = round(datetime.utcnow().timestamp())
+            
+            await utils.write_web("attacksheet", ctx.author.id, {"allies": allied_nations, "enemies": enemy_nations}, timestamp)
 
-            await ctx.respond("The sheet can be found here: http://132.145.71.195:5000/attacksheet/" + ctx.author.id)
+            await ctx.respond(f"The sheet can be found here: http://132.145.71.195:5000/attacksheet/{ctx.author.id}/{timestamp}")
             
         except Exception as e:
             logger.error(e, exc_info=True)
@@ -1528,9 +1532,11 @@ class TargetFinding(commands.Cog):
             
             results = await self.battle_calc(nation1_id, nation2_id)
 
-            await utils.write_web("damage", ctx.author.id, {"results": results})
+            timestamp = round(datetime.utcnow().timestamp())
 
-            await ctx.respond(content=f"Go to http://132.145.71.195:5000/damage/{ctx.author.id}")
+            await utils.write_web("damage", ctx.author.id, {"results": results}, timestamp)
+
+            await ctx.respond(content=f"Go to http://132.145.71.195:5000/damage/{ctx.author.id}/{timestamp}")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e

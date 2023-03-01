@@ -351,13 +351,15 @@ class Background(commands.Cog):
     }}"""
             top_unique_builds = [dict(t) for t in {tuple(d.items()) for d in top_builds}]
 
-            await utils.write_web("builds", ctx.author.id, {"builds": builds, "rss": rss, "land": land, "top_unique_builds": top_unique_builds})
+            timestamp = round(datetime.utcnow().timestamp())
+
+            await utils.write_web("builds", ctx.author.id, {"builds": builds, "rss": rss, "land": land, "top_unique_builds": top_unique_builds}, timestamp)
 
             if str(mmr).lower() in "any":
                 mmr = "no military requirement"
             else:
                 mmr = "a military requirement of " + '/'.join(mmr[i:i+1] for i in range(0, len(mmr), 1))
-            await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): http://132.145.71.195:5000/builds/{ctx.author.id}")
+            await ctx.edit(content=f"{len(cities):,} valid cities and {len(unique_builds):,} unique builds fulfilled your criteria of {infra} infra and {mmr}.\n\nSee the best builds here (assuming you have {land} land): http://132.145.71.195:5000/builds/{ctx.author.id}/{timestamp}")
             return
         except Exception as e:
             logger.error(e, exc_info=True)
