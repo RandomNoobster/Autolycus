@@ -39,6 +39,7 @@ async def nation_scanner():
                     more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
                 except (aiohttp.client_exceptions.ContentTypeError, TypeError):
                     logger.info("Retrying fetch")
+                    await asyncio.sleep(5)
                     continue
                 n += 1
                 logger.debug(f"Fetched page {n}, took {time.time() - start:.2f} seconds")
@@ -139,6 +140,7 @@ async def transaction_scanner() -> None:
                                 await record(x, guild)
             except Exception as e:
                 logger.error(e, exc_info=True)
+                await asyncio.sleep(60)
 
     asyncio.ensure_future(update_guilds())
     subscription = await kit.subscribe("bankrec", "create")
@@ -202,7 +204,7 @@ async def main():
             await asyncio.gather(*[f1, f2])
         except Exception as e:
             logger.critical(f"SCAWY ERROR in scanner.py: {e}", exc_info=True)
-        await asyncio.sleep(600)
+        await asyncio.sleep(3600)
 
 loop = asyncio.get_event_loop()
 loop.run_until_complete(main())
