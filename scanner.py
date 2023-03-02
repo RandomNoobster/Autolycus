@@ -143,8 +143,12 @@ async def transaction_scanner() -> None:
                 await asyncio.sleep(60)
 
     asyncio.ensure_future(update_guilds())
-    subscription = await kit.subscribe("bankrec", "create")
-    asyncio.ensure_future(subscriber(subscription))
+
+    try:
+        subscription = await kit.subscribe("bankrec", "create")
+        asyncio.ensure_future(subscriber(subscription))
+    except Exception as e:
+        logger.error(e, exc_info=True)
 
     while True:
         try:

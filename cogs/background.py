@@ -565,13 +565,17 @@ class General(commands.Cog):
                         await asyncio.sleep(300)
                 asyncio.ensure_future(update_guilds())
 
-                new_wars = await kit.subscribe("war", "create")
-                updated_wars = await kit.subscribe("war", "update")
-                attacks = await kit.subscribe("warattack", "create")
-                
-                asyncio.ensure_future(scan_new_wars(new_wars))
-                asyncio.ensure_future(scan_updated_wars(updated_wars))
-                asyncio.ensure_future(scan_war_attacks(attacks))
+                try:
+                    new_wars = await kit.subscribe("war", "create")
+                    updated_wars = await kit.subscribe("war", "update")
+                    attacks = await kit.subscribe("warattack", "create")
+                    
+                    asyncio.ensure_future(scan_new_wars(new_wars))
+                    asyncio.ensure_future(scan_updated_wars(updated_wars))
+                    asyncio.ensure_future(scan_war_attacks(attacks))
+                except Exception as e:
+                    logger.error(e, exc_info=True)
+                    await debug_channel.send(utils.cut_string(f'**Exception caught!**\nWhere: Scanning wars\n\nError:```{traceback.format_exc()}```'))
 
                 #may produce duplicate messages??
 
