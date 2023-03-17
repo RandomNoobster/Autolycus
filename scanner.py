@@ -99,7 +99,7 @@ async def transaction_scanner() -> None:
         return guild
 
     async def record(tx: dict, guild: dict) -> None:
-        if await async_mongo.transactions.find_one({"_id": str(tx['id']), "guild_id": guild['guild_id']}):
+        if await async_mongo.transactions.find_one({"id": str(tx['id']), "guild_id": guild['guild_id']}):
             return
         else:
             rss_tx = {}
@@ -124,8 +124,8 @@ async def transaction_scanner() -> None:
                 if k in utils.RSS:
                     rss_tx[k] = float(v) * multiplier
 
-            await async_mongo.balance.find_one_and_update({"nation_id": nation_id, "guild_id": guild['guild_id']}, {"$inc": rss_tx}, upsert=True)
-            await async_mongo.transactions.insert_one({"_id": str(tx['id']), "guild_id": guild['guild_id']})        
+            await async_mongo.balance.find_one_and_update({"nation_id": str(nation_id), "guild_id": guild['guild_id']}, {"$inc": rss_tx}, upsert=True)
+            await async_mongo.transactions.insert_one({"id": str(tx['id']), "guild_id": guild['guild_id']})        
 
     async def subscriber(subscription: pnwkit.Subscription):
         while True:
