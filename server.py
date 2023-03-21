@@ -54,7 +54,7 @@ async def raids(user_id: int, timestamp: int):
             async with aiofiles.open(pathlib.Path.cwd() / "templates" / "raidspage.txt", "r") as file:
                 template = await file.read()
 
-            return Template(template).render(attacker=atck_ntn, targets=best_targets, endpoint=user_id, invoker=str(user_id), beige_alerts=beige_alerts, beige=beige, datetime=datetime)
+            return Template(template).render(attacker=atck_ntn, targets=best_targets, endpoint=f"{user_id}/{timestamp}", invoker=str(user_id), beige_alerts=beige_alerts, beige=beige, datetime=datetime)
     except Exception as e:
         logger.error(e, exc_info=True)
         raise e
