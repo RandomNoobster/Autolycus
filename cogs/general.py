@@ -164,6 +164,10 @@ class Background(commands.Cog):
                 await ctx.edit(content="I did not understand that mmr, please try again!")
                 return
 
+            max_recycling = 3 + int(nation['recycling_initiative'])
+            max_hospital = 5 + int(nation['clinical_research_center'])
+            max_police = 4 + int(nation['specialized_police_training_program'])
+
             to_scan = []
             rss = []
             all_rss = ['net income', 'aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium']
@@ -223,7 +227,14 @@ class Background(commands.Cog):
                             break
                     if skip:
                         continue
-                    
+
+                    if int(city['hospitals']) > max_hospital:
+                        continue
+                    if int(city['police_stations']) > max_police:
+                        continue
+                    if int(city['recycling_centers']) > max_recycling:
+                        continue
+
                     city.pop('\u2229\u2557\u2510city_id')
                     city.pop('nation_id')
                     city.pop('date_created')
@@ -286,6 +297,13 @@ class Background(commands.Cog):
                                 skip = True
                                 break
                         if skip:
+                            continue
+
+                        if city['hospital'] > max_hospital:
+                            continue
+                        if city['policestation'] > max_police:
+                            continue
+                        if city['recyclingcenter'] > max_recycling:
                             continue
                         
                         city['powered'] = "am powered" #must be string to work when being in the webpage
