@@ -971,10 +971,16 @@ class Background(commands.Cog):
             if success:
                 bal_embed.color = 0x2bff00
                 await message.edit(content=f':white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}', embed=bal_embed, view=view)
-                await author_user.send(f"Your request was approved by {interactor.mention} {timestamp}", embed=bal_embed)
+                try: 
+                    await author_user.send(f"Your request was approved by {interactor.mention} {timestamp}", embed=bal_embed)
+                except discord.errors.Forbidden:
+                    await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved!")
             else:
                 await message.edit(content=f":white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed, view=view)
-                await author_user.send(f"Your request was approved by {interactor.mention} {timestamp}\n:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed)
+                try:
+                    await author_user.send(f"Your request was approved by {interactor.mention} {timestamp}\n:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed)
+                except discord.errors.Forbidden:
+                    await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved! It seems like it failed though, so that sucks.")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
