@@ -829,7 +829,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
     if nation['clinical_research_center'] == True:
         hos_dis_red = 3.5
     if nation['specialized_police_training'] == True:
-        hos_dis_red = 3.5
+        pol_cri_red = 3.5
     if nation['uap'] == True:
         uranium_mod = 2
 
@@ -863,39 +863,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         city['date'] = nation['cities'][math.ceil(nation['num_cities']/2)]['date']
         city['airforcebase'] = city['hangars']
         nation['cities'] = [city]
-        #print(city)
     
-    if nation['resource_production_center'] == True:
-        modifer = min(5, math.floor(len(nation['cities'])/2)) * 12
-        if nation['continent'] == "na":
-            coal += 1 * modifer
-            iron += 1 * modifer
-            uranium += 1 * modifer
-        elif nation['continent'] == "sa":
-            oil += 1 * modifer
-            bauxite += 1 * modifer
-            lead += 1 * modifer
-        elif nation['continent'] == "eu":
-            coal += 1 * modifer
-            iron += 1 * modifer
-            lead += 1 * modifer
-        elif nation['continent'] == "af":
-            oil += 1 * modifer
-            bauxite += 1 * modifer
-            uranium += 1 * modifer
-        elif nation['continent'] == "as":
-            oil += 1 * modifer
-            iron += 1 * modifer
-            uranium += 1 * modifer
-        elif nation['continent'] == "au":
-            coal += 1 * modifer
-            bauxite += 1 * modifer
-            lead += 1 * modifer
-        elif nation['continent'] == "an":
-            coal += 1 * modifer
-            oil += 1 * modifer
-            uranium += 1 * modifer
-
     for city in nation['cities']:
         total_infra += city['infrastructure']
         base_pop = city['infrastructure'] * 100
