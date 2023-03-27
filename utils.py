@@ -54,7 +54,7 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
         retry = 0
         while True:
             if use_bot_key:
-                headers = {'X-Bot-Key': "4ba04e11ee113594", 'X-Api-Key': key}
+                headers = {'X-Bot-Key': "4ba04e11ee113594", 'X-Api-Key': api_key}
             else:
                 headers = {}
             async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}, headers=headers) as response:
@@ -70,7 +70,7 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
                     if "error" in json_response:
                         if "invalid api_key" in json_response["error"]["errors"][0]["message"]:
                             raise ConnectionError("Invalid API key.")
-                if "data" not in json_response:
+                if "data" not in json_response and use_bot_key == False:
                     if retry < retry_limit:
                         retry += 1
                         await asyncio.sleep(1)
@@ -174,11 +174,12 @@ async def withdraw(api_key: str, resources: dict) -> bool:
         call_string = ""
         for rs in resources:
             call_string += f"{rs}:{resources[rs]} "
-        res = await call(f"mutation{{bankWithdraw({call_string}){{id}}}}", use_bot_key=True)
-        print(res)
+        res = await call(f"mutation{{bankWithdraw({call_string}){{id}}}}", api_key, use_bot_key=True)
+        if "errors" in res:
+            raise Exception(res["errors"])
         return True
     except Exception as e:
-        logger.error(f"Error withdrawing resources.\nApi key: {api_key}\nResources: {resources}", exc_info=True)
+        logger.error(f"Error withdrawing resources.\nApi key: {api_key}\nResources: {resources}\nError: {e}", exc_info=True)
         return False
                 
 async def listify(cursor):

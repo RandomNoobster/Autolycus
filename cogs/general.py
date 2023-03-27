@@ -727,7 +727,7 @@ class Background(commands.Cog):
         munitions: Option(str, "The amount of munitions you want to request.")="0",
         oil: Option(str, "The amount of oil you want to request.")="0",
         steel: Option(str, "The amount of steel you want to request.")="0",
-        uranium: Option(str, "The amount of uranium you want to request.")="0",
+        uranium: Option(str, "The amount of uranium you want to request.")="0"
     ):
         await ctx.defer()
 
@@ -854,7 +854,7 @@ class Background(commands.Cog):
                     self.keys_info = keys_info
 
                     for key_info in keys_info:
-                        new_option = discord.SelectOption(label=key_info['nation']['alliance']['name'], value=key_info['key'], description="Send from this bank")
+                        new_option = discord.SelectOption(label=f"{key_info['nation']['alliance']['name']} ({nation['nation']['alliance']['id']}) through {key_info['nation']['nation_name']}", value=key_info['key'], description="Send from this bank")
                         if new_option not in options:
                             options.append(new_option)
 
@@ -937,11 +937,12 @@ class Background(commands.Cog):
                 bal_embed.color = 0xff0000
                 await message.edit(content=f"<:redcross:862669500977905694> Request was denied by {interactor}", embed=bal_embed)
                 return
+            author_user = await self.bot.fetch_user(author)
             
             if len(keys) > 1:
                 keys_info = []
                 for key in keys:
-                    nation = (await utils.call("{me{key nation{alliance{name id}}}}", key))['data']['me']
+                    nation = (await utils.call(utils.get_query(queries.REQUEST), key))['data']['me']
                     keys_info.append(nation)
                 drop_view = DropdownView(self.bot, keys_info)
                 await message.edit(view=drop_view)
@@ -952,6 +953,10 @@ class Background(commands.Cog):
                     timestamp = f"<t:{round(datetime.utcnow().timestamp())}:R>"
                     bal_embed.color = 0xff0000
                     await message.edit(content=f"<:redcross:862669500977905694> Request was denied by {interactor.mention} {timestamp}", embed=bal_embed)
+                    try: 
+                        await author_user.send(f"<:redcross:862669500977905694> Your request was denied by {interactor.mention} {timestamp}", embed=bal_embed)
+                    except discord.errors.Forbidden:
+                        await message.reply(f"{author_user.mention} I was unable to DM you, but your request was denied!")
                     return
             else:
                 api_key = keys[0]
@@ -967,24 +972,243 @@ class Background(commands.Cog):
             else:
                 sent_from = ""
 
-            author_user = await self.bot.fetch_user(author)
             if success:
                 bal_embed.color = 0x2bff00
                 await message.edit(content=f':white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}', embed=bal_embed, view=view)
                 try: 
-                    await author_user.send(f"Your request was approved by {interactor.mention} {timestamp}", embed=bal_embed)
+                    await author_user.send(f":white_check_mark: Your request was approved by {interactor.mention} {timestamp}", embed=bal_embed)
                 except discord.errors.Forbidden:
                     await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved!")
             else:
                 await message.edit(content=f":white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed, view=view)
                 try:
-                    await author_user.send(f"Your request was approved by {interactor.mention} {timestamp}\n:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed)
+                    await author_user.send(f":white_check_mark: Your request was approved by {interactor.mention} {timestamp}\n:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed)
                 except discord.errors.Forbidden:
                     await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved! It seems like it failed though, so that sucks.")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
+        
+    @slash_command(
+        name="move_bank",
+        description="Move the alliance bank contents between alliance banks",
+        guild_ids=[729979781940248577, 434071714893398016],
+    )
+    @commands.guild_only()
+    @commands.has_any_role(775428212342652938, 747167690275291268)
+    async def move_bank(
+        self,
+        ctx: discord.ApplicationContext,
+        aluminum: Option(str, "The amount of aluminum you want to request.")="0",
+        bauxite: Option(str, "The amount of bauxite you want to request.")="0",
+        coal: Option(str, "The amount of coal you want to request.")="0",
+        food: Option(str, "The amount of food you want to request.")="0",
+        gasoline: Option(str, "The amount of gasoline you want to request.")="0",
+        iron: Option(str, "The amount of iron you want to request.")="0",
+        lead: Option(str, "The amount of lead you want to request.")="0",
+        money: Option(str, "The amount of money you want to request.")="0",
+        munitions: Option(str, "The amount of munitions you want to request.")="0",
+        oil: Option(str, "The amount of oil you want to request.")="0",
+        steel: Option(str, "The amount of steel you want to request.")="0",
+        uranium: Option(str, "The amount of uranium you want to request.")="0"
+    ):
+        try:
+            await ctx.defer()
+            guild_config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild_id})
+            guild = self.bot.get_guild(ctx.guild_id)
+            banker_role = guild.get_role(guild_config['transactions_banker_role'])
+            keys = guild_config["transactions_api_keys"]
 
+            resource_list = [(utils.str_to_int(aluminum), "aluminum"), (utils.str_to_int(bauxite), "bauxite"), (utils.str_to_int(coal), "coal"), (utils.str_to_int(food), "food"), (utils.str_to_int(gasoline), "gasoline"), (utils.str_to_int(iron), "iron"), (utils.str_to_int(lead), "lead"), (utils.str_to_int(money), "money"), (utils.str_to_int(munitions), "munitions"), (utils.str_to_int(oil), "oil"), (utils.str_to_int(steel), "steel"), (utils.str_to_int(uranium), "uranium")]
+            
+            something = False
+            for amount, name in resource_list:
+                if amount in [0, "0"]:
+                    continue
+                else:
+                    something = True
+            
+            if not something:
+                # define withdraw_data later on
+                pass
+            else:
+                withdraw_data = {
+                    "receiver_type": '2',
+                }
+                for amount, type in resource_list:
+                    withdraw_data[type] = amount
+
+            keys_info = []
+            embeds = [discord.Embed(title="Move Alliance Bank", description="Use the dropdown menus to select two banks to send to and from.", color=0xff5100)]
+            for key in keys:
+                nation = (await utils.call(utils.get_query(queries.REQUEST), key))['data']['me']
+                keys_info.append(nation)
+                
+                if not something:
+                    # this is just a temporary definition, since the embed needs the amounts
+                    withdraw_data = {
+                        "money": nation['nation']['alliance']['money'],
+                        "food": nation['nation']['alliance']['food'],
+                        "coal": nation['nation']['alliance']['coal'],
+                        "oil": nation['nation']['alliance']['oil'],
+                        "uranium": nation['nation']['alliance']['uranium'],
+                        "lead": nation['nation']['alliance']['lead'],
+                        "iron": nation['nation']['alliance']['iron'],
+                        "bauxite": nation['nation']['alliance']['bauxite'],
+                        "gasoline": nation['nation']['alliance']['gasoline'],
+                        "munitions": nation['nation']['alliance']['munitions'],
+                        "steel": nation['nation']['alliance']['steel'],
+                        "aluminum": nation['nation']['alliance']['aluminum'],
+                    }
+
+                embed = discord.Embed(title=f"Send from {nation['nation']['alliance']['name']} ({nation['nation']['alliance']['id']})", description=f"The banker is {nation['nation']['nation_name']}", color=0xff5100)
+                n = 0
+                for resource in utils.RSS:
+                    if resource in nation['nation']['alliance']:
+                        if withdraw_data[resource] not in [0, "0"]:
+                            highlighting = "autohotkey"                            
+                        else:
+                            highlighting = "glsl"
+                        embed.add_field(name=resource.capitalize(), value=f"```{highlighting}\nCurrent: \u200b \u200b {nation['nation']['alliance'][resource]:,}\nTransfer: \u200b {withdraw_data[resource]:,}\nRemaining: {(nation['nation']['alliance'][resource] - withdraw_data[resource]):,}```")
+                        if n % 2 == 0:
+                            embed.add_field(name="\u200b", value="\u200b")
+                        n += 1
+                embeds.append(embed)
+            
+            async def interaction_check(i: discord.Interaction) -> bool:
+                if banker_role not in i.user.roles:
+                    await i.response.send_message(f"Only people with the banker role ({banker_role.mention}) can approve of transactions!", ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+                    return False
+                else:
+                    return True
+                
+            class moveBankView(discord.ui.View):
+                def __init__(self):
+                    super().__init__()
+            
+            view = moveBankView()
+            view.interaction_check = interaction_check                
+
+            local_api_key = None
+            send_to = None
+            send_from = None
+
+            class sendToDropdown(discord.ui.Select):
+                def __init__(self):
+                    options = []
+                    self.interaction_check = interaction_check
+
+                    for key_info in keys_info:
+                        new_option = discord.SelectOption(label=f"{key_info['nation']['alliance']['name']} ({key_info['nation']['alliance']['id']})", value=key_info['nation']['id'], description="Send to this bank")
+                        skip = False
+                        for option in options:
+                            if option.label == new_option.label:
+                                skip = True
+                        if skip:
+                            continue
+                        else:
+                            options.append(new_option)
+                    
+                    self.keys_info = keys_info
+
+                    super().__init__(
+                        placeholder="Choose the bank to send to",
+                        options=options,
+                    )
+
+                async def callback(self, i: discord.Interaction):
+                    nonlocal send_to
+                    for x in self.keys_info:
+                        if x['nation']['id'] == self.values[0]:
+                            send_to = x['nation']['alliance']['id']
+                            break
+                    await i.response.edit_message()
+                    if send_to == send_from:
+                        await ctx.respond("You can't send to the same bank you're sending from!", ephemeral=True)
+                    else:
+                        view.stop()
+
+
+            class sendFromDropdown(discord.ui.Select):
+                def __init__(self):
+                    options = []
+                    self.interaction_check = interaction_check
+
+                    for key_info in keys_info:
+                        new_option = discord.SelectOption(label=f"{key_info['nation']['alliance']['name']} ({key_info['nation']['alliance']['id']}) through {key_info['nation']['nation_name']}", value=key_info['key'], description="Send from this bank")
+                        options.append(new_option)
+                    
+                    self.keys_info = keys_info
+
+                    super().__init__(
+                        placeholder="Choose the bank to send from",
+                        options=options,
+                    )
+
+                async def callback(self, i: discord.Interaction):
+                    nonlocal send_from, withdraw_data, local_api_key
+                    local_api_key = self.values[0]
+                    for x in self.keys_info:
+                        if x['key'] == self.values[0]:
+                            send_from = x['nation']['alliance']['id']
+                            if not something:
+                                # this is the actual definition of withdraw_data
+                                withdraw_data = {
+                                    "money": x['nation']['alliance']['money'],
+                                    "food": x['nation']['alliance']['food'],
+                                    "coal": x['nation']['alliance']['coal'],
+                                    "oil": x['nation']['alliance']['oil'],
+                                    "uranium": x['nation']['alliance']['uranium'],
+                                    "lead": x['nation']['alliance']['lead'],
+                                    "iron": x['nation']['alliance']['iron'],
+                                    "bauxite": x['nation']['alliance']['bauxite'],
+                                    "gasoline": x['nation']['alliance']['gasoline'],
+                                    "munitions": x['nation']['alliance']['munitions'],
+                                    "steel": x['nation']['alliance']['steel'],
+                                    "aluminum": x['nation']['alliance']['aluminum'],
+                                    "receiver_type": '2',
+                                }
+                            break
+                    embed = None
+                    for y in embeds:
+                        if x['nation']['alliance']['id'] in y.title and x['nation']['nation_name'] in y.description:
+                            embed = y
+                            break
+                    await i.response.edit_message(embed=embed)
+
+            view.add_item(sendFromDropdown())
+            view.add_item(sendToDropdown())
+
+            await ctx.edit(embed=embeds[0], view=view)
+
+            timed_out = await view.wait()
+            if timed_out:
+                return
+            
+            new_view = utils.yes_or_no_view(ctx)
+            new_view.interaction_check = interaction_check
+            await ctx.edit(content=f"Do you want to continue with this transaction from from {send_from} to {send_to}?", view=new_view)
+            await new_view.wait()
+
+            if new_view.result == True:
+                await ctx.edit(content="Performing transaction...", view=None)
+                withdraw_data['receiver'] = send_to
+                success = await utils.withdraw(local_api_key, withdraw_data)  
+                if success:
+                    extra_text = ""
+                    if something:
+                        extra_text = "specified "
+                    else:
+                        extra_text = "entirety of the "
+                    await ctx.edit(content=f":white_check_mark: The {extra_text}bank contents were successfully moved from {send_from} to {send_to}!", view=None)
+                else:
+                    await ctx.edit(content=f":warning: Something might've gone wrong while moving the bank contents from {send_from} to {send_to}!\n\nCheck here to be sure:\n{send_to}'s bank page: <https://politicsandwar.com/alliance/id={send_to}&display=bank>\n{send_from}'s bank page: <https://politicsandwar.com/alliance/id={send_from}&display=bank>", view=None)
+            else:
+                await ctx.edit(content="<:redcross:862669500977905694> Transaction cancelled!", view=None)
+
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
 
     @slash_command(
         name="botinfo",

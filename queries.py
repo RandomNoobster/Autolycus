@@ -1,3 +1,5 @@
+NO_TYPE = str(None)
+
 # utils.py
 MILITARIZATION_CHECKER = {"nations": [{"cities": ["barracks", "factory", "airforcebase", "drydock"]}, "soldiers", "tanks", "aircraft", "ships", "propaganda_bureau", "population"]}
 INFRA_COST = {"nations": ["domestic_policy", "advanced_engineering_corps", "center_for_civil_engineering", "government_support_agency"]}
@@ -17,6 +19,7 @@ WARS_SCANNER = {"wars": ["id", "war_type", "att_peace", "def_peace", "turnsleft"
 WHO = (MILITARIZATION_CHECKER, {"nations": ["id", "nation_name", "discord", "leader_name", "num_cities", "cia", "spy_satellite", "warpolicy", "population", "dompolicy", "flag", "vmode", "color", "beige_turns", "last_active", "soldiers", "tanks", "aircraft", "ships", "nukes", "missiles", "mlp", "nrf", "vds", "irond", {"wars": ["attid", "turnsleft"]}, "score", "alliance_position", "alliance_seniority", {"alliance": ["name", "id", "score", "color", {"nations": ["alliance_position"]}]}]})
 REVENUE = {"nations": ["nation_name", "leader_name", "id", "date", "continent", "color", "warpolicy", "resource_production_center", "clinical_research_center", "specialized_police_training_program", "recycling_initiative", "cia", "fallout_shelter", "dompolicy", "alliance_id", {"alliance": ["name", "id"]}, "num_cities", "soldiers", "tanks", "aircraft", "ships", "missiles", "nukes", {"wars": ["date", "turnsleft"]}, "ironw", "bauxitew", "armss", "egr", "massirr", "itc", "recycling_initiative", "telecom_satellite", "green_tech", "clinical_research_center", "specialized_police_training", "uap", {"cities": ["id", "date", "powered", "infrastructure", "land", "oilpower", "windpower", "coalpower", "nuclearpower", "coalmine", "oilwell", "uramine", "barracks", "farm", "policestation", "hospital", "recyclingcenter", "subway", "supermarket", "bank", "mall", "stadium", "leadmine", "ironmine", "bauxitemine", "gasrefinery", "aluminumrefinery", "steelmill", "munitionsfactory", "factory", "airforcebase", "drydock"]}]}
 VERIFY = {"nations": ["id", "nation_name", "leader_name", "discord"]}
+REQUEST = {NO_TYPE: [{"me": ["key", {"nation": ["nation_name", "id", {"alliance": ["name", "id", "coal", "oil", "uranium", "iron", "bauxite", "lead", "gasoline", "money", "munitions", "steel", "aluminum", "food"]}]}]}]}
 
 
 # military.py

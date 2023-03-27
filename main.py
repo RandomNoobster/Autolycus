@@ -88,14 +88,24 @@ async def on_ready():
 
 @bot.event
 async def on_application_command(ctx: discord.ApplicationContext):
+    channel = guild = None
     try:
         channel = {"name": ctx.channel.name, "id": ctx.channel_id}
     except:
-        channel = {"name": f"{ctx.author.name}'s DM's", "id": ctx.channel_id}
+        try:
+            channel = {"name": f"{ctx.author.name}'s DM's", "id": ctx.channel_id}
+        except:
+            channel = {"name": "Unknown", "id": None}
+            # it might be a PartialMessageable
     try:
         guild = {"name": ctx.guild.name, "id": ctx.guild_id}
     except:
-        guild = {"name": f"{ctx.author.name}'s DM's", "id": None}
+        try:
+            guild = {"name": f"{ctx.author.name}'s DM's", "id": None}
+        except:
+            guild = {"name": "Unknown", "id": None}
+            # it might be a PartialMessageable
+            
     await async_mongo.commands.insert_one({"command": ctx.command.name, "time": round(datetime.datetime.utcnow().timestamp()), "user": {"name": ctx.author.name, "id": ctx.author.id}, "channel": channel, "guild": guild})
 
 @bot.event
