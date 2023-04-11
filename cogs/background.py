@@ -188,6 +188,9 @@ class General(commands.Cog):
                     return found, matching_thread
 
                 async def smsg(attack: dict, war: dict, friend: dict, enemy: dict, guild: dict, channel: discord.TextChannel) -> None:
+                    if "loot_info" not in attack:
+                        attack['loot_info'] = ""
+                        
                     url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
                     
                     found, matching_thread = await find_thread(channel, enemy, friend)
