@@ -1329,7 +1329,9 @@ class TargetFinding(commands.Cog):
     async def nuketargets(
         self,
         ctx: discord.ApplicationContext,
-        sort: Option(str, "The metric to sort the targets by", choices=["Nuke damage", "Missile damage"]) = "Nuke damage"
+        sort: Option(str, "The metric to sort the targets by", choices=["Nuke damage", "Missile damage"]) = "Nuke damage",
+        include_beige: Option(bool, "Include beige nations", default=False) = False,
+        include_slotted: Option(bool, "Include slotted nations", default=False) = False
     ):
         try:
             await ctx.respond("Let me think for a second...")
@@ -1364,7 +1366,7 @@ class TargetFinding(commands.Cog):
                     user_nation = res['data']['nations']['data'][0]
                     async with aiofiles.open(pathlib.Path.cwd() / 'data' / 'nations.json', 'r') as json_file:
                         file_content = json.loads(await json_file.read())
-                    alliances = [{"nations": file_content['nations']}]
+                    all_nations = file_content['nations']
                 elif view.result == False:
                     await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
                     return
@@ -1372,33 +1374,49 @@ class TargetFinding(commands.Cog):
                     return
             
             if not fail:
-                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}} alliances(id:[{' '.join(alliance_ids)}]){{data{{nations{utils.get_query(queries.NUKETARGETS)}}}}}}}")
+                res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}}}}")
                 user_nation = res['data']['nations']['data'][0]
-                alliances = res['data']['alliances']['data']
+                minscore = round(user_nation['score'] * 0.75)
+                maxscore = round(user_nation['score'] * 1.75)
+                all_nations = await utils.paginate_call(f"{{nations(first:250 vmode:false max_score:{maxscore} min_score:{minscore} alliance_id:[{' '.join(alliance_ids)}]) {{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.NUKETARGETS)}}}}}", "nations")
 
             minscore = round(user_nation['score'] * 0.75)
             maxscore = round(user_nation['score'] * 1.75)
             nation_list = []
-            for alliance in alliances:
-                for nation in alliance['nations']:
-                    try:
-                        if nation['vacation_mode_turns'] > 0:
+            for nation in all_nations:
+                try:
+                    if nation['score'] < minscore or nation['score'] > maxscore:
+                        continue
+                    if not include_beige:
+                        if nation['vacation_mode_turns'] > 0 or nation['color'] == "beige":
                             continue
-                        if nation['score'] < minscore or nation['score'] > maxscore:
+                    if not include_slotted:
+                        skip = False
+                        for war in user_nation['wars']:
+                            if (war['att_id'] == nation['id'] or war['def_id'] == nation['id']) and war['turnsleft'] > -12:
+                                skip = True
+                                break
+                        if skip:
                             continue
-                        nation['max_infra'] = sorted(nation['cities'], key=lambda x: x['infrastructure'], reverse=True)[0]['infrastructure']
-                        avg_infra = 0
-                        for city in nation['cities']:
-                            avg_infra += city['infrastructure']
-                        results = await self.battle_calc(nation1=user_nation, nation2=nation)
-                        # should parallelize this https://stackoverflow.com/a/56162461/14466960
-                        nation['nuke_cost'] = results['nation1_nuke_nation2_total']
-                        nation['missile_cost'] = results['nation1_missile_nation2_total']
-                        nation["avg_infra"] = avg_infra / len(nation['cities'])
-                        nation_list.append(nation)
-                    except IndexError:
-                        # IndexError if for some reason nation['cities'] is empty
-                        pass
+                        def_wars = 0
+                        for war in nation['wars']:
+                            if war['turnsleft'] > 0 and war['def_id'] == nation['id']:
+                                def_wars += 1
+                        if def_wars == 3:
+                            continue
+                    nation['max_infra'] = sorted(nation['cities'], key=lambda x: x['infrastructure'], reverse=True)[0]['infrastructure']
+                    avg_infra = 0
+                    for city in nation['cities']:
+                        avg_infra += city['infrastructure']
+                    results = await self.battle_calc(nation1=user_nation, nation2=nation)
+                    # should parallelize this https://stackoverflow.com/a/56162461/14466960
+                    nation['nuke_cost'] = results['nation1_nuke_nation2_total']
+                    nation['missile_cost'] = results['nation1_missile_nation2_total']
+                    nation["avg_infra"] = avg_infra / len(nation['cities'])
+                    nation_list.append(nation)
+                except IndexError:
+                    # IndexError if for some reason nation['cities'] is empty
+                    pass
 
             if len(nation_list) == 0:
                 await ctx.edit(content="No eligible targets found!")
