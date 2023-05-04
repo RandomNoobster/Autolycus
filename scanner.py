@@ -56,8 +56,6 @@ async def transaction_scanner() -> None:
     """
 
     guilds = await utils.listify(async_mongo.guild_configs.find({"transactions_api_keys": {"$exists": True, "$not": {"$size": 0}}}))
-    for j, guild in enumerate(guilds):
-        guilds[j] = await update_keys(guild)
 
     async def update_guilds() -> None:
         nonlocal guilds
@@ -148,6 +146,9 @@ async def transaction_scanner() -> None:
                 logger.error(e, exc_info=True)
                 await asyncio.sleep(60)
 
+    for j, guild in enumerate(guilds):
+        guilds[j] = await update_keys(guild)
+        
     asyncio.ensure_future(update_guilds())
 
     try:
