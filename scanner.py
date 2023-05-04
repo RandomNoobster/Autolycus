@@ -56,6 +56,9 @@ async def transaction_scanner() -> None:
     """
 
     guilds = await utils.listify(async_mongo.guild_configs.find({"transactions_api_keys": {"$exists": True, "$not": {"$size": 0}}}))
+    for j, guild in enumerate(guilds):
+        guilds[j] = await update_keys(guild)
+
     async def update_guilds() -> None:
         nonlocal guilds
         while True:
@@ -134,6 +137,9 @@ async def transaction_scanner() -> None:
                     x = vars(x)
                     for guild in guilds:
                         for key_data in guild['transactions_api_keys']:
+                            if not isinstance(key_data, tuple):
+                                logger.error(f"Key data is not a tuple: {key_data}")
+                                continue
                             if str(x['receiver_id']) == key_data[1] and str(x['receiver_type']) == "2":
                                 await record(x, guild)
                             elif str(x['sender_id']) == key_data[1] and str(x['sender_type']) == "2":
@@ -161,6 +167,9 @@ async def transaction_scanner() -> None:
                     continue
 
                 for key_data in guild['transactions_api_keys']:
+                    if not isinstance(key_data, tuple):
+                        logger.error(f"Key data is not a tuple: {key_data}")
+                        continue
 
                     if key_data[1] in done_alliances:
                         continue
