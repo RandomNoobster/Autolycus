@@ -80,7 +80,7 @@ async def transaction_scanner() -> None:
             await asyncio.sleep(600)
     
     async def update_keys(guild) -> dict:
-        for i, key in enumerate(guild['transactions_api_keys']):
+        for i, key in enumerate(guild['transactions_api_keys'].copy()):
             if isinstance(key, tuple):
                 key = key[0]
             await asyncio.sleep(10)
@@ -94,7 +94,7 @@ async def transaction_scanner() -> None:
                 else:
                     guild['transactions_api_keys'][i] = (key, alliance_id)
             except Exception as e:
-                if "Invalid API key" in str(e):
+                if "Invalid API key" in str(e) or key == "":
                     logger.info(f"Locally removing invalid key {key} from guild {guild['guild_id']}")
                     guild['transactions_api_keys'].pop(i)
         return guild
@@ -148,7 +148,7 @@ async def transaction_scanner() -> None:
 
     for j, guild in enumerate(guilds):
         guilds[j] = await update_keys(guild)
-        
+
     asyncio.ensure_future(update_guilds())
 
     try:
@@ -163,7 +163,8 @@ async def transaction_scanner() -> None:
 
             for i, guild in enumerate(guilds.copy()):
                 try:
-                    guild = guilds[i] = await update_keys(guild)
+                    guild = await update_keys(guild)
+                    guilds[i] = guild
                 except IndexError as e:
                     continue
 
