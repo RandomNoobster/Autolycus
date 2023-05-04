@@ -1378,7 +1378,7 @@ class TargetFinding(commands.Cog):
                 user_nation = res['data']['nations']['data'][0]
                 minscore = round(user_nation['score'] * 0.75)
                 maxscore = round(user_nation['score'] * 1.75)
-                all_nations = await utils.paginate_call(f"{{nations(first:200 page:page_number vmode:false max_score:{maxscore} min_score:{minscore} alliance_id:[{' '.join(alliance_ids)}]) {{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.NUKETARGETS)}}}}}", "nations")
+                all_nations = await utils.paginate_call(f"{{nations(first:150 page:page_number vmode:false max_score:{maxscore} min_score:{minscore} alliance_id:[{' '.join(alliance_ids)}]) {{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.NUKETARGETS)}}}}}", "nations")
 
             minscore = round(user_nation['score'] * 0.75)
             maxscore = round(user_nation['score'] * 1.75)
@@ -1393,14 +1393,14 @@ class TargetFinding(commands.Cog):
                     if not include_slotted:
                         skip = False
                         for war in user_nation['wars']:
-                            if (war['att_id'] == nation['id'] or war['def_id'] == nation['id']) and war['turnsleft'] > -12:
+                            if (war['attid'] == nation['id'] or war['defid'] == nation['id']) and war['turnsleft'] > -12:
                                 skip = True
                                 break
                         if skip:
                             continue
                         def_wars = 0
                         for war in nation['wars']:
-                            if war['turnsleft'] > 0 and war['def_id'] == nation['id']:
+                            if war['turnsleft'] > 0 and war['defid'] == nation['id']:
                                 def_wars += 1
                         if def_wars == 3:
                             continue
