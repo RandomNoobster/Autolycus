@@ -89,13 +89,13 @@ async def transaction_scanner() -> None:
                 res = (await utils.call(f"{{me{{nation{{alliance_id alliance_position_info{{withdraw_bank view_bank}}}}}}}}", key))['data']['me']['nation']
                 alliance_id = res['alliance_id']
                 if not res['alliance_position_info']['withdraw_bank'] or not res['alliance_position_info']['view_bank']:
-                    logger.info(f"Locally removing key {key} from guild {guild['guild_id']} due to insufficient permissions")
+                    logger.info(f"Locally removing (0) key {key} from guild {guild['guild_id']} due to insufficient permissions")
                     guild['transactions_api_keys'].pop(i)
                 else:
                     guild['transactions_api_keys'][i] = (key, alliance_id)
             except Exception as e:
                 if "Invalid API key" in str(e) or key == "":
-                    logger.info(f"Locally removing invalid key {key} from guild {guild['guild_id']}")
+                    logger.info(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}")
                     guild['transactions_api_keys'].pop(i)
         return guild
 
@@ -136,7 +136,7 @@ async def transaction_scanner() -> None:
                     for guild in guilds:
                         for key_data in guild['transactions_api_keys']:
                             if not isinstance(key_data, tuple):
-                                logger.error(f"Key data is not a tuple: {key_data}")
+                                logger.error(f"Key data is not a tuple (1): {key_data}")
                                 continue
                             if str(x['receiver_id']) == key_data[1] and str(x['receiver_type']) == "2":
                                 await record(x, guild)
@@ -170,7 +170,7 @@ async def transaction_scanner() -> None:
 
                 for key_data in guild['transactions_api_keys']:
                     if not isinstance(key_data, tuple):
-                        logger.error(f"Key data is not a tuple: {key_data}")
+                        logger.error(f"Key data is not a tuple (2): {key_data}")
                         continue
 
                     if key_data[1] in done_alliances:
@@ -182,7 +182,7 @@ async def transaction_scanner() -> None:
                         res = await utils.call(api_query, key_data[0])
                     except Exception as e:
                         if "Invalid API key" in str(e):
-                            logger.info(f"Locally removing invalid key {key_data[0]} from guild {guild['guild_id']}")
+                            logger.info(f"Locally removing (2) invalid key {key_data[0]} from guild {guild['guild_id']}")
                             guild['transactions_api_keys'].remove(key_data)
                         else:
                             logger.error(e, exc_info=True)
