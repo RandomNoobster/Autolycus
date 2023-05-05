@@ -65,7 +65,10 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
                 elif "Retry-After" in response.headers:
                     await asyncio.sleep(int(response.headers['Retry-After']))
                     continue
-                json_response = await response.json()
+                try:
+                    json_response = await response.json()
+                except aiohttp.ContentTypeError:
+                    raise Exception("Attempt to decode JSON with unexpected mimetype: " + await response.text())
                 if response.status == 401:
                     if "error" in json_response:
                         if "invalid api_key" in json_response["error"]["errors"][0]["message"]:

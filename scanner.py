@@ -80,11 +80,11 @@ async def transaction_scanner() -> None:
             await asyncio.sleep(600)
     
     async def update_keys(guild) -> dict:
-        for i, original_key in enumerate(guild['transactions_api_keys'].copy()):
-            if isinstance(key, tuple):
-                key = key[0]
+        for i, key_data in enumerate(guild['transactions_api_keys'].copy()):
+            if isinstance(key_data, tuple):
+                key = key_data[0]
             else:
-                key = original_key
+                key = key_data
             await asyncio.sleep(10)
             # similar check in /config transactions
             try:
@@ -92,13 +92,13 @@ async def transaction_scanner() -> None:
                 alliance_id = res['alliance_id']
                 if not res['alliance_position_info']['withdraw_bank'] or not res['alliance_position_info']['view_bank']:
                     logger.info(f"Locally removing (0) key {key} from guild {guild['guild_id']} due to insufficient permissions")
-                    guild['transactions_api_keys'].remove(original_key)
+                    guild['transactions_api_keys'].remove(key_data)
                 else:
                     guild['transactions_api_keys'][i] = (key, alliance_id)
             except Exception as e:
                 if "Invalid API key" in str(e) or key == "":
                     logger.info(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}")
-                    guild['transactions_api_keys'].remove(original_key)
+                    guild['transactions_api_keys'].remove(key_data)
         return guild
 
     async def record(tx: dict, guild: dict) -> None:
