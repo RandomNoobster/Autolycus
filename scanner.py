@@ -80,9 +80,11 @@ async def transaction_scanner() -> None:
             await asyncio.sleep(600)
     
     async def update_keys(guild) -> dict:
-        for i, key in enumerate(guild['transactions_api_keys'].copy()):
+        for i, original_key in enumerate(guild['transactions_api_keys'].copy()):
             if isinstance(key, tuple):
                 key = key[0]
+            else:
+                key = original_key
             await asyncio.sleep(10)
             # similar check in /config transactions
             try:
@@ -90,13 +92,13 @@ async def transaction_scanner() -> None:
                 alliance_id = res['alliance_id']
                 if not res['alliance_position_info']['withdraw_bank'] or not res['alliance_position_info']['view_bank']:
                     logger.info(f"Locally removing (0) key {key} from guild {guild['guild_id']} due to insufficient permissions")
-                    guild['transactions_api_keys'].pop(i)
+                    guild['transactions_api_keys'].remove(original_key)
                 else:
                     guild['transactions_api_keys'][i] = (key, alliance_id)
             except Exception as e:
                 if "Invalid API key" in str(e) or key == "":
                     logger.info(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}")
-                    guild['transactions_api_keys'].pop(i)
+                    guild['transactions_api_keys'].remove(original_key)
         return guild
 
     async def record(tx: dict, guild: dict) -> None:
@@ -129,6 +131,7 @@ async def transaction_scanner() -> None:
             await async_mongo.transactions.insert_one({"id": str(tx['id']), "guild_id": guild['guild_id']})        
 
     async def subscriber(subscription: pnwkit.Subscription):
+        nonlocal guilds
         while True:
             try:
                 async for x in subscription:
