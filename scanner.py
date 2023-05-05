@@ -97,10 +97,10 @@ async def transaction_scanner() -> None:
                     guild['transactions_api_keys'][i] = (key, alliance_id)
             except Exception as e:
                 if "invalid api" in str(e).lower() or key == "":
-                    logger.info(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}. Error: {e}")
+                    logger.info(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}. Error: ", exc_info=True)
                     guild['transactions_api_keys'].remove(key_data)
                 else:
-                    logger.info(f"Not removing (0) invalid? key {key} from guild {guild['guild_id']}. Error: {e}")
+                    logger.info(f"Not removing (0) invalid? key {key} from guild {guild['guild_id']}. Error: ", exc_info=True)
         return guild
 
     async def record(tx: dict, guild: dict) -> None:
