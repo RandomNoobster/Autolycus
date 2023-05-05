@@ -78,6 +78,9 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
                         retry += 1
                         await asyncio.sleep(1)
                         continue
+                    elif "error" in json_response:
+                        if "errors" in json_response["error"]:
+                            raise Exception(json_response["error"]["errors"])
                 return json_response
 
 def get_query(*queries: Union[dict, tuple]) -> str:
