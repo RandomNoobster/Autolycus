@@ -394,6 +394,9 @@ class General(commands.Cog):
 
                     if not isinstance(war["war_type"], str):
                         war["war_type"] = war["war_type"].name
+                    
+                    if "turns_left" in war:
+                        war["turnsleft"] = war["turns_left"]
 
                     for k,v in war.items():
                         try:
