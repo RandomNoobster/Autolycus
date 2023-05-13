@@ -144,10 +144,12 @@ class General(commands.Cog):
                             logger.error(e, exc_info=True)
                             await debug_channel.send(f"I encountered an error when creating a thread: ```{e}```")
                             return
-                        await self.add_to_thread(thread, friend['id'], friend)
+                        if war['turnsleft'] > 0:
+                            await self.add_to_thread(thread, friend['id'], friend)
                         matching_thread = thread
                     elif found:
-                        await matching_thread.send(embed=embed)
+                        if war['turnsleft'] > 0:
+                            await matching_thread.send(embed=embed)
                         await self.add_to_thread(matching_thread, friend['id'], friend)
                     
                     attack_logs = {"id": war['id'], "guild_id": channel.guild.id, "attacks": [], "detected": datetime.utcnow(), "finished": False}
@@ -437,8 +439,8 @@ class General(commands.Cog):
                     while True:
                         try:
                             async for war in subscription:
-                                sub_war = war
-                                print(sub_war.id, " registered ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
+                                #sub_war = war
+                                #print(sub_war.id, " registered ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
                                 #subby = vars(subscription)
                                 #logger.info("New war: " + str(subby))
                                 war = vars(war)
@@ -451,7 +453,7 @@ class General(commands.Cog):
                                     attack_logs = await async_mongo.war_logs.find_one({"id": war['id'], "guild_id": channel.guild.id})
                                     if not attack_logs:
                                         await cthread(war, enemy, friend, channel)
-                                print(sub_war.id, " wrote off ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
+                                #print(sub_war.id, " wrote off ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
                                 await dependent_async_db.wars.find_one_and_replace({"id": war['id']}, war, upsert=True)
                         except Exception as e:
                             logger.error(e, exc_info=True)
