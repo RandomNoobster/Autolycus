@@ -810,6 +810,7 @@ class Background(commands.Cog):
             message = None
             api_key = None
             sent_from = None
+            keys_info = []
 
             class yes_or_no(discord.ui.View):
                 def __init__(self):
@@ -854,7 +855,7 @@ class Background(commands.Cog):
                     self.keys_info = keys_info
 
                     for key_info in keys_info:
-                        new_option = discord.SelectOption(label=f"{key_info['nation']['alliance']['name']} ({nation['nation']['alliance']['id']}) through {key_info['nation']['nation_name']}", value=key_info['key'], description="Send from this bank")
+                        new_option = discord.SelectOption(label=f"{key_info['nation']['alliance']['name']} ({key_info['nation']['alliance']['id']}) through {key_info['nation']['nation_name']}", value=key_info['key'], description="Send from this bank")
                         if new_option not in options:
                             options.append(new_option)
 
@@ -938,53 +939,77 @@ class Background(commands.Cog):
                 await message.edit(content=f"<:redcross:862669500977905694> Request was denied by {interactor}", embed=bal_embed)
                 return
             author_user = await self.bot.fetch_user(author)
-            
-            if len(keys) > 1:
-                keys_info = []
-                for key in keys:
-                    nation = (await utils.call(utils.get_query(queries.REQUEST), key))['data']['me']
-                    keys_info.append(nation)
-                drop_view = DropdownView(self.bot, keys_info)
-                await message.edit(view=drop_view)
-                timed_out = await drop_view.wait()
-                if timed_out:
-                    return
-                if not api_key:
-                    timestamp = f"<t:{round(datetime.utcnow().timestamp())}:R>"
-                    bal_embed.color = 0xff0000
-                    await message.edit(content=f"<:redcross:862669500977905694> Request was denied by {interactor.mention} {timestamp}", embed=bal_embed)
+
+            success = False
+            msg_content = ""
+            while not success:
+                await message.edit(content=msg_content)
+                if len(keys) > 1:
+                    keys_info = []
+                    for key in keys:
+                        nation = (await utils.call(utils.get_query(queries.REQUEST), key))['data']['me']
+                        keys_info.append(nation)
+                    drop_view = DropdownView(self.bot, keys_info)
+                    await message.edit(view=drop_view)
+                    timed_out = await drop_view.wait()
+                    if timed_out:
+                        return
+                    if not api_key:
+                        timestamp = f"<t:{round(datetime.utcnow().timestamp())}:R>"
+                        bal_embed.color = 0xff0000
+                        await message.edit(content=f"<:redcross:862669500977905694> Request was denied by {interactor.mention} {timestamp}", embed=bal_embed)
+                        try: 
+                            await author_user.send(f"<:redcross:862669500977905694> Your request was denied by {interactor.mention} {timestamp}", embed=bal_embed)
+                        except discord.errors.Forbidden:
+                            await message.reply(f"{author_user.mention} I was unable to DM you, but your request was denied!")
+                        return
+                else:
+                    api_key = keys[0]
+                
+                await message.edit("Performing transaction...")
+
+                timestamp = f"<t:{round(datetime.utcnow().timestamp())}:R>"
+                withdraw_data['note'] = f'"Approved by {interactor} via Discord."'
+                success = await utils.withdraw(api_key, withdraw_data)  
+
+                if sent_from:
+                    sent_from = f":information_source: Sent from {sent_from}"
+                else:
+                    sent_from = ""
+                
+                msg_content += f"\n:white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}"
+
+                if success:
+                    bal_embed.color = 0x2bff00
+                    await message.edit(content=msg_content, embed=bal_embed, view=view)
                     try: 
-                        await author_user.send(f"<:redcross:862669500977905694> Your request was denied by {interactor.mention} {timestamp}", embed=bal_embed)
+                        await author_user.send(f":white_check_mark: Your request was approved by {interactor.mention} {timestamp}", embed=bal_embed)
                     except discord.errors.Forbidden:
-                        await message.reply(f"{author_user.mention} I was unable to DM you, but your request was denied!")
+                        await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved!")
                     return
-            else:
-                api_key = keys[0]
-            
-            await message.edit("Performing transaction...")
+                else:
+                    class RetryView(yes_or_no):
+                        @discord.ui.button(label="Retry", style=discord.ButtonStyle.secondary, emoji="<:retry:1115666455443288075>", custom_id="retry")
+                        async def retry(self, b: discord.ui.Button, i: discord.Interaction):
+                            await i.response.edit_message()
+                            self.stop()
+                    retry_view = RetryView()
+                    retry_view.disable_all_items()
+                    retry_view.get_item("retry").disabled = False
+                    
+                    msg_content += f"\n:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank"
+                    await message.edit(content=msg_content, embed=bal_embed, view=retry_view)
+                    
+                    timed_out = await retry_view.wait()
+                    if timed_out:
+                        print("died")
+                        return
+                    msg_content += "\n\n<:retry:1115666455443288075> Retrying..."
 
-            timestamp = f"<t:{round(datetime.utcnow().timestamp())}:R>"
-            withdraw_data['note'] = f'"Approved by {interactor} via Discord."'
-            success = await utils.withdraw(api_key, withdraw_data)  
-
-            if sent_from:
-                sent_from = f":information_source: Sent from {sent_from}\n"
-            else:
-                sent_from = ""
-
-            if success:
-                bal_embed.color = 0x2bff00
-                await message.edit(content=f':white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}', embed=bal_embed, view=view)
-                try: 
-                    await author_user.send(f":white_check_mark: Your request was approved by {interactor.mention} {timestamp}", embed=bal_embed)
-                except discord.errors.Forbidden:
-                    await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved!")
-            else:
-                await message.edit(content=f":white_check_mark: Request was approved by {interactor.mention} {timestamp}\n{sent_from}:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed, view=view)
-                try:
-                    await author_user.send(f":white_check_mark: Your request was approved by {interactor.mention} {timestamp}\n:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed)
-                except discord.errors.Forbidden:
-                    await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved! It seems like it failed though, so that sucks.")
+                    try:
+                        await author_user.send(f":white_check_mark: Your request was approved by {interactor.mention} {timestamp}\n:warning: This request might have failed. Check this page to be sure: https://politicsandwar.com/nation/id={person['id']}&display=bank", embed=bal_embed)
+                    except discord.errors.Forbidden:
+                        await message.reply(f"{author_user.mention} I was unable to DM you, but your request was approved! It seems like it failed though, so that sucks.")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
