@@ -135,15 +135,7 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
-from pympler import asizeof
-async def size_check():
-    while True:
-        print(asizeof.asizeof(bot))
-        #logger.critical(f"app is {asizeof.asizeof(app):,} bytes")
-        logger.critical(f"bot is {asizeof.asizeof(bot):,} bytes")
-        await asyncio.sleep(3600)
-
 from server import run
-asyncio.ensure_future(size_check())
 asyncio.ensure_future(run())
+
 bot.run(os.getenv("bot_token"))
