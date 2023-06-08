@@ -8,8 +8,6 @@ import datetime
 import pnwkit
 import motor.motor_asyncio
 import asyncio
-import asyncio
-from discord.bot import ApplicationCommandMixin
 from discord.ext import commands
 import shutil
 intents = discord.Intents.default()
@@ -43,7 +41,7 @@ logger = logging.getLogger()
 kit = pnwkit.QueryKit(api_key)
 
 # discord bot
-bot = commands.Bot(intents=intents)
+bot = commands.Bot(intents=intents, command_prefix="!")
 
 # creating files if they do not exist and reseting them
 cwd = pathlib.Path.cwd()
@@ -75,12 +73,7 @@ async def on_ready():
     logger.info(f"I am in {n} servers:")
     for guild in guilds:
         extra = ""
-        try:
-            await ApplicationCommandMixin.get_desynced_commands(bot, guild.id)
-        except discord.errors.Forbidden:
-            owner = guild.owner
-            extra = f"|| Slash disallowed, DM {owner}"
-            n -= 1
+        n -= 1
         logger.info(f"-> {guild.member_count} members || {guild} {extra}")
     logger.info(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
