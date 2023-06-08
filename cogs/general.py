@@ -19,7 +19,7 @@ api_key = os.getenv("api_key")
 class Background(commands.Cog):
 
     def __init__(self, bot):
-        self.bot = bot
+        self.bot: discord.Bot = bot
 
     @slash_command(
         name="who",
@@ -1304,8 +1304,11 @@ class Background(commands.Cog):
     async def help(self, ctx):
         try:
             help_text = ""
-            for command in list(self.bot._application_commands.values())[1:]:
-                help_text += f"`{command}` - {command.description}\n"
+            cmds = list(self.bot.application_commands)
+            cmds.sort(key=lambda x: f"{x}")
+            for command in cmds:
+                if not f"`{command}`" in help_text:
+                    help_text += f"`{command}` - {command.description}\n"
             help_text += "\nHere you can find the [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/) and [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)"
             embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
