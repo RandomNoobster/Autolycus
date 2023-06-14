@@ -46,7 +46,7 @@ class General(commands.Cog):
                                     if nation['beige_turns'] == 1:
                                         turns = int(nation['beige_turns'])
                                         time = datetime.utcnow()
-                                        if time.hour % 2 == 0 or (time.hour % 2 != 0 and time.minute <= 50):
+                                        if time.hour % 2 == 0 or (time.hour % 2 != 0 and time.minute <= 30):
                                             break
                                         else:
                                             time += timedelta(hours=turns*2-1)
@@ -55,7 +55,7 @@ class General(commands.Cog):
                                     elif nation['vacation_mode_turns'] == 1:
                                         turns = int(nation['vacation_mode_turns'])
                                         time = datetime.utcnow()
-                                        if time.hour % 2 == 0 or time.minute <= 50:
+                                        if time.hour % 2 == 0 or time.minute <= 30:
                                             break
                                         else:
                                             time += timedelta(hours=turns*2-1)
