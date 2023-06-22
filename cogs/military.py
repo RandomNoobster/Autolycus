@@ -283,8 +283,51 @@ class TargetFinding(commands.Cog):
                 async def on_timeout(self):
                     await utils.run_timeout(ctx, view)
                                 
-            performace_filter = None
+            minimum_beige_loot = None
             class stage_seven(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+
+                @discord.ui.button(label="No minimum", style=discord.ButtonStyle.primary)
+                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal minimum_beige_loot
+                    minimum_beige_loot = 0
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="$5 million", style=discord.ButtonStyle.primary)
+                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal minimum_beige_loot
+                    minimum_beige_loot = 5000000
+                    await i.response.edit_message()
+                    self.stop()
+
+                @discord.ui.button(label="$10 million", style=discord.ButtonStyle.primary)
+                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal minimum_beige_loot
+                    minimum_beige_loot = 10000000
+                    await i.response.edit_message()
+                    self.stop()
+                
+                @discord.ui.button(label="$20 million", style=discord.ButtonStyle.primary)
+                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
+                    nonlocal minimum_beige_loot
+                    minimum_beige_loot = 20000000
+                    await i.response.edit_message()
+                    self.stop()
+                
+                async def interaction_check(self, interaction) -> bool:
+                    if interaction.user != ctx.author:
+                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                        return False
+                    else:
+                        return True
+                
+                async def on_timeout(self):
+                    await utils.run_timeout(ctx, view)
+            
+            performace_filter = None
+            class stage_eight(discord.ui.View):
                 def __init__(self):
                     super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
 
@@ -327,16 +370,18 @@ class TargetFinding(commands.Cog):
             if not last_fetched or not file_content:
                 await ctx.send("I ran into an issue when loading nations. Please try again in a few minutes. If this is a recurring issue, please contact RandomNoobster#0093.")
                 return
+            new_turn: bool = datetime.fromtimestamp(last_fetched).hour % 2 != 0 and datetime.utcnow().hour % 2 == 0
                 
             embed1 = discord.Embed(title=f"Configuration", description="Do you want to use the same configuration (presenatation & filters) that you used last time running this command?", color=0xff5100)
             embed2 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
-            embed3 = discord.Embed(title=f"Filters (1/5)", description="What nations do you want to include?", color=0xff5100)
-            embed4 = discord.Embed(title=f"Filters (2/5)", description="How many active defensive wars should they have?", color=0xff5100)
-            embed5 = discord.Embed(title=f"Filters (3/5)", description="How inactive should they be?", color=0xff5100)
-            embed6 = discord.Embed(title=f"Filters (4/5)", description="Do you want to include beige nations?", color=0xff5100)
-            embed7 = discord.Embed(title=f"Filters (5/5)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
+            embed3 = discord.Embed(title=f"Filters (1/6)", description="What nations do you want to include?", color=0xff5100)
+            embed4 = discord.Embed(title=f"Filters (2/6)", description="How many active defensive wars should they have?", color=0xff5100)
+            embed5 = discord.Embed(title=f"Filters (3/6)", description="How inactive should they be?", color=0xff5100)
+            embed6 = discord.Embed(title=f"Filters (4/6)", description="Do you want to include beige nations?", color=0xff5100)
+            embed7 = discord.Embed(title=f"Filters (5/6)", description="Should there be a minimum previous beige loot?", color=0xff5100)
+            embed8 = discord.Embed(title=f"Filters (6/6)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
 
-            option_list = [(embed1, stage_one()), (embed2, stage_two()), (embed3, stage_three()), (embed4, stage_four()), (embed5, stage_five()), (embed6, stage_six()), (embed7, stage_seven())]
+            option_list = [(embed1, stage_one()), (embed2, stage_two()), (embed3, stage_three()), (embed4, stage_four()), (embed5, stage_five()), (embed6, stage_six()), (embed7, stage_seven()), (embed8, stage_eight())]
             user = await async_mongo.global_users.find_one({"user": ctx.author.id})
             if "raids_config" not in user:
                 option_list.pop(0)
@@ -354,6 +399,12 @@ class TargetFinding(commands.Cog):
                     inactive_limit = user['raids_config']['inactive_limit']
                     beige = user['raids_config']['beige']
                     performace_filter = user['raids_config']['performace_filter']
+                    # this was added later on when some people may not have it in their raid_config
+                    # which makes this check necessary 
+                    if "minimum_beige_loot" in user['raids_config']:
+                        minimum_beige_loot = user['raids_config']['minimum_beige_loot']
+                    else:
+                        minimum_beige_loot = 0
                     break
             
             view = None
@@ -362,6 +413,7 @@ class TargetFinding(commands.Cog):
             done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
 
             await ctx.edit(content="Caching targets...")
+            temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(ctx, query_for_nation=False, parsed_nation=atck_ntn)
             for done_job in done_jobs:
                 for x in done_job['data']['nations']['data']:
                     if who == " alliance_position:[0,1]":
@@ -392,7 +444,68 @@ class TargetFinding(commands.Cog):
                         continue
                     if (datetime.utcnow() - datetime.strptime(x['last_active'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days < inactive_limit:
                         continue
+
+                    # minimum loot filter start
+                    prev_nat_loot = False
+                    x['def_slots'] = 0
+                    x['time_since_war'] = "14+"
+                    
+                    if x['wars'] != []:
+                        for war in x['wars']:
+                            if war['date'] == '-0001-11-30 00:00:00':
+                                x['wars'].remove(war)
+                            elif war['defid'] == x['id']:
+                                if war['turnsleft'] > 0:
+                                    x['def_slots'] += 1
+                                
+                        wars = sorted(x['wars'], key=lambda k: k['date'], reverse=True)
+                        war = wars[0]
+                        if x['def_slots'] == 0:
+                            x['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
+                        else:
+                            x['time_since_war'] = "Ongoing"
+                        for war in wars:
+                            if war['turnsleft'] <= 0:
+                                nation_loot = 0
+                                for attack in war['attacks']:
+                                    if attack['victor'] == x['id']:
+                                        continue
+                                    if attack['loot_info']:
+                                        text = attack['loot_info']
+                                        if "won the war and looted" in text:
+                                            nation_loot += utils.beige_loot_value(text, prices)
+                                        else:
+                                            continue
+                                try:
+                                    if war['attacker']['war_policy'] == "ATTRITION":
+                                        nation_loot = nation_loot / 80 * 100
+                                    elif war['attacker']['war_policy'] == "PIRATE":
+                                        nation_loot = nation_loot / 140 * 100
+                                    if war['war_type'] == "ATTRITION":
+                                        nation_loot = nation_loot * 4
+                                    elif war['war_type'] == "ORDINARY":
+                                        nation_loot = nation_loot * 2
+                                    x['nation_loot'] = f"{round(nation_loot):,}"
+                                    x['nation_loot_value'] = nation_loot
+                                    prev_nat_loot = True
+                                except:
+                                    # if you are here, it is probably because the attacker has deleted their nation
+                                    pass
+                                break
+
+                    if prev_nat_loot == False:
+                        x['nation_loot'] = "NaN"
+                        x['nation_loot_value'] = 0
+                    
+                    if x['nation_loot_value'] < minimum_beige_loot:
+                        continue
+                    # minimum loot filter end
+
+                    if new_turn:
+                        x['beige_turns'] -= 1
+                        x['vacation_mode_turns'] -= 1
                     target_list.append(x)
+
                     
             if len(target_list) == 0:
                 await ctx.edit(content="No targets matched your criteria!", attachments=[])
@@ -418,71 +531,21 @@ class TargetFinding(commands.Cog):
                     filter_list.append('omit "bad" targets')
                 if inactive_limit != 0:
                     filter_list.append(f"hide nations that logged in within the last {inactive_limit} days")
+                if minimum_beige_loot != 0:
+                    filter_list.append(f"hide nations with less than ${minimum_beige_loot:,} previous beige loot".replace(",000,000","m"))
                 filters = filters + ", ".join(filter_list)
             else:
                 filters += "No active filters"
             
-            await async_mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$set": {"raids_config": {"webpage": webpage, "discord_embed": discord_embed, "who": who, "max_wars": max_wars, "inactive_limit": inactive_limit, "beige": beige, "performace_filter": performace_filter}}})
-
-            temp, colors, prices, treasures, radiation, seasonal_mod = await utils.pre_revenue_calc(ctx, query_for_nation=False, parsed_nation=atck_ntn)
+            await async_mongo.global_users.find_one_and_update({"user": ctx.author.id}, {"$set": {"raids_config": {"webpage": webpage, "discord_embed": discord_embed, "who": who, "max_wars": max_wars, "inactive_limit": inactive_limit, "beige": beige, "performace_filter": performace_filter, "minimum_beige_loot": minimum_beige_loot}}})
 
             await ctx.edit(content='Calculating best targets...')
 
             for target in target_list:
                 embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
-                prev_nat_loot = False
                 target['infrastructure'] = 0
-                target['def_slots'] = 0
-                target['time_since_war'] = "14+"
                 
-                if target['wars'] != []:
-                    for war in target['wars']:
-                        if war['date'] == '-0001-11-30 00:00:00':
-                            target['wars'].remove(war)
-                        elif war['defid'] == target['id']:
-                            if war['turnsleft'] > 0:
-                                target['def_slots'] += 1
-                            
-                    wars = sorted(target['wars'], key=lambda k: k['date'], reverse=True)
-                    war = wars[0]
-                    if target['def_slots'] == 0:
-                        target['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days
-                    else:
-                        target['time_since_war'] = "Ongoing"
-                    for war in wars:
-                        if war['turnsleft'] <= 0:
-                            nation_loot = 0
-                            for attack in war['attacks']:
-                                if attack['victor'] == target['id']:
-                                    continue
-                                if attack['loot_info']:
-                                    text = attack['loot_info']
-                                    if "won the war and looted" in text:
-                                        nation_loot += utils.beige_loot_value(text, prices)
-                                    else:
-                                        continue
-                            try:
-                                if war['attacker']['war_policy'] == "ATTRITION":
-                                    nation_loot = nation_loot / 80 * 100
-                                elif war['attacker']['war_policy'] == "PIRATE":
-                                    nation_loot = nation_loot / 140 * 100
-                                if war['war_type'] == "ATTRITION":
-                                    nation_loot = nation_loot * 4
-                                elif war['war_type'] == "ORDINARY":
-                                    nation_loot = nation_loot * 2
-                                target['nation_loot'] = f"{round(nation_loot):,}"
-                                target['nation_loot_value'] = nation_loot
-                                embed.add_field(name="Previous nation loot", value=f"${round(nation_loot):,}")
-                                prev_nat_loot = True
-                            except:
-                                # if you are here, it is probably because the attacker has deleted their nation
-                                pass
-                            break
-
-                if prev_nat_loot == False:
-                    embed.add_field(name="Previous nation loot", value="NaN")
-                    target['nation_loot'] = "NaN"
-                    target['nation_loot_value'] = 0
+                embed.add_field(name="Previous nation loot", value=target["nation_loot"])
 
                 rev_obj = await utils.revenue_calc(ctx, target, radiation, treasures, prices, colors, seasonal_mod)
 
