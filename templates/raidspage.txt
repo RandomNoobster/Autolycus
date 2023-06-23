@@ -203,9 +203,9 @@
         <script>
             const getCellValue = (tr, idx) => tr.children[idx].innerText
                 .replace(/,/g, '')
-                .replace('Ongoing', '0')
+                .replace('Ongoing', '-1')
                 .replace('14+', '14')
-                .replace('NaN', '0');
+                .replace('NaN', '-1');
 
             const comparer = (idx, asc) => (a, b) => ((v1, v2) => 
                 v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
