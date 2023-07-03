@@ -14,8 +14,6 @@ load_dotenv()
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
-api_key = os.getenv("api_key")
-
 class General(commands.Cog):
 
     def __init__(self, bot):
@@ -25,7 +23,56 @@ class General(commands.Cog):
 
     async def alert_scanner(self):
         await self.bot.wait_until_ready()
+        unique_ids: list[str] = []
+        alerts: list[dict] = []
+
+        async def sub_handler(sub):
+            nonlocal unique_ids
+            async for x in sub:
+                try:
+                    if str(x.id) in unique_ids:
+                        if int(x.vacation_mode_turns) == 0 and int(x.beige_turns) == 0:
+                            await remind(str(x.id), preemptive=True, pull=True)
+                except Exception as e:
+                    logger.error(traceback.format_exc())
+        
+        async def remind(nation_id: str, preemptive: bool = False, pull: bool = False):
+            nonlocal alerts
+            for user in alerts:
+                for alert in user['beige_alerts']:
+                    if alert == nation_id:
+                        # TODO
+                        # disc_user = await self.bot.fetch_user(465463547200012298)
+                        disc_user = await self.bot.fetch_user(user['user'])
+                        if preemptive:
+                            content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
+                        elif nation['beige_turns'] >= 1:
+                            turns = int(nation['beige_turns'])
+                            content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
+                        elif nation['vacation_mode_turns'] >= 1:
+                            turns = int(nation['vacation_mode_turns'])
+                            content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving vacation mode <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
+                        else:
+                            content = f"Hey, https://politicsandwar.com/nation/id={alert} left beige while I wasn't looking!"
+                            print("How did we get here?")
+                            logger.error(f"Something fucky with beige alerts (2)\n\nAlert: {alert}\n\nUser: {user}")
+                            await debug_channel.send(utils.cut_string(f"**Exception passed**\n\nSomething fucky with beige alerts (2).\n\nAlert: {alert}\n\nUser: {user}"))
+
+                        try:
+                            await disc_user.send(content)
+                        except Exception as e:
+                            logger.error(e, exc_info=True)
+                            await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
+
+                        if pull:
+                            await async_mongo.global_users.find_one_and_update({"user": user['user']}, {"$pull": {"beige_alerts": alert}})
+                    break
+
+
         debug_channel = self.bot.get_channel(channel_id)
+        nation_updates = await kit.subscribe("nation", "update", {"include": ["beige_turns", "vacation_mode_turns", "id"]})
+        asyncio.ensure_future(sub_handler(nation_updates))
+
         while True:
             try:
                 alerts = await utils.listify(async_mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
@@ -36,44 +83,42 @@ class General(commands.Cog):
                 unique_ids = list(set(nation_ids))
 
                 res = await utils.paginate_call(f"{{nations(page:page_number first:500 id:[{','.join(unique_ids)}]){{paginatorInfo{{hasMorePages}} data{{id vacation_mode_turns beige_turns}}}}}}", "nations")
-
                 for user in alerts:
+                    if "beige_alerts_config" in user:
+                        times_to_send: list[int] = user['beige_alerts_config']
+                        times_to_send.sort(reverse=True)
+                    else:
+                        times_to_send = [15]
                     for alert in user['beige_alerts']:
                         for nation in res:
                             if alert == nation['id']:
-                                if nation['beige_turns'] <= 1 and nation['vacation_mode_turns'] <= 1:
-                                    disc_user = await self.bot.fetch_user(user['user'])
-                                    if nation['beige_turns'] == 1:
-                                        turns = int(nation['beige_turns'])
-                                        time = datetime.utcnow()
-                                        if time.hour % 2 == 0 or (time.hour % 2 != 0 and time.minute <= 30):
-                                            break
+                                if nation['beige_turns'] >= 1:
+                                    exiting_time = utils.get_datetime_of_turns(int(nation['beige_turns']))
+                                elif nation['vacation_mode_turns'] >= 1:
+                                    exiting_time = utils.get_datetime_of_turns(int(nation['vacation_mode_turns']))
+                                else:
+                                    print("How did we get here?")
+                                    logger.error(f"Something fucky with beige alerts (1)\n\nNation: {nation}\n\nUser: {user}")
+                                    await debug_channel.send(utils.cut_string(f"**Exception passed**\n\nSomething fucky with beige alerts (1).\n\nNation: {nation}\n\nUser: {user}"))
+                                    exiting_time = utils.get_datetime_of_turns(0)
+                                reminded = False
+                                for sending_time in times_to_send:
+                                    if datetime.utcnow() - timedelta(seconds=50) < exiting_time - timedelta(minutes=sending_time) < datetime.utcnow() + timedelta(seconds=50):
+                                        if times_to_send.index(sending_time) == len(times_to_send) - 1:
+                                            pull = True
                                         else:
-                                            time += timedelta(hours=turns*2-1)
-                                        time = datetime(time.year, time.month, time.day, time.hour)
-                                        content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(time.timestamp())}:R>!"
-                                    elif nation['vacation_mode_turns'] == 1:
-                                        turns = int(nation['vacation_mode_turns'])
-                                        time = datetime.utcnow()
-                                        if time.hour % 2 == 0 or time.minute <= 30:
-                                            break
-                                        else:
-                                            time += timedelta(hours=turns*2-1)
-                                        time = datetime(time.year, time.month, time.day, time.hour)
-                                        content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving vacation mode <t:{round(time.timestamp())}:R>!"
-                                    else:
-                                        content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
-                                    try:
-                                        await disc_user.send(content)
-                                    except Exception as e:
-                                        logger.error(e, exc_info=True)
-                                        await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
-                                    await async_mongo.global_users.find_one_and_update({"user": user['user']}, {"$pull": {"beige_alerts": alert}})
+                                            pull = False
+                                        await remind(nation["id"], pull=pull)
+                                        reminded = True
+                                        break
+                                if not reminded and nation['beige_turns'] == 0 and nation['vacation_mode_turns'] == 0:
+                                    logger.info(f"Reminding {user['user']} about {nation['id']} too late!!")
+                                    await remind(nation["id"], pull=True)
                                 break
             except Exception as e:
                 logger.error(e, exc_info=True)
                 await debug_channel.send(utils.cut_string(f'**Exception __caught__!**\nWhere: Scanning beige alerts\n\nError:```{traceback.format_exc()}```'))
-            await asyncio.sleep(300)
+            await asyncio.sleep(100)
 
     
     async def add_to_thread(self, thread, friend_id: Union[str, int], friend: dict = None):

@@ -2,7 +2,7 @@ import math
 import discord
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Union, Tuple
 import aiohttp
 import re
@@ -28,7 +28,7 @@ logger = logging.getLogger()
 api_key = os.getenv("api_key")
 
 RSS = ['aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium', 'credits']
-
+EMBED_COLOR = 0xff5100
 
 async def paginate_call(data: str, path: str, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
     """
@@ -142,6 +142,18 @@ def cut_string(string: str, length: int = 2000) -> str:
         return string[:length-6] + "...```"
     else:
         return string
+
+def comma_and_list(listy: list) -> str:
+    if len(listy) == 0:
+        return ""
+    elif len(listy) == 1:
+        return listy[0]
+    else:
+        return "{} and {}".format(", ".join(listy[:-1]),  listy[-1])
+
+def get_datetime_of_turns(turns: int) -> datetime:
+    now = datetime.utcnow()
+    return (now + timedelta(hours = turns * 2 - 1 * bool(now.hour % 2))).replace(minute=0, second=0, microsecond=0)
 
 def beige_loot_value(loot_string: str, prices: dict) -> int:
     loot_string = loot_string[loot_string.index('$'):loot_string.index('Food.')]
@@ -262,21 +274,40 @@ def embed_pager(title: str, fields: list, description: str = "", color: int = 0x
             index += 1
     return embeds
 
+class SimpleModal(discord.ui.Modal):
+    def __init__(self, label, placeholder, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.text = ""
+        self.add_item(discord.ui.InputText(label=label, placeholder=placeholder))
+
+    async def callback(self, interaction: discord.Interaction):
+        self.text = self.children[0].value
+        await interaction.response.edit_message()
+        self.stop()
+
 class yes_or_no_view(discord.ui.View):
-    def __init__(self, ctx, timeout: int = 600, author_check: bool = True):
+    def __init__(self, ctx, positive: str = "Yes", negative: str = "No", positive_style: discord.ButtonStyle = discord.ButtonStyle.green, negative_style: discord.ButtonStyle = discord.ButtonStyle.red, timeout: int = 600, author_check: bool = True):
         super().__init__(timeout=timeout)
         self.ctx = ctx
         self.author_check = author_check
         self.result = None
 
-    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green)
-    async def primary_callback(self, b: discord.Button, i: discord.Interaction):
+        self.positive = positive
+        positive_button = discord.ui.Button(label=self.positive, style=positive_style)
+        positive_button.callback = self.primary_callback
+        self.add_item(positive_button)
+
+        self.negative = negative
+        negative_button = discord.ui.Button(label=self.negative, style=negative_style)
+        negative_button.callback = self.secondary_callback
+        self.add_item(negative_button)
+
+    async def primary_callback(self, i: discord.Interaction):
         self.result = True
         await i.response.edit_message()
         self.stop()
     
-    @discord.ui.button(label="No", style=discord.ButtonStyle.red)
-    async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
+    async def secondary_callback(self, i: discord.Interaction):
         self.result = False
         await i.response.edit_message()
         self.stop()

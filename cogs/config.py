@@ -176,6 +176,89 @@ class Config(commands.Cog):
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
+        
+    @config_group.command(
+        name="reminders",
+        description="Configure your personal beige reminders"
+    )
+    @commands.has_permissions(manage_guild=True)
+    async def config_beige_reminders(
+        self,
+        ctx: discord.ApplicationContext,
+    ):      
+        try:  
+            await ctx.defer()
+            user = await async_mongo.global_users.find_one({"user": ctx.user.id})
+            if not user:
+                await ctx.edit(f"I could not find you in my database! Please use {ctx.bot.get_application_command('verify').mention} first.")
+                return
+            if "beige_alerts" not in user:
+                user['beige_alerts'] = []
+            if "beige_alerts_config" not in user:
+                user['beige_alerts_config'] = []
+            elif user['beige_alerts_config'] == None:
+                user['beige_alerts_config'] = []
+                
+            while True:
+                if not user['beige_alerts_config'] == []:
+                    description = f"Your current configuration is to recieve reminders {utils.comma_and_list([f'{x} minutes' for x in user['beige_alerts_config']])} before a nation exits beige. Do you want to keep this configuration (and have the option to add more reminders) or do you want to discard it?"
+                    embed = discord.Embed(title="Configuration of beige reminders", description=description, color=utils.EMBED_COLOR)
+                    view = utils.yes_or_no_view(ctx, positive="Keep", negative="Discard")
+                    await ctx.edit(embed=embed, view=view)
+                    timed_out = await view.wait()
+                    if timed_out:
+                        return
+                    if not view.result:
+                        user['beige_alerts_config'] = []
+                
+                if not user['beige_alerts_config'] == []:
+                    description = f"Your current configuration is to recieve reminders {utils.comma_and_list([f'{x} minutes' for x in user['beige_alerts_config']])} before a nation exits beige. Do you want to get another reminder at some other time?"
+                else:
+                    description = "You currently have no reminders configured. Do you want to add a reminder for when a nation exits beige?"
+
+                embed = discord.Embed(title="Configuration of beige reminders", description=description, color=utils.EMBED_COLOR)
+                modal = utils.SimpleModal(title="Configuration of beige reminders", label="Minutes before exiting beige", placeholder="Enter an integer, e.g. 5")
+                view = utils.yes_or_no_view(ctx, positive="Add more", negative="Finish configuration", positive_style=discord.ButtonStyle.blurple, negative_style=discord.ButtonStyle.blurple)
+                
+                async def primary_callback(i: discord.Interaction):
+                    self = view
+                    self.result = True
+                    await i.response.send_modal(modal)
+                    self.stop()
+
+                view.children[0].callback = primary_callback
+                await ctx.edit(embed=embed, view=view)
+                timed_out = await view.wait()
+                if timed_out:
+                    return
+                
+                if not view.result:
+                    if user['beige_alerts_config'] == []:
+                        description = "You finished the configuration without adding any reminders. The system default of 15 minutes will be used."
+                    else:
+                        description = f"You will be reminded {utils.comma_and_list([f'{x} minutes' for x in user['beige_alerts_config']])} before a nation exits beige."
+                    embed = discord.Embed(title="Configuration of beige reminders", description=description, color=utils.EMBED_COLOR)
+                    view.disable_all_items()
+                    await ctx.edit(embed=embed, view=view)
+                    break                        
+                
+                submitted = await modal.wait()
+                if not submitted:
+                    return
+                reminder = modal.text
+                if reminder.isdigit():
+                    reminder = int(reminder)
+                    if reminder not in user['beige_alerts_config']:
+                        user['beige_alerts_config'].append(reminder)
+                        user['beige_alerts_config'].sort()
+                    await async_mongo.global_users.find_one_and_update({"user": ctx.user.id}, {"$set": {"beige_alerts_config": user["beige_alerts_config"]}}, upsert=True)
+                else:
+                    await ctx.edit(content="The input must be a positive integer!", embed=None, view=None)
+                    return
+            
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
     
     @config_group.command(
         name="targets",
