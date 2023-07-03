@@ -112,7 +112,7 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
     elif "You are missing" in str(error) and "permission(s) to run this command" in str(error):
         await ctx.respond(error.original)
     elif "NoPrivateMessage" in str(error) or isinstance(error, commands.errors.NoPrivateMessage):
-        await ctx.respond(error.original)
+        await ctx.respond(error)
     elif "ValueError" in str(error) and str(ctx.command.full_parent_name) == "cost":
         await ctx.respond(error.original)
     elif "Unknown interaction" in str(error):
