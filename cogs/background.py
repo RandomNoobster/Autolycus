@@ -73,7 +73,7 @@ class General(commands.Cog):
                         if pull:
                             await async_mongo.global_users.find_one_and_update({"user": user['user']}, {"$pull": {"beige_alerts": alert}})
                             logger.info("Reminders (1.7)")
-                    break
+                        break
 
 
         debug_channel = self.bot.get_channel(channel_id)
