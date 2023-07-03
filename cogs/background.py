@@ -32,11 +32,11 @@ class General(commands.Cog):
                 try:
                     if str(x.id) in unique_ids:
                         if int(x.vacation_mode_turns) == 0 and int(x.beige_turns) == 0:
-                            await remind(str(x.id), preemptive=True, pull=True)
+                            await remind(str(x.id), int(x.beige_turns), int(x.vacation_mode_turns), preemptive=True, pull=True)
                 except Exception as e:
                     logger.error(traceback.format_exc())
         
-        async def remind(nation_id: str, preemptive: bool = False, pull: bool = False):
+        async def remind(nation_id: str, beige: int, vm: int, preemptive: bool = False, pull: bool = False):
             nonlocal alerts
             for user in alerts:
                 for alert in user['beige_alerts']:
@@ -46,11 +46,11 @@ class General(commands.Cog):
                         disc_user = await self.bot.fetch_user(user['user'])
                         if preemptive:
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
-                        elif nation['beige_turns'] >= 1:
-                            turns = int(nation['beige_turns'])
+                        elif beige >= 1:
+                            turns = int(beige)
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
-                        elif nation['vacation_mode_turns'] >= 1:
-                            turns = int(nation['vacation_mode_turns'])
+                        elif vm >= 1:
+                            turns = int(vm)
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving vacation mode <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
                         else:
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} left beige while I wasn't looking!"
@@ -108,12 +108,12 @@ class General(commands.Cog):
                                             pull = True
                                         else:
                                             pull = False
-                                        await remind(nation["id"], pull=pull)
+                                        await remind(nation["id"], nation["beige_turns"], nation["vacation_mode_turns"], pull=pull)
                                         reminded = True
                                         break
                                 if not reminded and nation['beige_turns'] == 0 and nation['vacation_mode_turns'] == 0:
                                     logger.info(f"Reminding {user['user']} about {nation['id']} too late!!")
-                                    await remind(nation["id"], pull=True)
+                                    await remind(nation["id"], nation["beige_turns"], nation["vacation_mode_turns"], pull=True)
                                 break
             except Exception as e:
                 logger.error(e, exc_info=True)
