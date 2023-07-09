@@ -41,31 +41,31 @@ class General(commands.Cog):
             for user in alerts:
                 for alert in user['beige_alerts']:
                     if alert == nation_id:
-                        logger.info("Reminders (1.1)")
+                        logger.debug("Reminders (1.1)")
                         # TODO
                         # disc_user = await self.bot.fetch_user(465463547200012298)
                         disc_user = await self.bot.fetch_user(user['user'])
                         if preemptive:
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} has left beige prematurely!"
-                            logger.info("Reminders (1.2)")
+                            logger.debug("Reminders (1.2)")
                         elif beige >= 1:
                             turns = int(beige)
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
-                            logger.info("Reminders (1.3)")
+                            logger.debug("Reminders (1.3)")
                         elif vm >= 1:
                             turns = int(vm)
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving vacation mode <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
-                            logger.info("Reminders (1.4)")
+                            logger.debug("Reminders (1.4)")
                         else:
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} left beige while I wasn't looking!"
-                            logger.info("Reminders (1.5)")
+                            logger.debug("Reminders (1.5)")
                             print("How did we get here?")
                             logger.error(f"Something fucky with beige alerts (2)\n\nAlert: {alert}\n\nUser: {user}")
                             await debug_channel.send(utils.cut_string(f"**Exception passed**\n\nSomething fucky with beige alerts (2).\n\nAlert: {alert}\n\nUser: {user}"))
 
                         try:
                             await disc_user.send(content)
-                            logger.info("Reminders (1.6)")
+                            logger.debug("Reminders (1.6)")
                         except Exception as e:
                             logger.error(e, exc_info=True)
                             await debug_channel.send(f"**Silly person**\nI was attempting to DM {disc_user} about a beige reminder, but I was unable to message them.")
@@ -73,7 +73,7 @@ class General(commands.Cog):
                         if pull:
                             await async_mongo.global_users.find_one_and_update({"user": user['user']}, {"$pull": {"beige_alerts": alert}})
                             user['beige_alerts'].remove(alert)
-                            logger.info("Reminders (1.7)")
+                            logger.debug("Reminders (1.7)")
                         break
 
 
@@ -84,7 +84,7 @@ class General(commands.Cog):
 
         while True:
             try:
-                logger.info("Reminders (1)")
+                logger.debug("Reminders (1)")
                 alerts = await utils.listify(async_mongo.global_users.find({"beige_alerts": {"$exists": True, "$not": {"$size": 0}}}))
                 nation_ids = []
                 for user in alerts:
@@ -102,7 +102,7 @@ class General(commands.Cog):
                     for alert in user['beige_alerts']:
                         for nation in res:
                             if alert == nation['id']:
-                                logger.info("Reminders (2)")
+                                logger.debug("Reminders (2)")
                                 if nation['beige_turns'] >= 1:
                                     exiting_time = utils.get_datetime_of_turns(int(nation['beige_turns']))
                                 elif nation['vacation_mode_turns'] >= 1:
@@ -121,11 +121,11 @@ class General(commands.Cog):
                                             pull = False
                                         await remind(nation["id"], nation["beige_turns"], nation["vacation_mode_turns"], pull=pull)
                                         reminded = True
-                                        logger.info("Reminders (3)")
+                                        logger.debug("Reminders (3)")
                                         break
                                 if not reminded and nation['beige_turns'] == 0 and nation['vacation_mode_turns'] == 0:
-                                    logger.info(f"Reminding {user['user']} about {nation['id']} too late!!")
-                                    logger.info("Reminders (4)")
+                                    logger.debug(f"Reminding {user['user']} about {nation['id']} too late!!")
+                                    logger.debug("Reminders (4)")
                                     await remind(nation["id"], nation["beige_turns"], nation["vacation_mode_turns"], pull=True)
                                 break
             except Exception as e:
