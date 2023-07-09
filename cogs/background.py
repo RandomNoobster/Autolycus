@@ -78,7 +78,8 @@ class General(commands.Cog):
 
 
         debug_channel = self.bot.get_channel(channel_id)
-        nation_updates = await kit.subscribe("nation", "update", {"include": ["beige_turns", "vacation_mode_turns", "id"]})
+        # nation_updates = await kit.subscribe("nation", "update", {"include": ["beige_turns", "vacation_mode_turns", "id"]})
+        nation_updates = await kit.subscribe("nation", "update")
         asyncio.ensure_future(sub_handler(nation_updates))
 
         while True:
