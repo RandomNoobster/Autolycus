@@ -153,7 +153,12 @@ def comma_and_list(listy: list) -> str:
 
 def get_datetime_of_turns(turns: int) -> datetime:
     now = datetime.utcnow()
-    return (now + timedelta(hours = turns * 2 - 1 * bool(now.hour % 2))).replace(minute=0, second=0, microsecond=0)
+    if turns == 0:
+        return now
+    elif turns < 0:
+        return (now + timedelta(hours = turns * 2 + 1 * (not bool(now.hour % 2)) + 1)).replace(minute=0, second=0, microsecond=0)
+    else:
+        return (now + timedelta(hours = turns * 2 - 1 * bool(now.hour % 2))).replace(minute=0, second=0, microsecond=0)
 
 def beige_loot_value(loot_string: str, prices: dict) -> int:
     loot_string = loot_string[loot_string.index('$'):loot_string.index('Food.')]

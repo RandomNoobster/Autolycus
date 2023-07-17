@@ -32,6 +32,7 @@ class General(commands.Cog):
                 try:
                     if str(x.id) in unique_ids:
                         if int(x.vacation_mode_turns) == 0 and int(x.beige_turns) == 0:
+                            logger.info(f"Subscription reminding about {x.id}")
                             await remind(str(x.id), int(x.beige_turns), int(x.vacation_mode_turns), preemptive=True, pull=True)
                 except Exception as e:
                     logger.error(traceback.format_exc())
