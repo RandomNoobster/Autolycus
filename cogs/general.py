@@ -94,8 +94,15 @@ class Background(commands.Cog):
                 vital = "Yes"
             else:
                 vital = "No"
+            
+            if nation['pirate_economy']:
+                max_offense = 6
+            if nation['advanced_pirate_economy']:
+                max_offense = 7
+            else:
+                max_offense = 5
 
-            military_info_2 = f"> Offensive Wars: `{o_wars}`/`5`\n> Defensive Wars: `{d_wars}`/`3`\n> Missiles: `{missiles}`\n> Nukes: `{nukes}`\n> Iron Dome: {dome}\n> Vital Defense: {vital}\n> Turns of Beige: `{nation['beige_turns']}`"
+            military_info_2 = f"> Offensive Wars: `{o_wars}`/`{max_offense}`\n> Defensive Wars: `{d_wars}`/`3`\n> Missiles: `{missiles}`\n> Nukes: `{nukes}`\n> Iron Dome: {dome}\n> Vital Defense: {vital}\n> Turns of Beige: `{nation['beige_turns']}`"
             embed.add_field(name="\u200b", value=military_info_2, inline=True)
 
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")

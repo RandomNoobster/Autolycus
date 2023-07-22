@@ -27,7 +27,7 @@ class TargetFinding(commands.Cog):
             elif defender_value == 0:
                 return 1
             
-            x = attacker_value / defender_value
+            x = (attacker_value**(3/4)) / (defender_value**(3/4))
 
             # should be 2.5 and not 2 but the function would have to be redone
             if x > 2:
@@ -481,6 +481,8 @@ class TargetFinding(commands.Cog):
                                         nation_loot = nation_loot / 80 * 100
                                     elif war['attacker']['war_policy'] == "PIRATE":
                                         nation_loot = nation_loot / 140 * 100
+                                    if war['attacker']['advanced_pirate_economy']:
+                                        nation_loot = nation_loot / 110 * 100 
                                     if war['war_type'] == "ATTRITION":
                                         nation_loot = nation_loot * 4
                                     elif war['war_type'] == "ORDINARY":
@@ -1236,6 +1238,8 @@ class TargetFinding(commands.Cog):
 
         if nation['pirate_economy']:
             max_offense = 6
+        if nation['advanced_pirate_economy']:
+            max_offense = 7
         else:
             max_offense = 5
 
@@ -1317,6 +1321,8 @@ class TargetFinding(commands.Cog):
 
             if x['pirate_economy']:
                 max_offense = 6
+            if x['advanced_pirate_economy']:
+                max_offense = 7
             else:
                 max_offense = 5
             
@@ -1828,6 +1834,8 @@ class TargetFinding(commands.Cog):
                 results[f'{nation}_irond_mod'] = 1
                 results[f'{nation}_fallout_shelter_mod'] = 1
                 results[f'{nation}_military_salvage_mod'] = 0
+                results[f'{nation}_pirate_econ_loot'] = 1
+                results[f'{nation}_advanced_pirate_econ_loot'] = 1
 
                 if results[f'{nation}']['warpolicy'] == "Attrition":
                     results[f'{nation}_policy_infra_dealt'] = 1.1
@@ -1851,13 +1859,17 @@ class TargetFinding(commands.Cog):
                 elif results[f'{nation}']['warpolicy'] == "Arcane":
                     results[f'{nation}_policy_infra_lost'] = 1.05
                 if results[f'{nation}']['vds']:
-                    results[f'{nation}_vds_mod'] = 0.8
+                    results[f'{nation}_vds_mod'] = 0.75
                 if results[f'{nation}']['irond']:
-                    results[f'{nation}_irond_mod'] = 0.5
+                    results[f'{nation}_irond_mod'] = 0.7
                 if results[f'{nation}']['fallout_shelter']:
                     results[f'{nation}_fallout_shelter_mod'] = 0.9
                 if results[f'{nation}']['military_salvage']:
                     results[f'{nation}_military_salvage_mod'] = 1
+                if results[f'{nation}']['pirate_economy']:
+                    results[f'{nation}_pirate_econ_loot'] = 1.05
+                if results[f'{nation}']['advanced_pirate_economy']:
+                    results[f'{nation}_advanced_pirate_econ_loot'] = 1.05
             
             def airstrike_casualties(winrate: Union[int, float]) -> float:
                 rate = -0.4624 * winrate**2 + 1.06256 * winrate + 0.3999            
@@ -1868,7 +1880,7 @@ class TargetFinding(commands.Cog):
             for attacker, defender in [("nation1", "nation2"), ("nation2", "nation1")]:
                 results[f'{attacker}_ground_{defender}_lost_infra_avg'] = max(min(((results[f'{attacker}']['soldiers'] - results[f'{defender}']['soldiers'] * 0.5) * 0.000606061 + (results[f'{attacker}']['tanks'] - (results[f'{defender}']['tanks'] * 0.5)) * 0.01) * 0.95 * results[f'{attacker}_ground_win_rate'], results[defender]['city']['infrastructure'] * 0.2 + 25), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
                 results[f'{attacker}_ground_{defender}_lost_infra_diff'] = results[f'{attacker}_ground_{defender}_lost_infra_avg'] / 0.95 * 0.15
-                results[f'{attacker}_ground_loot_avg'] = (results[f'{attacker}']['soldiers'] * 1.1 + results[f'{attacker}']['tanks'] * 25.15) * (results[f'{attacker}_ground_win_rate'] ** 3) * 3 * 0.95 * results[f'{attacker}_war_loot_mod'] * results[f'{attacker}_policy_loot_stolen'] * results[f'{defender}_policy_loot_lost']
+                results[f'{attacker}_ground_loot_avg'] = (results[f'{attacker}']['soldiers'] * 1.1 + results[f'{attacker}']['tanks'] * 25.15) * (results[f'{attacker}_ground_win_rate'] ** 3) * 3 * 0.95 * results[f'{attacker}_war_loot_mod'] * results[f'{attacker}_policy_loot_stolen'] * results[f'{defender}_policy_loot_lost'] * results[f'{attacker}_pirate_econ_loot'] * results[f'{attacker}_advanced_pirate_econ_loot']
                 results[f'{attacker}_ground_loot_diff'] = results[f'{attacker}_ground_loot_avg'] / 0.95 * 0.1
 
                 results[f'{attacker}_air_{defender}_lost_infra_avg'] = max(min((results[f'{attacker}']['aircraft'] - results[f'{defender}']['aircraft'] * 0.5) * 0.35353535 * 0.95 * results[f'{attacker}_air_win_rate'], results[defender]['city']['infrastructure'] * 0.5 + 100), 0) * results[f'{attacker}_war_infra_mod'] * results[f'{attacker}_policy_infra_dealt'] * results[f'{defender}_policy_infra_lost']
