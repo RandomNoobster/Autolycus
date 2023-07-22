@@ -172,7 +172,17 @@ class General(commands.Cog):
                 channel = None
                 guild_id = None
                 debug_channel = self.bot.get_channel(channel_id)
-                
+
+                async def thread_send(thread: discord.Thread, embed: discord.Embed,):
+                    try:
+                        await thread.send(embed=embed)
+                    except discord.errors.Forbidden as e:
+                        content = f"Hello, you are the server owner of `{thread.guild.name}`. War threads have been configured in your server, but I was unable to send a message in {thread.mention}. Please make sure that I have the `Send Messages in Threads` permission."
+                        async for msg in thread.guild.owner.dm_channel.history(limit=1):
+                            if msg.content == content:
+                                return
+                        await thread.guild.owner.send(content=content)
+
                 # cthread is to generate the thread when a war is declared
                 # makes attack_logs
                 async def cthread(war: dict, enemy: dict, friend: dict, channel: discord.TextChannel) -> Tuple[Union[dict, None], Union[discord.Thread, None]]:
@@ -208,7 +218,7 @@ class General(commands.Cog):
                         matching_thread = thread
                     elif found:
                         if war['turnsleft'] > 0:
-                            await matching_thread.send(embed=embed)
+                            await thread_send(matching_thread, embed)
                         await self.add_to_thread(matching_thread, friend['id'], friend)
                     
                     attack_logs = {"id": war['id'], "guild_id": channel.guild.id, "attacks": [], "detected": datetime.utcnow(), "finished": False}
@@ -347,7 +357,7 @@ class General(commands.Cog):
                             embed.add_field(name=f"Attacker", value=f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']})\n{aaa_link}\n\n**Casualties**:\n{att_casualties}")
                             embed.add_field(name=f"Defender", value=f"[{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']})\n{daa_link}\n\n**Casualties**:\n{def_casualties}")
                             embed.add_field(name="\u200b", value=footer, inline=False)
-                            await thread.send(embed=embed)
+                            await thread_send(thread, embed)
 
                         elif attack_type in ["PEACE", "VICTORY", "ALLIANCELOOT", "EXPIRATION"]:
                             if attack_type == "PEACE":
@@ -387,7 +397,7 @@ class General(commands.Cog):
                                 content = f"The war has lasted 5 days, and has consequently expired. [{war['attacker']['nation_name']}](https://politicsandwar.com/nation/id={war['attacker']['id']}) is no longer fighting an offensive war against [{war['defender']['nation_name']}](https://politicsandwar.com/nation/id={war['defender']['id']})."
                             embed = discord.Embed(title=title, url=url, description=content, color=color)
                             embed.add_field(name="\u200b", value=footer, inline=False)
-                            await thread.send(embed=embed)
+                            await thread_send(thread, embed)
                             await close_thread(thread, friend, war)
 
                         else:
@@ -422,7 +432,7 @@ class General(commands.Cog):
 
                             embed = discord.Embed(title=title, url=url, description=content, color=colors[attack['success']])
                             embed.add_field(name="\u200b", value=footer, inline=False)
-                            await thread.send(embed=embed)
+                            await thread_send(thread, embed)
 
                         await async_mongo.war_logs.find_one_and_update({"id": war['id'], "guild_id": channel.guild.id}, {"$push": {"attacks": attack['id']}})
                     else:
@@ -571,7 +581,7 @@ class General(commands.Cog):
                                             url = f"https://politicsandwar.com/nation/war/timeline/war={war['id']}"
                                             embed = discord.Embed(title="Peace offering", url=url, description=content, color=0xffffff)
                                             embed.add_field(name="\u200b", value=footer, inline=False)
-                                            await matching_thread.send(embed=embed)
+                                            await thread_send(matching_thread, embed)
 
                         except Exception as e:
                             logger.error(e, exc_info=True)
