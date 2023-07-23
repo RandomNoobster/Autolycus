@@ -1078,8 +1078,8 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         color_text = f"\n\nColor Trade Bloc Bonus: ${round(color_bonus):,}"
     food -= nationpop / 1000
 
-    if nation['num_cities'] < 11:
-        new_player_bonus = 2.1 - 0.1 * nation['num_cities']
+    if nation['num_cities'] < 21:
+        new_player_bonus = 2.05 - 0.05 * nation['num_cities']
         new_player_text = f"\n\nNew Player Bonus: ${round((new_player_bonus - 1) * money_income):,}"
     if nation['dompolicy'] == "Open Markets":
         policy_bonus = 1.01
