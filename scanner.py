@@ -91,12 +91,12 @@ async def transaction_scanner() -> None:
                 res = (await utils.call(f"{{me{{nation{{alliance_id alliance_position_info{{withdraw_bank view_bank}}}}}}}}", key))['data']['me']['nation']
                 alliance_id = res['alliance_id']
                 if not res['alliance_position_info']['withdraw_bank'] or not res['alliance_position_info']['view_bank']:
-                    logger.info(f"Locally removing (0) key {key} from guild {guild['guild_id']} due to insufficient permissions")
+                    logger.debug(f"Locally removing (0) key {key} from guild {guild['guild_id']} due to insufficient permissions")
                     guild['transactions_api_keys'].remove(key_data)
                 else:
                     guild['transactions_api_keys'][i] = (key, alliance_id)
             except Exception as e:
-                logger.info(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}. Error: ", exc_info=True)
+                logger.debug(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}. Error: ", exc_info=True)
                 guild['transactions_api_keys'].remove(key_data)
         return guild
 
@@ -181,7 +181,7 @@ async def transaction_scanner() -> None:
                         res = await utils.call(api_query, key_data[0])
                     except Exception as e:
                         if "Invalid API key" in str(e):
-                            logger.info(f"Locally removing (2) invalid key {key_data[0]} from guild {guild['guild_id']}")
+                            logger.debug(f"Locally removing (2) invalid key {key_data[0]} from guild {guild['guild_id']}")
                             guild['transactions_api_keys'].remove(key_data)
                         else:
                             logger.error(e, exc_info=True)
