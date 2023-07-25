@@ -211,8 +211,8 @@ class General(commands.Cog):
                                 thread = await channel.create_thread(name=name, message=message, auto_archive_duration=1440, type=discord.ChannelType.private_thread, reason="War declaration")
                         except discord.errors.HTTPException as e:
                             logger.error(e, exc_info=True)
-                            await debug_channel.send(f"I encountered an error when creating a thread: ```{e}```")
-                            return
+                            await debug_channel.send(f"Guild: {channel.guild.name}\nOwner: {channel.guild.owner.mention}\n I encountered an error when creating a thread: ```{e}```")
+                            raise e
                         if war['turnsleft'] > 0:
                             await self.add_to_thread(thread, friend['id'], friend)
                         matching_thread = thread
