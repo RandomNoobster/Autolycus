@@ -63,6 +63,9 @@ class Config(commands.Cog):
             if channel:
                 content += f"\nChannel for `war threads` set to <#{channel.id}>"
                 perms = channel.permissions_for(ctx.guild.me)
+                if not perms.view_channel:
+                    await ctx.respond(f"I need the `view_channel` permission, but I do not have it in <#{channel.id}>")
+                    return
                 if not perms.manage_threads:
                     await ctx.respond(f"I need the `manage_threads` permission, but I do not have it in <#{channel.id}>")
                     return
