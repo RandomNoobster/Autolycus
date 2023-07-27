@@ -1787,14 +1787,14 @@ class TargetFinding(commands.Cog):
                 results[f'{attacker}_naval_pyr'] = results[f'{attacker}_naval_win_rate'] * (1 - results[f'{attacker}_naval_win_rate'])**2 * 3
                 results[f'{attacker}_naval_fail'] = (1 - results[f'{attacker}_naval_win_rate'])**3
                 
-                attacker_casualties_soldiers_value = (attacker_soldiers_value**(4/3) + defender_soldiers_value**(4/3)) / (attacker_soldiers_value + defender_soldiers_value) * attacker_soldiers_value
-                defender_casualties_soldiers_value = (attacker_soldiers_value**(4/3) + defender_soldiers_value**(4/3)) / (attacker_soldiers_value + defender_soldiers_value) * defender_soldiers_value
-                attacker_casualties_tanks_value = (attacker_tanks_value**(4/3) + defender_tanks_value**(4/3)) / (attacker_tanks_value + defender_tanks_value) * attacker_tanks_value
-                defender_casualties_tanks_value = (attacker_tanks_value**(4/3) + defender_tanks_value**(4/3)) / (attacker_tanks_value + defender_tanks_value) * defender_tanks_value
-                attacker_casualties_aircraft_value = (attacker_aircraft_value**(4/3) + defender_aircraft_value**(4/3)) / (attacker_aircraft_value + defender_aircraft_value) * attacker_aircraft_value
-                defender_casualties_aircraft_value = (attacker_aircraft_value**(4/3) + defender_aircraft_value**(4/3)) / (attacker_aircraft_value + defender_aircraft_value) * defender_aircraft_value
-                attacker_casualties_ships_value = (attacker_ships_value**(4/3) + defender_ships_value**(4/3)) / (attacker_ships_value + defender_ships_value) * attacker_ships_value
-                defender_casualties_ships_value = (attacker_ships_value**(4/3) + defender_ships_value**(4/3)) / (attacker_ships_value + defender_ships_value) * defender_ships_value
+                attacker_casualties_soldiers_value = utils.weird_division((attacker_soldiers_value**(4/3) + defender_soldiers_value**(4/3)) , (attacker_soldiers_value + defender_soldiers_value) * attacker_soldiers_value)
+                defender_casualties_soldiers_value = utils.weird_division((attacker_soldiers_value**(4/3) + defender_soldiers_value**(4/3)) , (attacker_soldiers_value + defender_soldiers_value) * defender_soldiers_value)
+                attacker_casualties_tanks_value = utils.weird_division((attacker_tanks_value**(4/3) + defender_tanks_value**(4/3)) , (attacker_tanks_value + defender_tanks_value) * attacker_tanks_value)
+                defender_casualties_tanks_value = utils.weird_division((attacker_tanks_value**(4/3) + defender_tanks_value**(4/3)) , (attacker_tanks_value + defender_tanks_value) * defender_tanks_value)
+                attacker_casualties_aircraft_value = utils.weird_division((attacker_aircraft_value**(4/3) + defender_aircraft_value**(4/3)) , (attacker_aircraft_value + defender_aircraft_value) * attacker_aircraft_value)
+                defender_casualties_aircraft_value = utils.weird_division((attacker_aircraft_value**(4/3) + defender_aircraft_value**(4/3)) , (attacker_aircraft_value + defender_aircraft_value) * defender_aircraft_value)
+                attacker_casualties_ships_value = utils.weird_division((attacker_ships_value**(4/3) + defender_ships_value**(4/3)) , (attacker_ships_value + defender_ships_value) * attacker_ships_value)
+                defender_casualties_ships_value = utils.weird_division((attacker_ships_value**(4/3) + defender_ships_value**(4/3)) , (attacker_ships_value + defender_ships_value) * defender_ships_value)
 
                 if results['gc'] == results[attacker]:
                     results[f'{attacker}_ground_{defender}_avg_aircraft'] = avg_air = round(min(results[attacker]['tanks'] * 0.005 * results[f'{attacker}_ground_win_rate'] ** 3, results[defender]['aircraft']))
