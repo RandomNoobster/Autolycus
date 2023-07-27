@@ -413,13 +413,13 @@ class General(commands.Cog):
 
                             if attack_type == "MISSILE":
                                 title = "Missile"
-                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a missile upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {attack['improvements_destroyed']} improvement{'s'[:attack['improvements_destroyed']^1]}."
+                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a missile upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {len(attack['improvements_destroyed'])} improvement{'s'[:len(attack['improvements_destroyed'])^1]}."
                             elif attack_type == "MISSILEFAIL":
                                 title = "Failed missile"
                                 content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a missile upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), but the missile was shot down."
                             elif attack_type == "NUKE":
                                 title = "Nuke"
-                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a nuclear weapon upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {attack['improvements_destroyed']} improvement{'s'[:attack['improvements_destroyed']^1]}."
+                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a nuclear weapon upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {len(attack['improvements_destroyed'])} improvement{'s'[:len(attack['improvements_destroyed'])^1]}."
                             elif attack_type == "NUKEFAIL":
                                 title = "Failed nuke"
                                 content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a nuclear weapon upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), but the nuke was shot down."
@@ -512,6 +512,7 @@ class General(commands.Cog):
                                 #print(sub_war.id, " registered ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
                                 #subby = vars(subscription)
                                 #logger.info("New war: " + str(subby))
+                                print(war.id, war.date)
                                 war = vars(war)
                                 war = await ensure_nations(war)
                                 # could instead run ensure_antions() after we know that a guild has subscrbed to this alliance
