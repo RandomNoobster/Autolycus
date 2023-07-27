@@ -9,7 +9,7 @@ PRICES = {"tradeprices": ["coal", "oil", "uranium", "iron", "bauxite", "lead", "
 
 
 # backgraound.py
-WARS_SCANNER = {"wars": ["id", "war_type", "att_peace", "def_peace", "turnsleft", "reason", "date", "att_id", "def_id", "att_alliance_id", "def_alliance_id", {"attacker": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"defender": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"attacks": ["type", "id", "date", "att_id", "def_id", "loot_info", "victor", "moneystolen", "success", "cityid", "resistance_eliminated", "infra_destroyed", "infra_destroyed_value", "improvements_lost", "aircraft_killed_by_tanks", "attcas1", "attcas2", "defcas1", "defcas2"]}]}
+WARS_SCANNER = {"wars": ["id", "war_type", "att_peace", "def_peace", "turnsleft", "reason", "date", "att_id", "def_id", "att_alliance_id", "def_alliance_id", {"attacker": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"defender": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"attacks": ["type", "id", "date", "att_id", "def_id", "loot_info", "victor", "moneystolen", "success", "cityid", "resistance_eliminated", "infra_destroyed", "infra_destroyed_value", "improvements_destroyed", "att_soldiers_lost", "def_soldiers_lost", "att_tanks_lost", "def_tanks_lost", "att_aircraft_lost", "def_aircraft_lost", "att_ships_lost", "def_ships_lost", "money_destroyed"]}]}
 
 
 # config.py

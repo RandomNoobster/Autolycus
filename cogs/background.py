@@ -306,44 +306,41 @@ class General(commands.Cog):
                             description = f"Success: {success}"
 
                             if attack_type == "GROUND":
-                                if "aircraft_killed_by_tanks" in attack:
-                                    if attack['aircraft_killed_by_tanks']:
-                                        aircraft = f"\n{attack['aircraft_killed_by_tanks']:,} aircraft"
-                                    else:
-                                        aircraft = ""
+                                if attack['att_aircraft_lost']:
+                                    aircraft = f"\n{attack['def_aircraft_lost']:,} aircraft"
                                 else:
                                     aircraft = ""
                                 title = "Ground battle"
-                                att_casualties = f"{attack['attcas1']:,} soldiers\n{attack['attcas2']:,} tanks"
-                                def_casualties = f"{attack['defcas1']:,} soldiers\n{attack['defcas2']:,} tanks{aircraft}"
+                                att_casualties = f"{attack['att_soldiers_lost']:,} soldiers\n{attack['att_tanks_lost']:,} tanks"
+                                def_casualties = f"{attack['def_soldiers_lost']:,} soldiers\n{attack['def_tanks_lost']:,} tanks{aircraft}"
                             elif attack_type == "NAVAL":
                                 title = "Naval Battle"
-                                att_casualties = f"{attack['attcas1']:,} ships"
-                                def_casualties = f"{attack['defcas1']:,} ships"
+                                att_casualties = f"{attack['att_ships_lost']:,} ships"
+                                def_casualties = f"{attack['def_ships_lost']:,} ships"
                             elif attack_type == "AIRVINFRA":
                                 title = "Airstrike targeting infrastructure"
-                                att_casualties = f"{attack['attcas1']:,} planes"
-                                def_casualties = f"{attack['defcas1']:,} planes\n{attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,})"
+                                att_casualties = f"{attack['att_aircraft_lost']:,} planes"
+                                def_casualties = f"{attack['def_aircraft_lost']:,} planes\n{attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,})"
                             elif attack_type == "AIRVSOLDIERS":
                                 title = "Airstrike targeting soldiers"
-                                att_casualties = f"{attack['attcas1']:,} planes"
-                                def_casualties = f"{attack['defcas1']:,} planes\n{attack['defcas2']} soldiers"
+                                att_casualties = f"{attack['att_aircraft_lost']:,} planes"
+                                def_casualties = f"{attack['def_aircraft_lost']:,} planes\n{attack['def_soldiers_lost']} soldiers"
                             elif attack_type == "AIRVTANKS":
                                 title = "Airstrike targeting tanks"
-                                att_casualties = f"{attack['attcas1']:,} planes"
-                                def_casualties = f"{attack['defcas1']:,} planes\n{attack['defcas2']} tanks"
+                                att_casualties = f"{attack['att_aircraft_lost']:,} planes"
+                                def_casualties = f"{attack['def_aircraft_lost']:,} planes\n{attack['def_tanks_lost']} tanks"
                             elif attack_type == "AIRVMONEY":
                                 title = "Airstrike targeting money"
-                                att_casualties = f"{attack['attcas1']:,} planes"
-                                def_casualties = f"{attack['defcas1']:,} planes\n{attack['defcas2']} money"
+                                att_casualties = f"{attack['att_aircraft_lost']:,} planes"
+                                def_casualties = f"{attack['def_aircraft_lost']:,} planes\n{attack['money_destroyed']} money"
                             elif attack_type == "AIRVSHIPS":
                                 title = "Airstrike targeting ships"
-                                att_casualties = f"{attack['attcas1']:,} planes"
-                                def_casualties = f"{attack['defcas1']:,} planes\n{attack['defcas2']} ships"
+                                att_casualties = f"{attack['att_aircraft_lost']:,} planes"
+                                def_casualties = f"{attack['def_aircraft_lost']:,} planes\n{attack['def_ships_lost']} ships"
                             elif attack_type == "AIRVAIR":
                                 title = "Airstrike targeting aircraft"
-                                att_casualties = f"{attack['attcas1']:,} planes"
-                                def_casualties = f"{attack['defcas1']:,} planes"
+                                att_casualties = f"{attack['att_aircraft_lost']:,} planes"
+                                def_casualties = f"{attack['def_aircraft_lost']:,} planes"
                             try:
                                 aaa_link = f"[{attacker_nation['alliance']['name']}](https://politicsandwar.com/alliance/id={attacker_nation['alliance']['id']})"
                             except:
@@ -416,13 +413,13 @@ class General(commands.Cog):
 
                             if attack_type == "MISSILE":
                                 title = "Missile"
-                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a missile upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {attack['improvements_lost']} improvement{'s'[:attack['improvements_lost']^1]}."
+                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a missile upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {attack['improvements_destroyed']} improvement{'s'[:attack['improvements_destroyed']^1]}."
                             elif attack_type == "MISSILEFAIL":
                                 title = "Failed missile"
                                 content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a missile upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), but the missile was shot down."
                             elif attack_type == "NUKE":
                                 title = "Nuke"
-                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a nuclear weapon upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {attack['improvements_lost']} improvement{'s'[:attack['improvements_lost']^1]}."
+                                content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a nuclear weapon upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), destroying {attack['infra_destroyed']} infra (${attack['infra_destroyed_value']:,}) and {attack['improvements_destroyed']} improvement{'s'[:attack['improvements_destroyed']^1]}."
                             elif attack_type == "NUKEFAIL":
                                 title = "Failed nuke"
                                 content = f"[{attacker_nation['nation_name']}](https://politicsandwar.com/nation/id={attacker_nation['id']}) launched a nuclear weapon upon [{defender_nation['nation_name']}](https://politicsandwar.com/nation/id={defender_nation['id']}), but the nuke was shot down."
