@@ -18,6 +18,7 @@ import pathlib
 
 client = pymongo.MongoClient(os.getenv("pymongolink"))
 version = os.getenv("version")
+bot_key = os.getenv("bot_key")
 mongo = client[str(version)]
 async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
 async_mongo = async_client[str(version)]
@@ -54,7 +55,7 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
         retry = 0
         while True:
             if use_bot_key:
-                headers = {'X-Bot-Key': "4ba04e11ee113594", 'X-Api-Key': api_key}
+                headers = {'X-Bot-Key': bot_key, 'X-Api-Key': api_key}
             else:
                 headers = {}
             async with session.post(f'https://api.politicsandwar.com/graphql?api_key={key}', json={"query": data}, headers=headers) as response:
@@ -79,8 +80,9 @@ async def call(data: str, key: str = api_key, retry_limit: int = 2, use_bot_key 
                         await asyncio.sleep(1)
                         continue
                     elif "error" in json_response:
-                        if "errors" in json_response["error"]:
-                            raise Exception(json_response["error"]["errors"])
+                        raise Exception(json_response["error"])
+                    elif "errors" in json_response:
+                        raise Exception(json_response["errors"])
                 return json_response
 
 def get_query(*queries: Union[dict, tuple]) -> str:
