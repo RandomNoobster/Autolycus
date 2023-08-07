@@ -512,19 +512,22 @@ class General(commands.Cog):
                                 #print(sub_war.id, " registered ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
                                 #subby = vars(subscription)
                                 #logger.info("New war: " + str(subby))
-                                print(war.id, war.date)
-                                war = vars(war)
-                                war = await ensure_nations(war)
+                                try:
+                                    print(war.id, war.date)
+                                except:
+                                    pass
+                                dic_war = vars(war)
+                                safe_war = await ensure_nations(dic_war)
                                 # could instead run ensure_antions() after we know that a guild has subscrbed to this alliance
                                 for guild in guilds.copy():
-                                    channel, friend, enemy = await get_war_vars(war, guild)
+                                    channel, friend, enemy = await get_war_vars(safe_war, guild)
                                     if not (channel and friend and enemy):
                                         continue
-                                    attack_logs = await async_mongo.war_logs.find_one({"id": war['id'], "guild_id": channel.guild.id})
+                                    attack_logs = await async_mongo.war_logs.find_one({"id": safe_war['id'], "guild_id": channel.guild.id})
                                     if not attack_logs:
-                                        await cthread(war, enemy, friend, channel)
+                                        await cthread(safe_war, enemy, friend, channel)
                                 #print(sub_war.id, " wrote off ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
-                                await dependent_async_db.wars.find_one_and_replace({"id": war['id']}, war, upsert=True)
+                                await dependent_async_db.wars.find_one_and_replace({"id": safe_war['id']}, safe_war, upsert=True)
                         except Exception as e:
                             logger.error(e, exc_info=True)
                             await debug_channel.send(utils.cut_string(f'**Exception caught!**\nWhere: Scanning wars -> scan_new_wars()\n\nError:```{traceback.format_exc()}```'))
