@@ -512,11 +512,11 @@ class General(commands.Cog):
                                 #print(sub_war.id, " registered ", (datetime.utcnow().replace(tzinfo=None)-sub_war.date.replace(tzinfo=None)).total_seconds()/60, datetime.utcnow())
                                 #subby = vars(subscription)
                                 #logger.info("New war: " + str(subby))
-                                try:
-                                    print(war.id, war.date)
-                                except:
-                                    pass
                                 dic_war = vars(war)
+                                if len(dic_war.keys()) == 1:
+                                    await debug_channel.send("**WAR IS EMPTY**\n\n" + str(dic_war))
+                                    logger.error("WAR IS EMPTY\n" + str(dic_war))
+                                    continue
                                 safe_war = await ensure_nations(dic_war)
                                 # could instead run ensure_antions() after we know that a guild has subscrbed to this alliance
                                 for guild in guilds.copy():
