@@ -41,6 +41,75 @@ class TargetFinding(commands.Cog):
             logger.error(e, exc_info=True)
             raise e
 
+
+    @slash_command(
+        name="spy_targets",
+        description="Find spy targets",
+    )
+    async def spy_targets(self, ctx: discord.ApplicationContext):
+        try:
+            await ctx.defer()
+
+            send = False
+            guild_config = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+
+            if not guild_config:
+                send = True
+            elif "targets_alliance_ids" not in guild_config:
+                send = True
+            elif len(guild_config['targets_alliance_ids']) == 0:
+                send = True
+            
+            if send:
+                await ctx.edit(content="No target alliances have been registered. Use `/config targets` to register some.")
+                return
+            
+            invoker = await utils.find_user(self, ctx.author.id)
+            my_nation = await utils.call(f"{{nations(first:1 id:{invoker['id']}){{data{{score}}}}}}")
+            my_score = my_nation['data']['nations']['data'][0]['score']
+
+            targets = await utils.call(f"{{nations(first:500 alliance_id:[{','.join([str(x) for x in guild_config['targets_alliance_ids']])}]){{data{{nation_name id score soldiers tanks aircraft ships nukes missiles spies espionage_available}}}}}}")
+            targets = targets['data']['nations']['data']
+            targets = [x for x in targets if x['espionage_available'] == True and x['score'] >= my_score * 0.4 and x['score'] <= my_score * 1.50 and not(x['soldiers'] == 0 and x['tanks'] == 0 and x['aircraft'] == 0 and x['ships'] == 0 and x['nukes'] <= 1 and x['missiles'] <= 1 and x['spies'] == 0)]
+
+            if len(targets) == 0:
+                await ctx.edit(content="No spyable targets in range was found.")
+                return
+
+            desc = f"Here are some nations that you can spy on."
+
+            for idx, target in enumerate(targets):
+                if idx == 6:
+                    break
+                suggested_target = ""
+                if target['spies'] >= 3:
+                    suggested_target = ", target spies"
+                elif target['nukes'] > 1:
+                    suggested_target = ", target nukes"
+                elif target['missiles'] > 2:
+                    suggested_target = ", target missiles"
+                elif target['aircraft'] > 0:
+                    suggested_target = ", target aircraft"
+                elif target['tanks'] > 0:
+                    suggested_target = ", target tanks"
+                elif target['ships'] > 0:
+                    suggested_target = ", target ships"
+                elif target['missiles'] > 0:
+                    suggested_target = ", target missiles"
+                elif target['nukes'] > 0:
+                    suggested_target = ", target nukes"                
+
+                desc += f"\n[{target['nation_name']}](https://politicsandwar.com/nation/id={target['id']})" + suggested_target
+                #desc += f"\n[{target['nation_name']}](https://politicsandwar.com/nation/espionage/eid={target['id']}) `💂 {target['soldiers']:,}`, `⚙ {target['tanks']:,}`, `✈ {target['aircraft']:,}`, `🚢 {target['ships']:,}`, `🔎 {target['spies']:,}`, `🚀 {target['missiles']}`, `☢ {target['nukes']}`"
+                
+            embed = discord.Embed(title="Spy targets", description=desc, color=utils.EMBED_COLOR)
+            await ctx.edit(embed=embed)
+
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
+
+
     @slash_command(
         name="raids",
         description="Find raid targets",
