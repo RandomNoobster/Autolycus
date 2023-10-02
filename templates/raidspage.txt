@@ -99,7 +99,7 @@
     </head>
     <body>
         <div style="overflow-x:auto;">
-            <table id="grid">
+            <table id="grid" style="overflow-x:auto;">
                 <tbody>
                     <tr>
                         <th>Nation id</th>
