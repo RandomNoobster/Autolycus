@@ -356,7 +356,7 @@ class General(commands.Cog):
                             embed.add_field(name="\u200b", value=footer, inline=False)
                             await thread_send(thread, embed)
 
-                        elif attack_type in ["PEACE", "VICTORY", "ALLIANCELOOT", "EXPIRATION"]:
+                        elif attack_type in ["VICTORY", "ALLIANCELOOT", "EXPIRATION"]: # removing PEACE due to problems
                             if attack_type == "PEACE":
                                 title = "White peace"
                                 color = 0xffFFff
@@ -396,6 +396,9 @@ class General(commands.Cog):
                             embed.add_field(name="\u200b", value=footer, inline=False)
                             await thread_send(thread, embed)
                             await close_thread(thread, friend, war)
+                        
+                        elif attack_type == "PEACE":
+                            logger.debug(f"Peace offer detected in war {war['id']}")
 
                         else:
                             for nation in [friend, enemy]:
