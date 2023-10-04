@@ -187,8 +187,13 @@ async def transaction_scanner() -> None:
                             logger.error(e, exc_info=True)
                             continue
 
-                    bankrecs = res['data']['alliances']['data'][0]['bankrecs']
-                    taxrecs = res['data']['alliances']['data'][0]['taxrecs']
+                    if not (bankrecs := res['data']['alliances']['data'][0]['bankrecs']):
+                        logger.warning(f"no bankrecs for alliance {key_data[1]}, {key_data[0]}")
+                        bankrecs = []
+
+                    if not (taxrecs := res['data']['alliances']['data'][0]['taxrecs']):
+                        logger.warning(f"no taxrecs for alliance {key_data[1]}, {key_data[0]}")
+                        taxrecs = []
 
                     if guild['transactions_track_taxes']:
                         all_recs = bankrecs + taxrecs
