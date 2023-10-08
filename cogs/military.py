@@ -507,7 +507,7 @@ class TargetFinding(commands.Cog):
                         for attack in war['attacks']:
                             if attack['loot_info']:
                                 attack['loot_info'] = attack['loot_info'].replace("\r\n", "")
-                    if x['alliance_id'] in ["4729", "7531"]:
+                    if x['alliance_id'] in ["4729", "8819"]:
                         continue
                     if used_slots > max_wars:
                         continue
