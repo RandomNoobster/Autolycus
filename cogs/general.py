@@ -1274,11 +1274,11 @@ class Background(commands.Cog):
             nation_id = re.sub("[^0-9]", "", nation_id)
             res = await utils.call(f'{{nations(first:1 id:{nation_id}){{data{utils.get_query(queries.VERIFY)}}}}}')
             try:
-                if res['data']['nations']['data'][0]['discord'] == str(ctx.author):
+                if str(ctx.author.name).lower() == res['data']['nations']['data'][0]['discord'].lower():
                     await async_mongo.global_users.insert_one({"user": ctx.author.id, "id": nation_id, "beige_alerts": []})
                     await ctx.respond("You have successfully verified your nation!")
                 else:
-                    await ctx.respond(f'1. Go to <https://politicsandwar.com/nation/edit/>\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author}` in the adjacent field\n4. Come back to discord\n5. Write `/verify {nation_id}` again')
+                    await ctx.respond(f'1. Go to <https://politicsandwar.com/nation/edit/>\n2. Scroll down to where it says "Discord Username"\n3. Type `{ctx.author.name}` in the adjacent field\n4. Come back to discord\n5. Type `/verify {nation_id}` again')
             except (KeyError, IndexError):
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
         except Exception as e:
