@@ -33,7 +33,7 @@ EMBED_COLOR = 0xff5100
 
 async def paginate_call(data: str, path: str, key: str = api_key) -> Union[dict, aiohttp.ClientResponse]:
     """
-    Paginates a call to the API. Must incude `page:page_number` in the query.
+    Paginates a call to the API. Must include `page:page_number` in the query.
     `data` is the GraphQL query.
     `path` is the path to the information (`alliances`, `nations` etc).
     `key` is the API key.
