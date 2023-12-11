@@ -178,6 +178,8 @@ class Background(commands.Cog):
             to_scan = []
             rss = []
             all_rss = ['net income', 'aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium']
+            
+            # NOTE that the resources below are those NOT present in the continent
             if nation['continent'] == "af":
                 cont_rss = ['coal_mines', 'iron_mines', 'lead_mines']
                 cont_rss_2 = ['coalmine', 'ironmine', 'leadmine']
@@ -191,8 +193,8 @@ class Background(commands.Cog):
                 cont_rss_2 = ['oilwell', 'ironmine', 'uramine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "an":
-                cont_rss = ['oil_wells', 'coal_mines', 'uranium_mines']
-                cont_rss_2 = ['oilwell', 'coalmine', 'uramine']
+                cont_rss = ['iron_mines', 'lead_mines', 'bauxite_mines']
+                cont_rss_2 = ['ironmine', 'leadmine', 'bauxitemine']
                 rss = [rs for rs in all_rss if rs + "_mines" not in cont_rss and rs + "_wells" not in cont_rss]
             elif nation['continent'] == "eu":
                 cont_rss = ['oil_wells', 'bauxite_mines', 'uranium_mines']
