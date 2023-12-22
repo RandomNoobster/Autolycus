@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+
+__all__ = (
+    "PROJECT_BITMAP",
+    "RESOURCES",
+    "SOLDIERS_PER_BARRACKS",
+    "TANKS_PER_FACTORY",
+    "AIRCRAFT_PER_HANGAR",
+    "SHIPS_PER_DRYDOCK",
+    "BARRACKS_PER_CITY",
+    "FACTORY_PER_CITY",
+    "HANGAR_PER_CITY",
+    "DRYDOCK_PER_CITY",
+)
+
+
+# Nation related
+
+PROJECT_BITMAP = {
+    "IRON_WORKS": 1 << 0,
+    "BAUXITE_WORKS": 1 << 1,
+    "ARMS_STOCKPILE": 1 << 2,
+    "EMERGENCY_GASOLINE_RESERVE": 1 << 3,
+    "MASS_IRRIGATION": 1 << 4,
+    "INTERNATIONAL_TRADE_CENTRE": 1 << 5,
+    "MISSILE_LAUNCH_PAD": 1 << 6,
+    "NUCLEAR_RESEARCH_FACILITY": 1 << 7,
+    "IRON_DOME": 1 << 8,
+    "VITAL_DEFENSE_SYSTEM": 1 << 9,
+    "INTELLIGENCE_AGENCY": 1 << 10,
+    "CENTER_CIVIL_ENGINEERING": 1 << 11,
+    "PROPAGANDA_BUREAU": 1 << 12,
+    "URANIUM_ENRICHMENT_PROGRAM": 1 << 13,
+    "URBAN_PLANNING": 1 << 14,
+    "ADVANCED_URBAN_PLANNING": 1 << 15,
+    "SPACE_PROGRAM": 1 << 16,
+    "SPY_SATELLITE": 1 << 17,
+    "MOON_LANDING": 1 << 18,
+    "PIRATE_ECONOMY": 1 << 19,
+    "RECYCLING_INITIATIVE": 1 << 20,
+    "TELECOMMUNICATIONS_SATELLITE": 1 << 21,
+    "GREEN_TECHNOLOGIES": 1 << 22,
+    "ARABLE_LAND_AGENCY": 1 << 23,
+    "CLINICAL_RESEARCH_CENTER": 1 << 24,
+    "SPECIALIZED_POLICE_TRAINING_PROGRAM": 1 << 25,
+    "ADVANCED_ENGINEERING_CORPS": 1 << 26,
+    "GOVERNMENT_SUPPORT_AGENCY": 1 << 27,
+    "RESEARCH_DEVELOPMENT_CENTER": 1 << 28,
+    "ACTIVITY_CENTER": 1 << 29,
+    "METROPOLITAN_PLANNING": 1 << 30,
+    "MILITARY_SALVAGE": 1 << 31,
+    "FALLOUT_SHELTER": 1 << 32,
+}
+
+
+# Trade related
+
+RESOURCES = ['aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron',
+             'lead', 'money', 'munitions', 'oil', 'steel', 'uranium', 'credits']
+
+
+# War related
+
+SOLDIERS_PER_BARRACKS = 3000
+TANKS_PER_FACTORY = 250
+AIRCRAFT_PER_HANGAR = 15
+SHIPS_PER_DRYDOCK = 5
+
+BARRACKS_PER_CITY = 5
+FACTORY_PER_CITY = 5
+HANGAR_PER_CITY = 5
+DRYDOCK_PER_CITY = 3

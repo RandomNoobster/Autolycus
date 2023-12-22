@@ -11,3 +11,7 @@ pnwkit-py==2.6.23
 py-cord==2.4.0
 aiofiles==22.1.0
 waitress==2.1.2
+aiosqlite==0.19.0
+aenum==3.1.15
+async-property==0.2.2
+async-cache==1.1.1

@@ -8,7 +8,7 @@ import discord
 from typing import Union, Tuple
 import asyncio
 from dotenv import load_dotenv
-import queries
+import bot.queries as queries
 load_dotenv()
 
 api_key = os.getenv("api_key")

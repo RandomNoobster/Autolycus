@@ -10,7 +10,7 @@ from discord.commands import slash_command, Option, SlashCommandGroup, permissio
 import dload
 from csv import DictReader
 import utils
-import queries
+import bot.queries as queries
 
 from main import async_mongo, logger
 

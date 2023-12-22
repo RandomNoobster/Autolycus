@@ -29,6 +29,8 @@ db_async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("databaselink
 main_async_db = db_async_client["main"]
 dependent_async_db = db_async_client[str(db_version)]
 
+# database
+
 # envs
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
@@ -62,7 +64,7 @@ for touch_file in [
     pathlib.Path(f"{cwd}/{touch_file}").touch(exist_ok=True)
 
 # cogs
-for filename in os.listdir('./cogs'):
+for filename in os.listdir(pathlib.Path.cwd() / 'cogs'):
     if filename.endswith('.py'):
         bot.load_extension(f'cogs.{filename[:-3]}')
 
@@ -128,7 +130,10 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
-from server import run
+from bot.server import run
 asyncio.ensure_future(run())
+
+import bot.db as db
+asyncio.run(db.create_connection())
 
 bot.run(os.getenv("bot_token"))

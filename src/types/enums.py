@@ -1,0 +1,283 @@
+from aenum import MultiValueEnum
+
+
+__all__ = ("EconomicPolicy", "SocialPolicy", "GovernmentType", "ResourceEnum", "Color", "Continent", "TradeType", "EmbargoType",
+           "AlliancePositionEnum", "MutationAlliancePosition", "BountyType", "WarTypeEnum", "AttackType", "WarPolicyEnum", "DomesticPolicyEnum", "TransactioneeType", "TreatyType",
+           "AttackSuccess",
+           "WarAttackerFilter",
+           "WarActiveFilter",
+           "MilitaryUnitEnum",
+           "CityImprovement",
+           "AttackerEnum",
+           "StatsEnum"
+           )
+
+
+class EconomicPolicy(MultiValueEnum):
+    EXTREME_LEFT = 0, "EXTREME_LEFT"
+    FAR_LEFT = 1, "FAR_LEFT"
+    LEFT = 2, "LEFT"
+    MODERATE = 3, "MODERATE"
+    RIGHT = 4, "RIGHT"
+    FAR_RIGHT = 5, "FAR_RIGHT"
+    EXTREME_RIGHT = 6, "EXTREME_RIGHT"
+
+
+class SocialPolicy(MultiValueEnum):
+    ANARCHIST = 0, "ANARCHIST"
+    LIBERTARIAN = 1, "LIBERTARIAN"
+    LIBERAL = 2, "LIBERAL"
+    MODERATE = 3, "MODERATE"
+    CONSERVATIVE = 4, "CONSERVATIVE"
+    AUTHORITARIAN = 5, "AUTHORITARIAN"
+    FASCIST = 6, "FASCIST"
+
+
+class GovernmentType(MultiValueEnum):
+    ABSOLUTE_MONARCHY = 0, "ABSOLUTE_MONARCHY"
+    ANARCHY = 1, "ANARCHY"
+    ARISTOCRACY = 2, "ARISTOCRACY"
+    BANANA_REPUBLIC = 3, "BANANA_REPUBLIC"
+    COMMUNIST_DEMOCRACY = 4, "COMMUNIST_DEMOCRACY"
+    COMMUNIST_DICTATORSHIP = 5, "COMMUNIST_DICTATORSHIP"
+    COMMUNIST_MONARCHY = 6, "COMMUNIST_MONARCHY"
+    COMMUNIST_REPUBLIC = 7, "COMMUNIST_REPUBLIC"
+    COMMUNIST_THEOCRACY = 8, "COMMUNIST_THEOCRACY"
+    CONSTITUTIONAL_MONARCHY = 9, "CONSTITUTIONAL_MONARCHY"
+    CONSTITUTIONAL_REPUBLIC = 10, "CONSTITUTIONAL_REPUBLIC"
+    DEMARCHY = 11, "DEMARCHY"
+    DEMOCRACY = 12, "DEMOCRACY"
+    DEMOCRATIC_REPUBLIC = 13, "DEMOCRATIC_REPUBLIC"
+    DICTATORSHIP = 14, "DICTATORSHIP"
+    FEDERAL_REPUBLIC = 15, "FEDERAL_REPUBLIC"
+    MONARCHY = 16, "MONARCHY"
+    NOOCRACY = 17, "NOOCRACY"
+    OLIGARCHY = 18, "OLIGARCHY"
+    PARLIAMENTARY_DEMOCRACY = 19, "PARLIAMENTARY_DEMOCRACY"
+    PARLIAMENTARY_REPUBLIC = 20, "PARLIAMENTARY_REPUBLIC"
+    PEOPLES_REPUBLIC = 21, "PEOPLES_REPUBLIC"
+    REPUBLIC = 22, "REPUBLIC"
+    SOCIAL_DEMOCRACY = 23, "SOCIAL_DEMOCRACY"
+    SOCIALIST_DICTATORSHIP = 24, "SOCIALIST_DICTATORSHIP"
+    SOCIALIST_REPUBLIC = 25, "SOCIALIST_REPUBLIC"
+    SOCIALIST_THEOCRACY = 26, "SOCIALIST_THEOCRACY"
+    STRATOCRACY = 27, "STRATOCRACY"
+    TECHNOCRACY = 28, "TECHNOCRACY"
+    THEOCRACY = 29, "THEOCRACY"
+    THEOCRATIC_DEMOCRACY = 30, "THEOCRATIC_DEMOCRACY"
+    THEOCRATIC_DICTATORSHIP = 31, "THEOCRATIC_DICTATORSHIP"
+    THEOCRATIC_REPUBLIC = 32, "THEOCRATIC_REPUBLIC"
+
+
+class ResourceEnum(MultiValueEnum):
+    FOOD = 0, "FOOD"
+    COAL = 1, "COAL"
+    OIL = 2, "OIL"
+    URANIUM = 3, "URANIUM"
+    LEAD = 4, "LEAD"
+    IRON = 5, "IRON"
+    BAUXITE = 6, "BAUXITE"
+    GASOLINE = 7, "GASOLINE"
+    MUNITIONS = 8, "MUNITIONS"
+    STEEL = 9, "STEEL"
+    ALUMINUM = 10, "ALUMINUM"
+    CREDIT = 11, "CREDIT"
+
+
+class Color(MultiValueEnum):
+    GREEN = 0, "GREEN"
+    YELLOW = 1, "YELLOW"
+    PINK = 2, "PINK"
+    WHITE = 3, "WHITE"
+    ORANGE = 4, "ORANGE"
+    OLIVE = 5, "OLIVE"
+    BROWN = 6, "BROWN"
+    MAROON = 7, "MAROON"
+    BLUE = 8, "BLUE"
+    BEIGE = 9, "BEIGE"
+    LIME = 10, "LIME"
+    BLACK = 11, "BLACK"
+    PURPLE = 12, "PURPLE"
+    RED = 13, "RED"
+    AQUA = 14, "AQUA"
+    GREY = 15, "GREY"
+
+
+class Continent(MultiValueEnum):
+    AFRICA = 0, "AFRICA"
+    ANTARCTICA = 1, "ANTARCTICA"
+    ASIA = 2, "ASIA"
+    AUSTRALIA = 3, "AUSTRALIA"
+    EUROPE = 4, "EUROPE"
+    NORTH_AMERICA = 5, "NORTH_AMERICA"
+    SOUTH_AMERICA = 6, "SOUTH_AMERICA"
+
+
+class TradeType(MultiValueEnum):
+    GLOBAL = 0, "GLOBAL"
+    PERSONAL = 1, "PERSONAL"
+    ALLIANCE = 2, "ALLIANCE"
+
+
+class EmbargoType(MultiValueEnum):
+    NATION_TO_NATION = 0, "NATION_TO_NATION"
+    NATION_TO_ALLIANCE = 1, "NATION_TO_ALLIANCE"
+    ALLIANCE_TO_NATION = 2, "ALLIANCE_TO_NATION"
+    ALLIANCE_TO_ALLIANCE = 3, "ALLIANCE_TO_ALLIANCE"
+
+
+class AlliancePositionEnum(MultiValueEnum):
+    NOALLIANCE = 0, "NOALLIANCE"
+    APPLICANT = 1, "APPLICANT"
+    MEMBER = 2, "MEMBER"
+    OFFICER = 3, "OFFICER"
+    HEIR = 4, "HEIR"
+    LEADER = 5, "LEADER"
+
+
+class MutationAlliancePosition(MultiValueEnum):
+    REMOVE = 0, "REMOVE"
+    APPLICANT = 1, "APPLICANT"
+    MEMBER = 2, "MEMBER"
+    OFFICER = 3, "OFFICER"
+    HEIR = 4, "HEIR"
+    LEADER = 5, "LEADER"
+
+
+class BountyType(MultiValueEnum):
+    ORDINARY = 0, "ORDINARY"
+    ATTRITION = 1, "ATTRITION"
+    RAID = 2, "RAID"
+    NUCLEAR = 3, "NUCLEAR"
+
+
+class WarTypeEnum(MultiValueEnum):
+    ORDINARY = 0, "ORDINARY"
+    ATTRITION = 1, "ATTRITION"
+    RAID = 2, "RAID"
+
+
+class WarAttackerFilter(MultiValueEnum):
+    OFFENSIVE = 0, "OFFENSIVE"
+    DEFENSIVE = 1, "DEFENSIVE"
+    ALL = 2, "ALL"
+
+
+class WarActiveFilter(MultiValueEnum):
+    ACTIVE = 0, "ACTIVE"
+    INACTIVE = 1, "INACTIVE"
+    ALL = 2, "ALL"
+
+
+class AttackType(MultiValueEnum):
+    AIRVINFRA = 0, "AIRVINFRA"
+    AIRVSOLDIERS = 1, "AIRVSOLDIERS"
+    AIRVTANKS = 2, "AIRVTANKS"
+    AIRVMONEY = 3, "AIRVMONEY"
+    AIRVSHIPS = 4, "AIRVSHIPS"
+    AIRVAIR = 5, "AIRVAIR"
+    GROUND = 6, "GROUND"
+    MISSILE = 7, "MISSILE"
+    MISSILEFAIL = 8, "MISSILEFAIL"
+    NUKE = 9, "NUKE"
+    NUKEFAIL = 10, "NUKEFAIL"
+    NAVAL = 11, "NAVAL"
+    FORTIFY = 12, "FORTIFY"
+    PEACE = 13, "PEACE"
+    VICTORY = 14, "VICTORY"
+    ALLIANCELOOT = 15, "ALLIANCELOOT"
+
+
+class WarPolicyEnum(MultiValueEnum):
+    ATTRITION = 0, "ATTRITION"
+    TURTLE = 1, "TURTLE"
+    BLITZKRIEG = 2, "BLITZKRIEG"
+    FORTRESS = 3, "FORTRESS"
+    MONEYBAGS = 4, "MONEYBAGS"
+    PIRATE = 5, "PIRATE"
+    TACTICIAN = 6, "TACTICIAN"
+    GUARDIAN = 7, "GUARDIAN"
+    COVERT = 8, "COVERT"
+    ARCANE = 9, "ARCANE"
+
+
+class DomesticPolicyEnum(MultiValueEnum):
+    MANIFEST_DESTINY = 0, "MANIFEST_DESTINY"
+    OPEN_MARKETS = 1, "OPEN_MARKETS"
+    TECHNOLOGICAL_ADVANCEMENT = 2, "TECHNOLOGICAL_ADVANCEMENT"
+    IMPERIALISM = 3, "IMPERIALISM"
+    URBANIZATION = 4, "URBANIZATION"
+    RAPID_EXPANSION = 5, "RAPID_EXPANSION"
+
+
+class TransactioneeType(MultiValueEnum):
+    NATION = 1, "NATION"
+    ALLIANCE = 2, "ALLIANCE"
+
+
+class CityImprovement(MultiValueEnum):
+    OIL_POWER = 0, "OIL_POWER"
+    WIND_POWER = 1, "WIND_POWER"
+    COAL_POWER = 2, "COAL_POWER"
+    NUCLEAR_POWER = 3, "NUCLEAR_POWER"
+    COAL_MINE = 4, "COAL_MINE"
+    OIL_WELL = 5, "OIL_WELL"
+    URANIUM_MINE = 6, "URANIUM_MINE"
+    BARRACKS = 7, "BARRACKS"
+    FARM = 8, "FARM"
+    POLICE_STATION = 9, "POLICE_STATION"
+    HOSPITAL = 10, "HOSPITAL"
+    RECYCLING_CENTER = 11, "RECYCLING_CENTER"
+    SUBWAY = 12, "SUBWAY"
+    SUPERMARKET = 13, "SUPERMARKET"
+    BANK = 14, "BANK"
+    SHOPPING_MALL = 15, "SHOPPING_MALL"
+    STADIUM = 16, "STADIUM"
+    LEAD_MINE = 17, "LEAD_MINE"
+    IRON_MINE = 18, "IRON_MINE"
+    BAUXITE_MINE = 19, "BAUXITE_MINE"
+    GASOLINE_REFINERY = 20, "GASOLINE_REFINERY"
+    ALUMINUM_REFINERY = 21, "ALUMINUM_REFINERY"
+    STEEL_MILL = 22, "STEEL_MILL"
+    MUNITIONS_FACTORY = 23, "MUNITIONS_FACTORY"
+    FACTORY = 24, "FACTORY"
+    HANGAR = 25, "HANGAR"
+    DRYDOCK = 26, "DRYDOCK"
+
+
+class TreatyType(MultiValueEnum):
+    MDP = 0, "MDP"
+    MDoAP = 1, "MDoAP"
+    ODP = 2, "ODP"
+    ODoAP = 3, "ODoAP"
+    Protectorate = 4, "Protectorate"
+    PIAT = 5, "PIAT"
+    NAP = 6, "NAP"
+    NPT = 7, "NPT"
+
+
+class AttackSuccess():
+    UTTER_FAILURE = 0
+    PYRRHIC_VICTORY = 1
+    MODERATE_SUCCESS = 2
+    IMMENSE_TRIUMPH = 3
+
+
+class MilitaryUnitEnum():
+    SOLDIER = 0
+    TANK = 1
+    AIRCRAFT = 2
+    SHIP = 3
+    SPY = 4
+    MISSILE = 5
+    NUKE = 6
+
+
+class AttackerEnum():
+    ATTACKER = 0
+    DEFENDER = 1
+
+
+class StatsEnum():
+    AVERAGE = 0
+    DIFFERENCE = 1

@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord.commands import Option, SlashCommandGroup
 import os
-import utils
+import utils.common as utils
 from datetime import datetime
 from main import async_mongo, logger
 

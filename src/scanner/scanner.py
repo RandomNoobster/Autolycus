@@ -5,7 +5,6 @@ import aiohttp
 import time
 import asyncio
 import json
-import queries
 from dotenv import load_dotenv
 import os
 import logging
@@ -14,14 +13,17 @@ import pnwkit
 
 load_dotenv()
 version = os.getenv("version")
-async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
+async_client = motor.motor_asyncio.AsyncIOMotorClient(
+    os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
 async_mongo = async_client[str(version)]
 api_key = os.getenv("api_key")
 
 kit = pnwkit.QueryKit(api_key)
 
-logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger()
+
 
 async def nation_scanner():
     while True:
@@ -42,13 +44,16 @@ async def nation_scanner():
                     await asyncio.sleep(5)
                     continue
                 n += 1
-                logger.debug(f"Fetched page {n}, took {time.time() - start:.2f} seconds")
+                logger.debug(
+                    f"Fetched page {n}, took {time.time() - start:.2f} seconds")
             new_nations['last_fetched'] = round(datetime.utcnow().timestamp())
             with open(pathlib.Path.cwd() / 'data' / 'nations.json', 'w') as json_file:
                 json.dump(new_nations, json_file)
-            logger.info(f"Done fetching nation data. {n} pages, took {(time.time() - series_start) / 60 :.2f} minutes")
+            logger.info(
+                f"Done fetching nation data. {n} pages, took {(time.time() - series_start) / 60 :.2f} minutes")
         except Exception as e:
             logger.error(e, exc_info=True)
+
 
 async def transaction_scanner() -> None:
     """
@@ -68,7 +73,7 @@ async def transaction_scanner() -> None:
                     for old_guild in guilds:
                         if old_guild['guild_id'] == new_guild['guild_id']:
                             exists = True
-                            if old_guild == new_guild: # if the guild is not in an equal state, we want to update it
+                            if old_guild == new_guild:  # if the guild is not in an equal state, we want to update it
                                 found = True
                                 break
                     if not found:
@@ -78,7 +83,7 @@ async def transaction_scanner() -> None:
             except Exception as e:
                 logger.error(e, exc_info=True)
             await asyncio.sleep(600)
-    
+
     async def update_keys(guild) -> dict:
         for i, key_data in enumerate(guild['transactions_api_keys'].copy()):
             if isinstance(key_data, tuple):
@@ -91,12 +96,14 @@ async def transaction_scanner() -> None:
                 res = (await utils.call(f"{{me{{nation{{alliance_id alliance_position_info{{withdraw_bank view_bank}}}}}}}}", key))['data']['me']['nation']
                 alliance_id = res['alliance_id']
                 if not res['alliance_position_info']['withdraw_bank'] or not res['alliance_position_info']['view_bank']:
-                    logger.debug(f"Locally removing (0) key {key} from guild {guild['guild_id']} due to insufficient permissions")
+                    logger.debug(
+                        f"Locally removing (0) key {key} from guild {guild['guild_id']} due to insufficient permissions")
                     guild['transactions_api_keys'].remove(key_data)
                 else:
                     guild['transactions_api_keys'][i] = (key, alliance_id)
             except Exception as e:
-                logger.debug(f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}. Error: ", exc_info=True)
+                logger.debug(
+                    f"Locally removing (1) invalid key {key} from guild {guild['guild_id']}. Error: ", exc_info=True)
                 guild['transactions_api_keys'].remove(key_data)
         return guild
 
@@ -110,24 +117,24 @@ async def transaction_scanner() -> None:
                 if note.lower() == tx['note'].lower():
                     return
 
-            if str(tx['sender_type']) == "2": # if sender is alliance
+            if str(tx['sender_type']) == "2":  # if sender is alliance
                 multiplier = -1
                 if guild['transactions_subtract_beige_loot'] and "of the alliance bank inventory." in tx['note']:
                     nation_id = tx['banker_id']
                 else:
                     nation_id = tx['receiver_id']
-            elif str(tx['receiver_type']) == "2": # if receiver is alliance
+            elif str(tx['receiver_type']) == "2":  # if receiver is alliance
                 multiplier = 1
                 nation_id = tx['sender_id']
             else:
                 raise ValueError(f"no alliance in transaction {tx['id']}")
-            
-            for k,v in tx.items():
+
+            for k, v in tx.items():
                 if k in utils.RSS:
                     rss_tx[k] = float(v) * multiplier
 
             await async_mongo.balance.find_one_and_update({"nation_id": str(nation_id), "guild_id": guild['guild_id']}, {"$inc": rss_tx}, upsert=True)
-            await async_mongo.transactions.insert_one({"id": str(tx['id']), "guild_id": guild['guild_id']})        
+            await async_mongo.transactions.insert_one({"id": str(tx['id']), "guild_id": guild['guild_id']})
 
     async def subscriber(subscription: pnwkit.Subscription):
         nonlocal guilds
@@ -138,7 +145,8 @@ async def transaction_scanner() -> None:
                     for guild in guilds:
                         for key_data in guild['transactions_api_keys']:
                             if not isinstance(key_data, tuple):
-                                logger.error(f"Key data is not a tuple (1): {key_data}")
+                                logger.error(
+                                    f"Key data is not a tuple (1): {key_data}")
                                 continue
                             if str(x['receiver_id']) == key_data[1] and str(x['receiver_type']) == "2":
                                 await record(x, guild)
@@ -169,19 +177,21 @@ async def transaction_scanner() -> None:
 
                 for key_data in guild['transactions_api_keys']:
                     if not isinstance(key_data, tuple):
-                        logger.error(f"Key data is not a tuple (2): {key_data}")
+                        logger.error(
+                            f"Key data is not a tuple (2): {key_data}")
                         continue
 
                     if key_data[1] in done_alliances:
                         continue
 
                     api_query = f"{{alliances(id:{key_data[1]}){{data{utils.get_query(queries.TRANSACTIONS)}}}}}"
-                    
+
                     try:
                         res = await utils.call(api_query, key_data[0])
                     except Exception as e:
                         if "Invalid API key" in str(e):
-                            logger.debug(f"Locally removing (2) invalid key {key_data[0]} from guild {guild['guild_id']}")
+                            logger.debug(
+                                f"Locally removing (2) invalid key {key_data[0]} from guild {guild['guild_id']}")
                             guild['transactions_api_keys'].remove(key_data)
                         else:
                             logger.error(e, exc_info=True)
@@ -204,11 +214,12 @@ async def transaction_scanner() -> None:
 
                     done_alliances.append(key_data[1])
                     await asyncio.sleep(10)
-                   
+
             await asyncio.sleep(3600)
 
         except Exception as e:
             logger.error(e, exc_info=True)
+
 
 async def main():
     while True:
