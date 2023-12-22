@@ -4,6 +4,7 @@ from async_property import async_cached_property, async_property
 from enums import *
 from ...utils import get_date_from_string, PROJECT_BITMAP, execute_query, total_value, get_prices
 from ...utils.pnw.revenue import *
+from ...utils.pnw.war import resisting_population
 from . import Alliance, City, BaseClass, Treasure, ResourceWrapper, War
 
 
@@ -218,6 +219,10 @@ class Nation(BaseClass):
     @property
     def new_player_bonus(self) -> float:
         return new_player_bonus(self.num_cities)
+    
+    @property
+    def resisting_population(self) -> float:
+        return resisting_population(self.population)
 
     @async_property
     async def color_bonus(self) -> float:

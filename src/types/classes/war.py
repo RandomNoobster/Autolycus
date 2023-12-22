@@ -222,6 +222,8 @@ class MilitaryUnit:
         total_cost: Awaitable[float]
         army_value: Union[int, None]
         loot_stolen: Union[float, None]
+        munitions_used: float
+        gasoline_used: float
 
     def __init__(self, unit_type: MilitaryUnitEnum, using_munitions: bool = True, enemy_air_superiority: bool = False) -> None:
         if unit_type == MilitaryUnitEnum.SOLDIER:
@@ -233,6 +235,8 @@ class MilitaryUnit:
             self.aluminum_cost = 0
             self.army_value = 1.75 if using_munitions else 1
             self.loot_stolen = 1.1
+            self.munitions_used = 0.0002 if using_munitions else 0
+            self.gasoline_used = 0
 
         elif unit_type == MilitaryUnitEnum.TANK:
             self.money_cost = 60
@@ -243,6 +247,8 @@ class MilitaryUnit:
             self.aluminum_cost = 0
             self.army_value = 20 if enemy_air_superiority else 40
             self.loot_stolen = 25.15
+            self.munitions_used = 0.01
+            self.gasoline_used = 0.01
 
         elif unit_type == MilitaryUnitEnum.AIRCRAFT:
             self.money_cost = 4000
@@ -253,6 +259,8 @@ class MilitaryUnit:
             self.aluminum_cost = 5
             self.army_value = 3
             self.loot_stolen = None
+            self.munitions_used = 0.25
+            self.gasoline_used = 0.25
 
         elif unit_type == MilitaryUnitEnum.SHIP:
             self.money_cost = 50000
@@ -263,6 +271,8 @@ class MilitaryUnit:
             self.aluminum_cost = 0
             self.army_value = 4
             self.loot_stolen = None
+            self.munitions_used = 2.5
+            self.gasoline_used = 1.5
 
         elif unit_type == MilitaryUnitEnum.SPY:
             self.money_cost = 50000
@@ -273,6 +283,8 @@ class MilitaryUnit:
             self.aluminum_cost = 0
             self.army_value = None
             self.loot_stolen = None
+            self.munitions_used = 0
+            self.gasoline_used = 0
 
         elif unit_type == MilitaryUnitEnum.MISSILE:
             self.money_cost = 150000
@@ -283,6 +295,8 @@ class MilitaryUnit:
             self.aluminum_cost = 100
             self.army_value = None
             self.loot_stolen = None
+            self.munitions_used = 0
+            self.gasoline_used = 0
 
         elif unit_type == MilitaryUnitEnum.NUKE:
             self.money_cost = 1750000
@@ -293,6 +307,8 @@ class MilitaryUnit:
             self.aluminum_cost = 750
             self.army_value = None
             self.loot_stolen = None
+            self.munitions_used = 0
+            self.gasoline_used = 0
 
         else:
             raise ValueError("Invalid military unit type")

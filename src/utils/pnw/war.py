@@ -431,10 +431,7 @@ class BattleCalc:
     
     def __airstrike_unit_kill_rate(self, func) -> function:
         def wrapper(*args, **kwargs):
-            rate = -0.4624 * self.air_winrate**2 + 1.06256 * self.air_winrate + 0.3999            
-            if rate < 0.4:
-                rate = 0.4
-            return func(*args, **kwargs) * rate
+            return func(*args, **kwargs) * scale_with_winrate(self.air_winrate)
         return wrapper
     
     def __stat_type_to_airstrike_casualties_modifier(self, stat_type: StatsEnum) -> float:
@@ -517,6 +514,8 @@ class BattleCalc:
     def __infrastructure_destroyed(self, func, only_war: bool = False):
         """
         Modifies the amount of infrastructure destroyed according to policies and war types.
+        :param func: The function to modify.
+        :param only_war: Whether to only include war type modifiers, and not war policies.
         """
         def wrapper(*args, **kwargs):
             if self.war:
@@ -664,6 +663,9 @@ class BattleCalc:
     def __recovered_by_military_salvage(self, attacker_used: float, defender_used: float, winrate: float) -> float:
         """
         Calculates the amount of resources recovered by military salvage.
+        :param attacker_used: The amount of resources used by the attacker.
+        :param defender_used: The amount of resources used by the defender.
+        :param winrate: The winrate of the attacker.
         """
         return (attacker_used + defender_used) * (int(self.attacker._military_salvage) * (winrate ** 3) * 0.05)
 
@@ -677,8 +679,188 @@ class BattleCalc:
         """
         Calculates the amount of aluminum used by the attacker in a ground attack.
         """
+        # TODO is aluminum from enemy planes recovered?
         return self.__recovered_by_military_salvage(0, self.ground_attack_defender_aircraft_casualties(stat_type), self.ground_winrate)
     
+    def ground_attack_defender_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used by the defender in a ground attack.
+        """
+        return self.defender.tanks * MilitaryUnit(MilitaryUnitEnum.TANK).gasoline_used * scale_with_winrate(self.ground_winrate)
+    
+    def ground_attack_attacker_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used by the attacker in a ground attack.
+        """
+        return self.attacker.tanks * MilitaryUnit(MilitaryUnitEnum.TANK).gasoline_used
+    
+    def ground_attack_defender_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used by the defender in a ground attack.
+        """
+        return ((self.defender.soldiers + self.defender.population) * MilitaryUnit(MilitaryUnitEnum.SOLDIER).munitions_used * scale_with_winrate(self.ground_winrate) * int(self.defender_using_munitions)
+                + self.defender.tanks * MilitaryUnit(MilitaryUnitEnum.TANK).munitions_used * scale_with_winrate(self.ground_winrate))
+    
+    def ground_attack_attacker_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used by the attacker in a ground attack.
+        """
+        return (self.attacker.soldiers * MilitaryUnit(MilitaryUnitEnum.SOLDIER).munitions_used * int(self.attacker_using_munitions)
+                + self.attacker.tanks * MilitaryUnit(MilitaryUnitEnum.TANK).munitions_used)
+    
+    def ground_attack_defender_steel_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel used by the defender in a ground attack.
+        """
+        return self.ground_attack_defender_tanks_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.TANK).steel_cost
+    
+    def ground_attack_attacker_steel_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel used by the attacker in a ground attack.
+        """
+        return self.__recovered_by_military_salvage(self.ground_attack_attacker_tanks_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.TANK).steel_cost, self.ground_attack_defender_steel_used, self.ground_winrate)
+    
+    def ground_attack_defender_money_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of money used by the defender in a ground attack.
+        """
+        return (self.defender.soldiers * MilitaryUnit(MilitaryUnitEnum.SOLDIER).money_cost
+                + self.defender.tanks * MilitaryUnit(MilitaryUnitEnum.TANK).money_cost
+                + self.ground_attack_infrastructure_destroyed_value(stat_type))
+    
+    def ground_attack_attacker_money_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of money used by the attacker in a ground attack.
+        """
+        return (self.attacker.soldiers * MilitaryUnit(MilitaryUnitEnum.SOLDIER).money_cost
+                + self.attacker.tanks * MilitaryUnit(MilitaryUnitEnum.TANK).money_cost
+                - self.ground_attack_loot(stat_type))
+    
+
+    def air_v_air_defender_aluminum_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of aluminum used by the defender in an air v air attack.
+        """
+        return self.air_v_air_defender_aircraft_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost
+    
+    def air_v_air_attacker_aluminum_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of aluminum used by the attacker in an air v air attack.
+        """
+        return self.__recovered_by_military_salvage(self.air_v_air_attacker_aircraft_casualties * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost, self.air_v_air_defender_aluminum_used(stat_type), self.air_winrate)
+    
+    def air_v_air_defender_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used by the defender in an air v air attack.
+        """
+        return self.defender.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).gasoline_used * scale_with_winrate(self.air_winrate)
+    
+    def air_v_air_attacker_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used by the attacker in an air v air attack.
+        """
+        return self.attacker.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).gasoline_used
+    
+    def air_v_air_defender_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used by the defender in an air v air attack.
+        """
+        return self.defender.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).munitions_used * scale_with_winrate(self.air_winrate)
+    
+    def air_v_air_attacker_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used by the attacker in an air v air attack.
+        """
+        return self.attacker.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).munitions_used
+    
+    def air_v_air_defender_steel_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel used by the defender in an air v air attack.
+        """
+        return 0
+    
+    def air_v_air_attacker_steel_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel used by the attacker in an air v air attack.
+        """
+        return 0
+    
+    def air_v_air_defender_money_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of money used by the defender in an air v air attack.
+        """
+        return (self.air_v_air_defender_aircraft_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).money_cost
+                + self.air_v_other_infrastructure_destroyed_value(stat_type))
+    
+    def air_v_air_attacker_money_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of money used by the attacker in an air v air attack.
+        """
+        return self.air_v_air_attacker_aircraft_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).money_cost
+    
+    def air_v_other_defender_aluminum_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of aluminum used by the defender in an air v other attack.
+        """
+        return self.air_v_other_defender_aircraft_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost
+    
+    def air_v_other_attacker_aluminum_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of aluminum used by the attacker in an air v other attack.
+        """
+        return self.__recovered_by_military_salvage(self.air_v_other_attacker_aircraft_casualties * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost, self.air_v_other_defender_aluminum_used(stat_type), self.air_winrate)
+    
+    def air_v_all_defender_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used by the defender in an air v other attack.
+        """
+        return self.defender.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).gasoline_used * scale_with_winrate(self.air_winrate)
+
+    def air_v_all_attacker_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used by the attacker in an air v other attack.
+        """
+        return self.attacker.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).gasoline_used
+
+    def air_v_all_defender_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used by the defender in an air v other attack.
+        """
+        return self.defender.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).munitions_used * scale_with_winrate(self.air_winrate)
+
+    def air_v_all_attacker_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used by the attacker in an air v other attack.
+        """
+        return self.attacker.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).munitions_used
+
+    def air_v_tanks_defender_steel_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel used by the defender in an air v tanks attack.
+        """
+        return self.air_v_tanks_defender_tanks_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.TANK).steel_cost
+    
+    def air_v_tanks_attacker_steel_used(self, stat_type: StatsEnum) -> float:   
+        """
+        Calculates the amount of steel used by the attacker in an air v tanks attack.
+        """
+        return self.__recovered_by_military_salvage(0, self.air_v_tanks_defender_steel_used(stat_type), self.air_winrate)
+    
+    def air_v_ships_defender_steel_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel used by the defender in an air v ships attack.
+        """
+        return self.air_v_ships_defender_ships_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.SHIP).steel_cost
+    
+    def air_v_ships_attacker_steel_used(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel used by the attacker in an air v ships attack.
+        """
+        return self.__recovered_by_military_salvage(0, self.air_v_ships_defender_steel_used(stat_type), self.air_winrate)
+    
+
+    
+
     
 
 
@@ -687,10 +869,21 @@ class BattleCalc:
     
 
 
-
+def resisting_population(population: float) -> float:
+    """
+    Calculates the amount of population resisting.
+    """
+    return population / 400
     
 
-
+def scale_with_winrate(winrate: float) -> float: 
+    """
+    Returns a modifier that scales with the winrate. 1 for Utter Failure, and decreases.
+    """
+    rate = -0.4624 * winrate**2 + 1.06256 * winrate + 0.3999            
+    if rate < 0.4:
+        rate = 0.4
+    return rate
     
 
 def universal_winrate(attacker_army_value: float, defender_army_value: float):
