@@ -2,9 +2,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Awaitable
 from async_property import async_cached_property, async_property
 from enums import *
-from ...utils import get_date_from_string, PROJECT_BITMAP, execute_query, total_value, get_prices
+from ...utils import get_date_from_string, PROJECT_BITMAP, execute_query, total_value, get_prices, resisting_population
 from ...utils.pnw.revenue import *
-from ...utils.pnw.war import resisting_population
 from . import Alliance, City, BaseClass, Treasure, ResourceWrapper, War
 
 

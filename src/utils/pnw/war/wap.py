@@ -6,192 +6,10 @@ from warnings import WarningMessage
 import numpy as np
 
 import aiohttp
-from ...types import TradePrices, Nation, WarPolicyDetails, WarTypeDetails, WarTypeEnum, WarPolicyEnum, AttackType, MilitaryUnit, MilitaryUnitEnum, AttackSuccess, AttackerEnum, StatsEnum, WarAttackerFilter, WarActiveFilter
-from .. import execute_query, weird_division
-from . import SOLDIERS_PER_BARRACKS, TANKS_PER_FACTORY, AIRCRAFT_PER_HANGAR, SHIPS_PER_DRYDOCK, BARRACKS_PER_CITY, FACTORY_PER_CITY, HANGAR_PER_CITY, DRYDOCK_PER_CITY, RESOURCES, infra_cost
-
-
-def beige_loot_value(loot_string: str, prices: TradePrices) -> int:
-    loot_string = loot_string[loot_string.index(
-        '$'):loot_string.index('Food.')]
-    loot_string = re.sub(r"[^0-9-]+", "", loot_string.replace(", ", "-"))
-    n = 0
-    loot = {}
-    for sub in loot_string.split("-"):
-        loot[RESOURCES[n]] = int(sub)
-        n += 1
-    nation_loot = 0
-    for rs in RESOURCES:
-        amount = loot[rs]
-        price = prices[rs]
-        nation_loot += amount * price
-    return nation_loot
-
-
-def barracks_mmr(barracks: int, cities: int, decimal: int = 1) -> float:
-    return round(barracks / cities, decimal)
-
-
-def factory_mmr(factories: int, cities: int, decimal: int = 1) -> float:
-    return round(factories / cities, decimal)
-
-
-def hangar_mmr(hangars: int, cities: int, decimal: int = 1) -> float:
-    return round(hangars / cities, decimal)
-
-
-def drydock_mmr(drydocks: int, cities: int, decimal: int = 1) -> float:
-    return round(drydocks / cities, decimal)
-
-
-def population_soldiers_limit(population: int) -> int:
-    return math.floor(population/6.67)
-
-
-def population_tanks_limit(population: int) -> int:
-    return math.floor(population/66.67)
-
-
-def population_aircraft_limit(population: int) -> int:
-    return math.floor(population/1000)
-
-
-def population_ships_limit(population: int) -> int:
-    return math.floor(population/10000)
-
-
-def max_soldiers(barracks: int, population: int) -> int:
-    return math.floor(min(SOLDIERS_PER_BARRACKS * barracks, population_soldiers_limit(population)))
-
-
-def max_tanks(factories: int, population: int) -> int:
-    return math.floor(min(TANKS_PER_FACTORY * factories, population_tanks_limit(population)))
-
-
-def max_aircraft(hangars: int, population: int) -> int:
-    return math.floor(min(AIRCRAFT_PER_HANGAR * hangars, population_aircraft_limit(population)))
-
-
-def max_ships(drydocks: int, population: int) -> int:
-    return math.floor(min(SHIPS_PER_DRYDOCK * drydocks, population_ships_limit(population)))
-
-
-def max_spies(central_intelligence_agency: bool) -> int:
-    return 60 if central_intelligence_agency else 50
-
-
-def soldiers_daily(barracks: int, population: int, propaganda_bureau: int) -> int:
-    return round(max_soldiers(barracks, population)/3) * (1.1 if propaganda_bureau else 1)
-
-
-def tanks_daily(factories: int, population: int, propaganda_bureau: int) -> int:
-    return round(max_tanks(factories, population)/5) * (1.1 if propaganda_bureau else 1)
-
-
-def aircraft_daily(hangars: int, population: int, propaganda_bureau: int) -> int:
-    return round(max_aircraft(hangars, population)/5) * (1.1 if propaganda_bureau else 1)
-
-
-def ships_daily(drydocks: int, population: int, propaganda_bureau: int) -> int:
-    return round(max_ships(drydocks, population)/5) * (1.1 if propaganda_bureau else 1)
-
-
-def spies_daily(central_intelligence_agency: bool, spy_satellite: bool) -> int:
-    return 1 + int(central_intelligence_agency) + int(spy_satellite)
-
-
-def days_to_max_soldiers(soldiers: int, barracks: int, population: int, propaganda_bureau: int) -> int:
-    return math.ceil(weird_division(max_soldiers(barracks, population) - soldiers, soldiers_daily(barracks, population, propaganda_bureau)))
-
-
-def days_to_max_tanks(tanks: int, factories: int, population: int, propaganda_bureau: int) -> int:
-    return math.ceil(weird_division(max_tanks(factories, population) - tanks, tanks_daily(factories, population, propaganda_bureau)))
-
-
-def days_to_max_aircraft(aircraft: int, hangars: int, population: int, propaganda_bureau: int) -> int:
-    return math.ceil(weird_division(max_aircraft(hangars, population) - aircraft, aircraft_daily(hangars, population, propaganda_bureau)))
-
-
-def days_to_max_ships(ships: int, drydocks: int, population: int, propaganda_bureau: int) -> int:
-    return math.ceil(weird_division(max_ships(drydocks, population) - ships, ships_daily(drydocks, population, propaganda_bureau)))
-
-
-def days_to_max_spies(spies: int, central_intelligence_agency: bool, spy_satellite: bool) -> int:
-    return math.ceil(weird_division(max_spies(central_intelligence_agency) - spies, spies_daily(central_intelligence_agency, spy_satellite)))
-
-
-def soldiers_absolute_militarization(soldiers: int, cities: int) -> float:
-    return soldiers / (cities * BARRACKS_PER_CITY * SOLDIERS_PER_BARRACKS)
-
-
-def soldiers_relative_militarization(soldiers: int, barracks: int) -> float:
-    return soldiers / (barracks * SOLDIERS_PER_BARRACKS)
-
-
-def tanks_absolute_militarization(tanks: int, cities: int) -> float:
-    return tanks / (cities * FACTORY_PER_CITY * TANKS_PER_FACTORY)
-
-
-def tanks_relative_militarization(tanks: int, factories: int) -> float:
-    return tanks / (factories * TANKS_PER_FACTORY)
-
-
-def aircraft_absolute_militarization(aircraft: int, cities: int) -> float:
-    return aircraft / (cities * HANGAR_PER_CITY * AIRCRAFT_PER_HANGAR)
-
-
-def aircraft_relative_militarization(aircraft: int, hangars: int) -> float:
-    return aircraft / (hangars * AIRCRAFT_PER_HANGAR)
-
-
-def ships_absolute_militarization(ships: int, cities: int) -> float:
-    return ships / (cities * DRYDOCK_PER_CITY * SHIPS_PER_DRYDOCK)
-
-
-def ships_relative_militarization(ships: int, drydocks: int) -> float:
-    return ships / (drydocks * SHIPS_PER_DRYDOCK)
-
-
-def total_absolute_militarization(soldiers: int, tanks: int, aircraft: int, ships: int, cities: int) -> float:
-    return (soldiers_absolute_militarization(soldiers, cities) + tanks_absolute_militarization(tanks, cities) + aircraft_absolute_militarization(aircraft, cities) + ships_absolute_militarization(ships, cities)) / 4
-
-
-def total_relative_militarization(soldiers: int, barracks: int, tanks: int, factories: int, aircraft: int, hangars: int, ships: int, drydocks: int) -> float:
-    return (soldiers_relative_militarization(soldiers, barracks) + tanks_relative_militarization(tanks, factories) + aircraft_relative_militarization(aircraft, hangars) + ships_relative_militarization(ships, drydocks)) / 4
-
-
-@WarningMessage.deprecated("This function is deprecated. Use the spy field in `Nation` instead.")
-async def spy_calc(nation: Nation) -> int:
-    """
-    Calculates the amount of spies a nation has.
-    """
-    async with aiohttp.ClientSession() as session:
-        if nation.war_policy == WarPolicyEnum.ARCANE:
-            percent = 57.5
-        elif nation.war_policy == WarPolicyEnum.TACTICIAN:
-            percent = 42.5
-        else:
-            percent = 50
-        upper_lim = 60
-        lower_lim = 0
-        while True:
-            spycount = math.floor((upper_lim + lower_lim)/2)
-            async with session.get(f"https://politicsandwar.com/war/espionage_get_odds.php?id1=341326&id2={nation['id']}&id3=0&id4=1&id5={spycount}") as probability:
-                probability = await probability.text()
-            if "Greater than 50%" in probability:
-                upper_lim = spycount
-            else:
-                lower_lim = spycount
-            if upper_lim - 1 == lower_lim:
-                break
-        enemyspy = round((((100*int(spycount))/(percent-25))-2)/3)
-        if enemyspy > 60:
-            enemyspy = 60
-        elif enemyspy > 50 and not nation._central_intelligence_agency:
-            enemyspy = 50
-        elif enemyspy < 2:
-            enemyspy = 0
-    return enemyspy
+from ....types import TradePrices, Nation, WarPolicyDetails, WarTypeDetails, WarTypeEnum, WarPolicyEnum, AttackType, MilitaryUnit, MilitaryUnitEnum, AttackSuccess, AttackerEnum, StatsEnum, WarAttackerFilter, WarActiveFilter
+from ... import execute_query, weird_division
+from .. import SOLDIERS_PER_BARRACKS, TANKS_PER_FACTORY, AIRCRAFT_PER_HANGAR, SHIPS_PER_DRYDOCK, BARRACKS_PER_CITY, FACTORY_PER_CITY, HANGAR_PER_CITY, DRYDOCK_PER_CITY, RESOURCES, infra_cost
+from . import *
 
 
 class BattleCalc:
@@ -228,31 +46,31 @@ class BattleCalc:
 
     @property
     def attacker_ground_army_value(self) -> float:
-        return self.attacker_soldiers_value + self.attacker_tanks_value
+        return get_army_value(soldiers=self.attacker.soldiers, tanks=self.attacker.tanks, using_munitions=self.attacker_using_munitions, air_superiority=self.attacker_air_superiority)
     
     @property
     def attacker_soldiers_value(self) -> float:
-        return self.attacker.soldiers * MilitaryUnit(MilitaryUnitEnum.SOLDIER, using_munitions = self.attacker_using_munitions).army_value
+        return get_army_value(soldiers=self.attacker.soldiers, using_munitions=self.attacker_using_munitions)
 
     @property
     def attacker_tanks_value(self) -> float:
-        return self.attacker.tanks * MilitaryUnit(MilitaryUnitEnum.TANK, enemy_air_superiority = self.defender_air_superiority).army_value
+        return get_army_value(tanks=self.attacker.tanks, air_superiority=self.attacker_air_superiority)
 
     @property
     def defender_ground_army_value(self) -> float:
-        return self.defender_soldiers_value + self.defender_tanks_value + self.defender_population_value
+        return get_army_value(soldiers=self.defender.soldiers, resisting_population=resisting_population(self.defender.population), tanks=self.defender.tanks, using_munitions=self.defender_using_munitions, air_superiority=self.defender_air_superiority)
     
     @property
     def defender_soldiers_value(self) -> float:
-        return self.defender.soldiers * MilitaryUnit(MilitaryUnitEnum.SOLDIER, using_munitions = self.defender_using_munitions).army_value
+        return get_army_value(soldiers=self.defender.soldiers, using_munitions=self.defender_using_munitions)
     
     @property
     def defender_tanks_value(self) -> float:
-        return self.defender.tanks * MilitaryUnit(MilitaryUnitEnum.TANK, enemy_air_superiority = self.attacker_air_superiority).army_value
+        return get_army_value(tanks=self.defender.tanks, air_superiority=self.defender_air_superiority)
     
     @property
     def defender_population_value(self) -> float:
-        return self.defender.population / 400 * MilitaryUnit(MilitaryUnitEnum.SOLDIER, using_munitions = self.defender_using_munitions).army_value
+        return get_army_value(resisting_population=resisting_population(self.defender.population), using_munitions=self.defender_using_munitions)
     
     @property
     def ground_winrate(self) -> float:
@@ -278,7 +96,7 @@ class BattleCalc:
     @property
     def total_winrate(self) -> float:
         """
-        Calculates the total winrate of the attacker.
+        Calculates the total winrate of the attacker. Average of ground, air and naval winrates.
         """
         return (self.ground_winrate() + self.air_winrate() + self.naval_winrate()) / 3
     
@@ -315,19 +133,19 @@ class BattleCalc:
 
     @property
     def attacker_casualties_soldiers_value(self):    
-        return weird_division((self.attacker_soldiers_value + self.defender_soldiers_value) , (self.attacker_soldiers_value ** (3/4) + self.defender_soldiers_value ** (3/4))) * self.attacker_soldiers_value ** (3/4)
+        return casualties_calculation_army_value(self.attacker_soldiers_value, self.defender_soldiers_value, AttackerEnum.ATTACKER)
 
     @property
     def attacker_casualties_tanks_value(self):    
-        return weird_division((self.attacker_tanks_value + self.defender_tanks_value) , (self.attacker_tanks_value ** (3/4) + self.defender_tanks_value ** (3/4))) * self.attacker_tanks_value ** (3/4)
+        return casualties_calculation_army_value(self.attacker_tanks_value, self.defender_tanks_value, AttackerEnum.ATTACKER)
 
     @property
     def defender_casualties_soldiers_value(self):    
-        return weird_division((self.attacker_soldiers_value + self.defender_soldiers_value) , (self.attacker_soldiers_value ** (3/4) + self.defender_soldiers_value ** (3/4))) * self.defender_soldiers_value ** (3/4)
+        return casualties_calculation_army_value(self.defender_soldiers_value, self.attacker_soldiers_value, AttackerEnum.DEFENDER)
 
     @property
     def defender_casualties_tanks_value(self):    
-        return weird_division((self.attacker_tanks_value + self.defender_tanks_value) , (self.attacker_tanks_value ** (3/4) + self.defender_tanks_value ** (3/4))) * self.defender_tanks_value ** (3/4)
+        return casualties_calculation_army_value(self.defender_tanks_value, self.attacker_tanks_value, AttackerEnum.DEFENDER)
 
     # TODO how does population come into play?
     # defender_casualties_population_value = (self.defender.population / 400) ** (3/4)
@@ -343,96 +161,68 @@ class BattleCalc:
         else:
             raise ValueError("Invalid stat type")
 
-    def __defender_fortified(self, func):
-        """
-        The attacker's casualties. Is 1.25 if the defender is fortified.
-        """
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs) * 1 if not self.defender_fortified else 1.25
-        return wrapper
-
-    @__defender_fortified
     def ground_attack_attacker_soldiers_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of soldiers the attacker will lose in a ground attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.defender_casualties_soldiers_value * 0.0084 + self.defender_casualties_tanks_value * 0.0092) * random_modifier
+        return ground_attack_attacker_soldiers_casualties(self.defender_casualties_soldiers_value, self.defender_casualties_tanks_value, self.attacker.soldiers, self.defender_fortified, random_modifier)
     
-    @__defender_fortified
     def ground_attack_attacker_tanks_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of tanks the attacker will lose in a ground attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (
-            self.defender_casualties_soldiers_value * (0.0004060606 * self.ground_winrate + 0.00043225806 * (1 - self.ground_winrate))
-            + self.defender_casualties_tanks_value * (0.00066666666 * self.ground_winrate + 0.00070967741 * (1 - self.ground_winrate))
-            ) * random_modifier
+        return ground_attack_attacker_tanks_casualties(self.defender_casualties_soldiers_value, self.defender_casualties_tanks_value, self.attacker.tanks, self.ground_winrate, self.defender_fortified, random_modifier)
 
     def ground_attack_defender_soldiers_casualties(self, stat_type: StatsEnum) ->  float:
         """
         Calculates the amount of soldiers the defender will lose in a ground attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.attacker_casualties_soldiers_value * 0.0084 + self.attacker_casualties_tanks_value * 0.0092) * random_modifier
+        return ground_attack_defender_soldiers_casualties(self.attacker_casualties_soldiers_value, self.attacker_casualties_tanks_value, self.defender.soldiers, random_modifier)
     
     def ground_attack_defender_tanks_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of tanks the defender will lose in a ground attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (
-            self.attacker_casualties_soldiers_value * (0.0004060606 * (1 - self.ground_winrate) + 0.00043225806 * self.ground_winrate)
-            + self.attacker_casualties_tanks_value * (0.00066666666 * (1 - self.ground_winrate) + 0.00070967741 * self.ground_winrate)
-            ) * random_modifier
+        return ground_attack_defender_tanks_casualties(self.attacker_casualties_soldiers_value, self.attacker_casualties_tanks_value, self.defender.tanks, self.ground_winrate, random_modifier)
     
     def ground_attack_defender_aircraft_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aircraft the defender will lose in a ground attack.
         """
         # TODO what are the casualty ratios?
-        if stat_type == StatsEnum.AVERAGE:
-            return self.attacker.tanks * 0.005 * self.ground_winrate ** 3
-        elif stat_type == StatsEnum.DIFFERENCE:
-            return self.attacker.tanks * 0.005 * (1 - self.ground_winrate) ** 3
-        else:
-            raise ValueError("Invalid stat type")
+        return ground_attack_defender_aircraft_casualties(self.attacker.tanks, self.defender.aircraft, self.ground_winrate)
     
-    @__defender_fortified
     def air_v_air_attacker_aircraft_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aircraft the attacker will lose in an air v air attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.defender_casualties_aircraft_value * 0.01) * random_modifier
+        return air_v_air_attacker_aircraft_casualties(self.defender_casualties_aircraft_value, random_modifier, self.defender_fortified)
     
     def air_v_air_defender_aircraft_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aircraft the defender will lose in an air v air attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.attacker_casualties_aircraft_value * 0.018337) * random_modifier
+        return air_v_air_defender_aircraft_casualties(self.attacker_casualties_aircraft_value, random_modifier)
     
-    @__defender_fortified
     def air_v_other_attacker_aircraft_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aircraft the attacker will lose in an air v other attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.defender_casualties_aircraft_value * 0.015385) * random_modifier
+        return air_v_other_attacker_aircraft_casualties(self.defender_casualties_aircraft_value, random_modifier, self.defender_fortified)
     
     def air_v_other_defender_aircraft_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aircraft the defender will lose in an air v other attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.attacker_casualties_aircraft_value * 0.009091) * random_modifier
-    
-    def __airstrike_unit_kill_rate(self, func) -> function:
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs) * scale_with_winrate(self.air_winrate)
-        return wrapper
+        return air_v_other_defender_aircraft_casualties(self.attacker_casualties_aircraft_value, random_modifier)
     
     def __stat_type_to_airstrike_casualties_modifier(self, stat_type: StatsEnum) -> float:
         if stat_type == StatsEnum.AVERAGE:
@@ -442,139 +232,70 @@ class BattleCalc:
         else:
             raise ValueError("Invalid stat type")
     
-    def air_v_infra_defender_infra_lost(self) -> float:
-        # TODO
-        return 0
-
     def air_v_money_defender_money_lost(self) -> float:
         # TODO
         return 0
     
-    @__airstrike_unit_kill_rate
     def air_v_ships_defender_ships_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of ships the defender will lose in an air v ships attack.
         """
         # TODO is it correct to use the random_modifier here?
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
-        return round(max(min(self.defender.ships, self.defender.ships * 0.75 + 4, (self.attacker.aircraft - self.defender.aircraft * 0.5) * 0.0285 * random_modifier), 0))
+        return air_v_ships_defender_ships_casualties(self.defender.ships, self.attacker.aircraft, self.defender.aircraft, random_modifier, self.air_winrate)
     
-    @__airstrike_unit_kill_rate
     def air_v_soldiers_defender_soldiers_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of soldiers the defender will lose in an air v soldiers attack.
         """
         # TODO is it correct to use the random_modifier here?
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
-        return round(max(min(self.defender.soldiers, self.defender.soldiers * 0.75 + 1000, (self.attacker.aircraft - self.defender.aircraft * 0.5) * 35 * random_modifier), 0))
+        return air_v_soldiers_defender_soldiers_casualties(self.defender.soldiers, self.attacker.aircraft, self.defender.aircraft, random_modifier, self.air_winrate)
     
-    @__airstrike_unit_kill_rate
     def air_v_tanks_defender_tanks_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of tanks the defender will lose in an air v tanks attack.
         """
         # TODO is it correct to use the random_modifier here?
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
-        return round(max(min(self.defender.tanks, self.defender.tanks * 0.75 + 10, (self.attacker.aircraft - self.defender.aircraft * 0.5) * 1.25 * random_modifier), 0))
+        return air_v_tanks_defender_tanks_casualties(self.defender.tanks, self.attacker.aircraft, self.defender.aircraft, random_modifier, self.air_winrate)
     
     def naval_attack_attacker_ships_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of ships the attacker will lose in a naval attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.defender_casualties_ships_value * 0.01375) * random_modifier    
+        return naval_attack_attacker_ships_casualties(self.defender_casualties_ships_value, self.defender_fortified, random_modifier)  
     
     def naval_attack_defender_ships_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of ships the defender will lose in a naval attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (self.attacker_casualties_ships_value * 0.01375) * random_modifier
+        return naval_attack_defender_ships_casualties(self.attacker_casualties_ships_value, random_modifier)
     
-    def ground_attack_loot(self, stat_type: StatsEnum) -> float:
+    def ground_attack_loot(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         """
         Calculates the amount of loot the attacker will get in a ground attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
-        return (
-            (self.attacker.soldiers * MilitaryUnit(MilitaryUnitEnum.SOLDIER).loot_stolen
-                + self.attacker.tanks * MilitaryUnit(MilitaryUnitEnum.TANK).loot_stolen)
-            * ((self.ground_winrate ** 3) * 3
-                + (self.ground_winrate ** 2) * (1 - self.ground_winrate) * 2
-                + self.ground_winrate * (1 - self.ground_winrate) ** 2)   
-            * random_modifier
-            * self.war._war_type_details.attacker_loot if self.war else WarTypeDetails(WarTypeEnum.ORDINARY).attacker_loot
-            * self.attacker.war_policy_details.loot_stolen
-            * self.defender.war_policy_details.loot_lost
-            * 1.05 if self.attacker._advanced_pirate_economy else 1
-            * 1.05 if self.attacker._pirate_economy else 1
-            # TODO * blitzkrieg
-        )
+        return ground_attack_loot(self.attacker_soldiers_value, self.attacker_tanks_value, self.ground_winrate, self.attacker.war_policy_details, self.defender.war_policy_details, attacker, random_modifier, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY), self.attacker._pirate_economy, self.attacker._advanced_pirate_economy)
     
-    def __infrastructure_destroyed(self, func, only_war: bool = False):
-        """
-        Modifies the amount of infrastructure destroyed according to policies and war types.
-        :param func: The function to modify.
-        :param only_war: Whether to only include war type modifiers, and not war policies.
-        """
-        def wrapper(*args, **kwargs):
-            if self.war:
-                if self.war.attacker == self.attacker:
-                    war_modifier = self.war._war_type_details.attacker_infra_destroyed
-                elif self.war.defender == self.attacker:
-                    war_modifier = self.war._war_type_details.defender_infra_destroyed
-                else:
-                    raise ValueError("Invalid attacker")
-            else:
-                war_modifier = WarTypeDetails(WarTypeEnum.ORDINARY).attacker_infra_destroyed
-            
-            if only_war:
-                return func(*args, **kwargs) * war_modifier
-            else:
-                return (
-                    func(*args, **kwargs)
-                    * war_modifier
-                    * self.attacker.war_policy_details.infrastructure_damage_dealt
-                    * self.defender.war_policy_details.infrastructure_damage_received)
-        return wrapper
-    
-    @__infrastructure_destroyed
-    async def ground_attack_infrastructure_destroyed(self, stat_type: StatsEnum) -> float:
+    async def ground_attack_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
-        return (
-            max(
-                min(((self.attacker.soldiers - self.defender.soldiers * 0.5) * 0.000606061
-                        + (self.attacker.tanks - (self.defender.tanks * 0.5)) * 0.01)
-                    * random_modifier
-                    * self.ground_winrate ** 3 
-                    , (await self.defender.highest_infra_city).infrastructure * 0.2 + 25)
-                , 0))
+        return ground_attack_infrastructure_destroyed(self.attacker_soldiers_value, self.attacker_tanks_value, self.defender_soldiers_value, self.defender_tanks_value, self.ground_winrate, (await self.defender.highest_infra_city).infrastructure, self.attacker.war_policy_details, self.defender.war_policy_details, AttackerEnum.ATTACKER, random_modifier, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY))
     
-    @__infrastructure_destroyed
-    async def air_v_infra_infrastructure_destroyed(self, stat_type: StatsEnum) -> float:
+    async def air_v_infra_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
-        return (
-            max(
-                min((self.attacker.aircraft - self.defender.aircraft * 0.5) * 0.35353535
-                    * random_modifier
-                    * self.air_winrate ** 3
-                    , (await self.defender.highest_infra_city).infrastructure * 0.5 + 100)
-                , 0))
+        return air_v_infra_infrastructure_destroyed(self.attacker.aircraft, self.defender.aircraft, (await self.defender.highest_infra_city).infrastructure, random_modifier, self.air_winrate, attacker, self.attacker.war_policy_details, self.defender.war_policy_details, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY))
     
-    # @__infrastructure_destroyed
-    async def air_v_other_infrastructure_destroyed(self, stat_type: StatsEnum) -> float:
-        return self.air_v_infra_infrastructure_destroyed(stat_type) / 3
-    
-    @__infrastructure_destroyed
-    async def naval_attack_infrastructure_destroyed(self, stat_type: StatsEnum) -> float:
+    async def air_v_other_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
-        return (
-            max(
-                min((self.attacker.ships - self.defender.ships * 0.5) * 2.625
-                    * random_modifier
-                    * self.naval_winrate ** 3
-                    , (await self.defender.highest_infra_city).infrastructure * 0.5 + 25)
-                , 0))
+        return air_v_other_infrastructure_destroyed(self.attacker.aircraft, self.defender.aircraft, (await self.defender.highest_infra_city).infrastructure, random_modifier, self.air_winrate, attacker, self.attacker.war_policy_details, self.defender.war_policy_details, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY))
+    
+    async def naval_attack_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
+        random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
+        return naval_attack_infrastructure_destroyed(self.attacker.ships, self.defender.ships, (await self.defender.highest_infra_city).infrastructure, random_modifier, self.naval_winrate, attacker, self.attacker.war_policy_details, self.defender.war_policy_details, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY))
     
     @__infrastructure_destroyed(only_war = True)
     async def missile_strike_infrastructure_destroyed(self, stat_type: StatsEnum) -> float:
@@ -858,58 +579,6 @@ class BattleCalc:
         """
         return self.__recovered_by_military_salvage(0, self.air_v_ships_defender_steel_used(stat_type), self.air_winrate)
     
-
-    
-
-    
-
-
-            
-
-    
-
-
-def resisting_population(population: float) -> float:
-    """
-    Calculates the amount of population resisting.
-    """
-    return population / 400
-    
-
-def scale_with_winrate(winrate: float) -> float: 
-    """
-    Returns a modifier that scales with the winrate. 1 for Utter Failure, and decreases.
-    """
-    rate = -0.4624 * winrate**2 + 1.06256 * winrate + 0.3999            
-    if rate < 0.4:
-        rate = 0.4
-    return rate
-    
-
-def universal_winrate(attacker_army_value: float, defender_army_value: float):
-    """
-    Calculates the winrate of the attacker.
-    """
-    # TODO: redo this function
-
-    attacker_army_value **= (3/4)
-    defender_army_value **= (3/4)
-
-    if attacker_army_value == 0 and defender_army_value == 0:
-        return 0
-    elif defender_army_value == 0:
-        return 1
-    x = attacker_army_value / defender_army_value
-
-    # should be 2.5 and not 2 but the function would have to be redone
-    if x > 2:
-        winrate = 1
-    elif x < 0.4:
-        winrate = 0
-    else:
-        winrate = (12.832883444301027*x**(11)-171.668262561212487*x**(10)+1018.533858483560834*x**(9)-3529.694284997589875*x**(8)+7918.373606722701879*x**(7)-12042.696852729619422 *
-                   x**(6)+12637.399722721022044*x**(5)-9128.535790660698694*x**(4)+4437.651655224382012*x**(3)-1378.156072477675025*x**(2)+245.439740545813436*x-18.980551645186498)
-    return winrate
 
 
 async def battle_calc(self, nation1_id=None, nation2_id=None, nation1=None, nation2=None):
