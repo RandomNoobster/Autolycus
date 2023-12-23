@@ -54,7 +54,30 @@ def infrastructure_destroyed_modifier(war_type_details: WarTypeDetails, attacker
     else:
         raise ValueError("Invalid attacker")
     
-    return (1 * war_modifier * attacker_war_policy_details.infrastructure_damage_dealt * defender_war_policy_details.infrastructure_damage_received)
+    return (
+        1
+        * war_modifier
+        * attacker_war_policy_details.infrastructure_damage_dealt if attacker_war_policy_details else 1
+        * defender_war_policy_details.infrastructure_damage_received if defender_war_policy_details else 1)
+
+    
+async def infrastructure_destroyed_value(destroyed_infra: float, defender: Nation) -> float:
+    """
+    Calculates the value of infrastructure destroyed.
+    """
+    starting_infra = (await defender.highest_infra_city).infrastructure
+    ending = starting_infra - destroyed_infra
+    return infra_cost(starting_infra, ending, defender)
+
+
+def recovered_by_military_salvage(attacker_used: float, defender_used: float, winrate: float) -> float:
+    """
+    Calculates the amount of resources recovered by military salvage.
+    :param attacker_used: The amount of resources used by the attacker.
+    :param defender_used: The amount of resources used by the defender.
+    :param winrate: The winrate of the attacker.
+    """
+    return (attacker_used + defender_used) * (winrate ** 3) * 0.05
 
 
 def resisting_population(population: float) -> float:

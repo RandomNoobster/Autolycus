@@ -79,7 +79,7 @@ def ground_attack_loot(attacker_soldiers: int, attacker_tanks: int, ground_winra
         # TODO * blitzkrieg
     )
 
-async def ground_attack_infrastructure_destroyed(attacker_soldiers: int, attacker_tanks: int, defender_soldiers: int, defender_tanks: int, ground_winrate: float, city_infrastructure: int, attacker_war_policy_details: WarPolicyDetails, defender_war_policy_details: WarPolicyDetails, attacker: AttackerEnum, random_factor: float = 1.0, war_type_details: WarTypeDetails = WarTypeDetails(WarTypeEnum.ORDINARY)) -> float:
+def ground_attack_infrastructure_destroyed(attacker_soldiers: int, attacker_tanks: int, defender_soldiers: int, defender_tanks: int, ground_winrate: float, city_infrastructure: int, attacker_war_policy_details: WarPolicyDetails, defender_war_policy_details: WarPolicyDetails, attacker: AttackerEnum, random_factor: float = 1.0, war_type_details: WarTypeDetails = WarTypeDetails(WarTypeEnum.ORDINARY)) -> float:
     """
     Calculates the amount of infrastructure the defender will lose in a ground attack.
     """

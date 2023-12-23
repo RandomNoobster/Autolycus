@@ -210,19 +210,33 @@ class BattleCalc:
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
         return air_v_air_defender_aircraft_casualties(self.attacker_casualties_aircraft_value, random_modifier)
     
-    def air_v_other_attacker_aircraft_casualties(self, stat_type: StatsEnum) -> float:
+    def __air_v_other_attacker_aircraft_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aircraft the attacker will lose in an air v other attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
         return air_v_other_attacker_aircraft_casualties(self.defender_casualties_aircraft_value, random_modifier, self.defender_fortified)
     
-    def air_v_other_defender_aircraft_casualties(self, stat_type: StatsEnum) -> float:
+    air_v_soldiers_attacker_aircraft_casualties = \
+    air_v_tanks_attacker_aircraft_casualties = \
+    air_v_infra_attacker_aircraft_casualties = \
+    air_v_money_attacker_aircraft_casualties = \
+    air_v_ships_attacker_aircraft_casualties = \
+    __air_v_other_attacker_aircraft_casualties
+    
+    def __air_v_other_defender_aircraft_casualties(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aircraft the defender will lose in an air v other attack.
         """
         random_modifier = self.__stat_type_to_normal_casualties_modifier(stat_type)
         return air_v_other_defender_aircraft_casualties(self.attacker_casualties_aircraft_value, random_modifier)
+    
+    air_v_soldiers_defender_aircraft_casualties = \
+    air_v_tanks_defender_aircraft_casualties = \
+    air_v_infra_defender_aircraft_casualties = \
+    air_v_money_defender_aircraft_casualties = \
+    air_v_ships_defender_aircraft_casualties = \
+    __air_v_other_defender_aircraft_casualties
     
     def __stat_type_to_airstrike_casualties_modifier(self, stat_type: StatsEnum) -> float:
         if stat_type == StatsEnum.AVERAGE:
@@ -289,45 +303,28 @@ class BattleCalc:
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
         return air_v_infra_infrastructure_destroyed(self.attacker.aircraft, self.defender.aircraft, (await self.defender.highest_infra_city).infrastructure, random_modifier, self.air_winrate, attacker, self.attacker.war_policy_details, self.defender.war_policy_details, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY))
     
-    async def air_v_other_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
+    async def __air_v_other_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
         return air_v_other_infrastructure_destroyed(self.attacker.aircraft, self.defender.aircraft, (await self.defender.highest_infra_city).infrastructure, random_modifier, self.air_winrate, attacker, self.attacker.war_policy_details, self.defender.war_policy_details, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY))
+    
+    air_v_soldiers_infrastructure_destroyed = \
+    air_v_tanks_infrastructure_destroyed = \
+    air_v_money_infrastructure_destroyed = \
+    air_v_ships_infrastructure_destroyed = \
+    air_v_air_infrastructure_destroyed = \
+    __air_v_other_infrastructure_destroyed
     
     async def naval_attack_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         random_modifier = self.__stat_type_to_airstrike_casualties_modifier(stat_type)
         return naval_attack_infrastructure_destroyed(self.attacker.ships, self.defender.ships, (await self.defender.highest_infra_city).infrastructure, random_modifier, self.naval_winrate, attacker, self.attacker.war_policy_details, self.defender.war_policy_details, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY))
     
-    @__infrastructure_destroyed(only_war = True)
-    async def missile_strike_infrastructure_destroyed(self, stat_type: StatsEnum) -> float:
+    async def missile_strike_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         city = await self.defender.highest_infra_city
-        
-        avg = (300 + max(350, city.infrastructure * 100 / city.land * 3)) / 2
-        diff = max(350, city.infrastructure * 100 / city.land * 3) - avg
+        return missile_strike_infrastructure_destroyed(stat_type, city.infrastructure, city.land, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY), attacker)
 
-        if stat_type == StatsEnum.AVERAGE:
-            x = avg
-        elif stat_type == StatsEnum.DIFFERENCE:
-            x = diff
-        else:
-            raise ValueError("Invalid stat type")
-        
-        return (max(min(x, city.infrastructure * 0.8 + 150), 0))
-
-    @__infrastructure_destroyed(only_war = True)
-    async def nuclear_attack_infrastructure_destroyed(self, stat_type: StatsEnum) -> float:
+    async def nuclear_attack_infrastructure_destroyed(self, stat_type: StatsEnum, attacker: AttackerEnum) -> float:
         city = await self.defender.highest_infra_city
-
-        avg = (1700 + max(2000, city.infrastructure * 100 / city.land * 13.5)) / 2
-        diff = max(2000, city.infrastructure * 100 / city.land * 13.5) - avg
-
-        if stat_type == StatsEnum.AVERAGE:
-            x = avg
-        elif stat_type == StatsEnum.DIFFERENCE:
-            x = diff
-        else:
-            raise ValueError("Invalid stat type")
-        
-        return (max(min(x, city.infrastructure * 0.8 + 150), 0))
+        return nuclear_attack_infrastructure_destroyed(stat_type, city.infrastructure, city.land, self.war._war_type_details if self.war else WarTypeDetails(WarTypeEnum.ORDINARY), attacker)
     
     async def __infrastructure_destroyed_value(self, func) -> float:
         """
@@ -354,11 +351,18 @@ class BattleCalc:
         return await self.air_v_infra_infrastructure_destroyed(stat_type)
     
     @__infrastructure_destroyed_value
-    async def air_v_other_infrastructure_destroyed_value(self, stat_type: StatsEnum) -> float:
+    async def __air_v_other_infrastructure_destroyed_value(self, stat_type: StatsEnum) -> float:
         """
         Calculates the value of infrastructure destroyed in an air v other (than infra) attack.
         """
         return await self.air_v_other_infrastructure_destroyed(stat_type)
+    
+    air_v_soldiers_infrastructure_destroyed_value = \
+    air_v_tanks_infrastructure_destroyed_value = \
+    air_v_money_infrastructure_destroyed_value = \
+    air_v_ships_infrastructure_destroyed_value = \
+    air_v_air_infrastructure_destroyed_value = \
+    __air_v_other_infrastructure_destroyed_value
     
     @__infrastructure_destroyed_value
     async def naval_attack_infrastructure_destroyed_value(self, stat_type: StatsEnum) -> float:
@@ -381,15 +385,6 @@ class BattleCalc:
         """
         return await self.nuclear_attack_infrastructure_destroyed(stat_type)
     
-    def __recovered_by_military_salvage(self, attacker_used: float, defender_used: float, winrate: float) -> float:
-        """
-        Calculates the amount of resources recovered by military salvage.
-        :param attacker_used: The amount of resources used by the attacker.
-        :param defender_used: The amount of resources used by the defender.
-        :param winrate: The winrate of the attacker.
-        """
-        return (attacker_used + defender_used) * (int(self.attacker._military_salvage) * (winrate ** 3) * 0.05)
-
     def ground_attack_defender_aluminum_used(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of aluminum used by the defender in a ground attack.
@@ -401,7 +396,13 @@ class BattleCalc:
         Calculates the amount of aluminum used by the attacker in a ground attack.
         """
         # TODO is aluminum from enemy planes recovered?
-        return self.__recovered_by_military_salvage(0, self.ground_attack_defender_aircraft_casualties(stat_type), self.ground_winrate)
+        return 0
+    
+    def ground_attack_attacker_aluminum_recovered(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of aluminum recovered by the attacker in a ground attack.
+        """
+        return recovered_by_military_salvage(self.ground_attack_attacker_aluminum_used(stat_type), self.ground_attack_defender_aluminum_used(stat_type), self.ground_winrate)
     
     def ground_attack_defender_gasoline_used(self) -> float:
         """
@@ -439,7 +440,13 @@ class BattleCalc:
         """
         Calculates the amount of steel used by the attacker in a ground attack.
         """
-        return self.__recovered_by_military_salvage(self.ground_attack_attacker_tanks_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.TANK).steel_cost, self.ground_attack_defender_steel_used, self.ground_winrate)
+        return self.ground_attack_attacker_tanks_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.TANK).steel_cost
+    
+    def ground_attack_attacker_steel_recovered(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel recovered by the attacker in a ground attack.
+        """
+        return recovered_by_military_salvage(self.ground_attack_attacker_steel_used(stat_type), self.ground_attack_defender_steel_used(stat_type), self.ground_winrate)
     
     def ground_attack_defender_money_used(self, stat_type: StatsEnum) -> float:
         """
@@ -468,7 +475,13 @@ class BattleCalc:
         """
         Calculates the amount of aluminum used by the attacker in an air v air attack.
         """
-        return self.__recovered_by_military_salvage(self.air_v_air_attacker_aircraft_casualties * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost, self.air_v_air_defender_aluminum_used(stat_type), self.air_winrate)
+        return self.air_v_air_attacker_aircraft_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost
+    
+    def air_v_air_attacker_aluminum_recovered(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of aluminum recovered by the attacker in an air v air attack.
+        """
+        return recovered_by_military_salvage(self.air_v_air_attacker_aluminum_used(stat_type), self.air_v_air_defender_aluminum_used(stat_type), self.air_winrate)
     
     def air_v_air_defender_gasoline_used(self) -> float:
         """
@@ -476,11 +489,25 @@ class BattleCalc:
         """
         return self.defender.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).gasoline_used * scale_with_winrate(self.air_winrate)
     
+    air_v_soldiers_defender_gasoline_used = \
+    air_v_tanks_defender_gasoline_used = \
+    air_v_infra_defender_gasoline_used = \
+    air_v_money_defender_gasoline_used = \
+    air_v_ships_defender_gasoline_used = \
+    air_v_air_defender_gasoline_used
+    
     def air_v_air_attacker_gasoline_used(self) -> float:
         """
         Calculates the amount of gasoline used by the attacker in an air v air attack.
         """
         return self.attacker.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).gasoline_used
+    
+    air_v_soldiers_attacker_gasoline_used = \
+    air_v_tanks_attacker_gasoline_used = \
+    air_v_infra_attacker_gasoline_used = \
+    air_v_money_attacker_gasoline_used = \
+    air_v_ships_attacker_gasoline_used = \
+    air_v_air_attacker_gasoline_used
     
     def air_v_air_defender_munitions_used(self) -> float:
         """
@@ -488,30 +515,32 @@ class BattleCalc:
         """
         return self.defender.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).munitions_used * scale_with_winrate(self.air_winrate)
     
+    air_v_soldiers_defender_munitions_used = \
+    air_v_tanks_defender_munitions_used = \
+    air_v_infra_defender_munitions_used = \
+    air_v_money_defender_munitions_used = \
+    air_v_ships_defender_munitions_used = \
+    air_v_air_defender_munitions_used
+    
     def air_v_air_attacker_munitions_used(self) -> float:
         """
         Calculates the amount of munitions used by the attacker in an air v air attack.
         """
         return self.attacker.aircraft * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).munitions_used
     
-    def air_v_air_defender_steel_used(self, stat_type: StatsEnum) -> float:
-        """
-        Calculates the amount of steel used by the defender in an air v air attack.
-        """
-        return 0
-    
-    def air_v_air_attacker_steel_used(self, stat_type: StatsEnum) -> float:
-        """
-        Calculates the amount of steel used by the attacker in an air v air attack.
-        """
-        return 0
+    air_v_soldiers_attacker_munitions_used = \
+    air_v_tanks_attacker_munitions_used = \
+    air_v_infra_attacker_munitions_used = \
+    air_v_money_attacker_munitions_used = \
+    air_v_ships_attacker_munitions_used = \
+    air_v_air_attacker_munitions_used
     
     def air_v_air_defender_money_used(self, stat_type: StatsEnum) -> float:
         """
         Calculates the amount of money used by the defender in an air v air attack.
         """
         return (self.air_v_air_defender_aircraft_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).money_cost
-                + self.air_v_other_infrastructure_destroyed_value(stat_type))
+                + self.air_v_air_infrastructure_destroyed_value(stat_type))
     
     def air_v_air_attacker_money_used(self, stat_type: StatsEnum) -> float:
         """
@@ -529,7 +558,13 @@ class BattleCalc:
         """
         Calculates the amount of aluminum used by the attacker in an air v other attack.
         """
-        return self.__recovered_by_military_salvage(self.air_v_other_attacker_aircraft_casualties * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost, self.air_v_other_defender_aluminum_used(stat_type), self.air_winrate)
+        return self.air_v_other_attacker_aircraft_casualties(stat_type) * MilitaryUnit(MilitaryUnitEnum.AIRCRAFT).aluminum_cost
+    
+    def air_v_other_attacker_aluminum_recovered(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of aluminum recovered by the attacker in an air v other attack.
+        """
+        return recovered_by_military_salvage(self.air_v_other_attacker_aluminum_used(stat_type), self.air_v_other_defender_aluminum_used(stat_type), self.air_winrate)
     
     def air_v_all_defender_gasoline_used(self) -> float:
         """
@@ -565,7 +600,13 @@ class BattleCalc:
         """
         Calculates the amount of steel used by the attacker in an air v tanks attack.
         """
-        return self.__recovered_by_military_salvage(0, self.air_v_tanks_defender_steel_used(stat_type), self.air_winrate)
+        return 0
+    
+    def air_v_tanks_attacker_steel_recovered(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel recovered by the attacker in an air v tanks attack.
+        """
+        return recovered_by_military_salvage(self.air_v_tanks_attacker_steel_used(stat_type), self.air_v_tanks_defender_steel_used(stat_type), self.air_winrate)
     
     def air_v_ships_defender_steel_used(self, stat_type: StatsEnum) -> float:
         """
@@ -577,7 +618,81 @@ class BattleCalc:
         """
         Calculates the amount of steel used by the attacker in an air v ships attack.
         """
-        return self.__recovered_by_military_salvage(0, self.air_v_ships_defender_steel_used(stat_type), self.air_winrate)
+        return 0
+    
+    def air_v_ships_attacker_steel_recovered(self, stat_type: StatsEnum) -> float:
+        """
+        Calculates the amount of steel recovered by the attacker in an air v ships attack.
+        """
+        return recovered_by_military_salvage(self.air_v_ships_attacker_steel_used(stat_type), self.air_v_ships_defender_steel_used(stat_type), self.air_winrate)
+    
+    def missile_strike_attacker_aluminum_used(self) -> float:
+        """
+        Calculates the amount of aluminum used in a missile strike.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.MISSILE).aluminum_cost
+    
+    def missile_strike_attacker_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used in a missile strike.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.MISSILE).gasoline_used
+    
+    def missile_strike_attacker_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used in a missile strike.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.MISSILE).munitions_used
+    
+    def missile_strike_attacker_steel_used(self) -> float:
+        """
+        Calculates the amount of steel used in a missile strike.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.MISSILE).steel_cost
+    
+    def missile_strike_attacker_money_used(self) -> float:
+        """
+        Calculates the amount of money used in a missile strike.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.MISSILE).money_cost
+    
+    def nuclear_attack_attacker_aluminum_used(self) -> float:
+        """
+        Calculates the amount of aluminum used in a nuclear attack.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.NUKE).aluminum_cost
+    
+    def nuclear_attack_attacker_gasoline_used(self) -> float:
+        """
+        Calculates the amount of gasoline used in a nuclear attack.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.NUKE).gasoline_used
+    
+    def nuclear_attack_attacker_munitions_used(self) -> float:
+        """
+        Calculates the amount of munitions used in a nuclear attack.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.NUKE).munitions_used
+    
+    def nuclear_attack_attacker_steel_used(self) -> float:
+        """
+        Calculates the amount of steel used in a nuclear attack.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.NUKE).steel_cost
+    
+    def nuclear_attack_attacker_money_used(self) -> float:
+        """
+        Calculates the amount of money used in a nuclear attack.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.NUKE).money_cost
+    
+    def nuclear_attack_attacker_uranium_used(self) -> float:
+        """
+        Calculates the amount of uranium used in a nuclear attack.
+        """
+        return MilitaryUnit(MilitaryUnitEnum.NUKE).uranium_cost
+    
+
     
 
 

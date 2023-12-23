@@ -18,7 +18,7 @@ def naval_attack_defender_ships_casualties(attacker_casualties_ships_value: int,
     return (attacker_casualties_ships_value * 0.01375) * random_factor
 
 
-async def naval_attack_infrastructure_destroyed(attacker_ships: int, defender_ships: int, city_infrastructure: int, naval_winrate: float, attacker: AttackerEnum, attacker_war_policy_details: WarPolicyDetails, defender_war_policy_details: WarPolicyDetails, random_factor: float = 1.0, war_type_details: WarTypeDetails = WarTypeDetails(WarTypeEnum.ORDINARY)) -> float:
+def naval_attack_infrastructure_destroyed(attacker_ships: int, defender_ships: int, city_infrastructure: int, naval_winrate: float, attacker: AttackerEnum, attacker_war_policy_details: WarPolicyDetails, defender_war_policy_details: WarPolicyDetails, random_factor: float = 1.0, war_type_details: WarTypeDetails = WarTypeDetails(WarTypeEnum.ORDINARY)) -> float:
     return (
         max(
             min((attacker_ships - defender_ships * 0.5) * 2.625
