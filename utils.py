@@ -923,7 +923,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
             for level in range(2):
                 if unpowered_infra > 0:
                     unpowered_infra -= 1000
-                    uranium -= 1.2
+                    uranium -= 2.4
         for oil_plant in range(city['oilpower']): 
             power_upkeep += 1800 
             pollution += 6
