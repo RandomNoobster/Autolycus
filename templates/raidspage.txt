@@ -2,12 +2,14 @@
     <head>
         <link rel="icon" href="https://i.ibb.co/2dX2WYW/atomism-ICONSSS.png">
         <title>Raid targets</title>
+        <style>.fl-scrolls{overflow:auto;position:fixed}.fl-scrolls div{overflow:hidden;pointer-events:none}.fl-scrolls div:before{content:"\A0"}.fl-scrolls,.fl-scrolls div{font-size:1px;line-height:0;margin:0;padding:0}.fl-scrolls-hidden div:before{content:"\A0\A0"}.fl-scrolls-viewport{position:relative}.fl-scrolls-body{overflow:auto}.fl-scrolls-viewport .fl-scrolls{position:absolute}.fl-scrolls-hoverable .fl-scrolls{opacity:0;transition:opacity .5s .3s}.fl-scrolls-hoverable:hover .fl-scrolls{opacity:1}.fl-scrolls:not([data-orientation]),.fl-scrolls[data-orientation=horizontal]{bottom:0;min-height:17px}.fl-scrolls:not([data-orientation]) div,.fl-scrolls[data-orientation=horizontal] div{height:1px}.fl-scrolls-hidden.fl-scrolls:not([data-orientation]),.fl-scrolls-hidden.fl-scrolls[data-orientation=horizontal]{bottom:9999px}.fl-scrolls-viewport .fl-scrolls:not([data-orientation]),.fl-scrolls-viewport .fl-scrolls[data-orientation=horizontal]{left:0}.fl-scrolls[data-orientation=vertical]{right:0;min-width:17px}.fl-scrolls[data-orientation=vertical] div{width:1px}.fl-scrolls-hidden.fl-scrolls[data-orientation=vertical]{right:9999px}.fl-scrolls-viewport .fl-scrolls[data-orientation=vertical]{top:0}</style>
         <style>
             table {
                 font-family: Verdana, Arial, Monaco;
                 font-size: 80%;
                 border-collapse: collapse;
                 width: 100%;
+                user-select: none;
             }
 
             th {
@@ -18,6 +20,18 @@
 
             tr:nth-child(even) {
                 background-color: #f2f2f2
+            }
+
+            tr.highlighted {
+                background-color: #ffe6b3;
+            }
+
+            tr.highlighted:nth-child(even) {
+                background-color: #fff5b3;
+            }
+
+            tr.contextMenu, tr.contextMenu:nth-child(even) {
+                background-color: #a3c6ff;
             }
 
             th {
@@ -70,8 +84,28 @@
                 cursor: help;
             }
 
+            /* Context menu styles */
+            .context-menu {
+                display: none;
+                position: absolute;
+                background-color: #fff;
+                border: 1px solid #ccc;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+                z-index: 1000;
+                width: 150px;
+            }
+
+            .context-menu-item {
+                padding: 8px;
+                cursor: pointer;
+                font-family: Verdana, Arial, Monaco;
+                font-size: 80%;
+                color: "black";
+            }
+
         </style>
-        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+        <script>!function(t,n){"object"==typeof exports&&"undefined"!=typeof module?n(require("jquery")):"function"==typeof define&&define.amd?define(["jquery"],n):n((t="undefined"!=typeof globalThis?globalThis:t||self).jQuery)}(this,(function(t){"use strict";var n="horizontal",i="vertical",e={init:function(t,i){var e=this;e.orientationProps=function(t){var i=t===n;return{ORIENTATION:t,SIZE:i?"width":"height",X_SIZE:i?"height":"width",OFFSET_SIZE:i?"offsetWidth":"offsetHeight",OFFSET_X_SIZE:i?"offsetHeight":"offsetWidth",CLIENT_SIZE:i?"clientWidth":"clientHeight",CLIENT_X_SIZE:i?"clientHeight":"clientWidth",INNER_X_SIZE:i?"innerHeight":"innerWidth",SCROLL_SIZE:i?"scrollWidth":"scrollHeight",SCROLL_POS:i?"scrollLeft":"scrollTop",START:i?"left":"top",X_START:i?"top":"left",X_END:i?"bottom":"right"}}(i);var o=t.closest(".fl-scrolls-body");o.length&&(e.scrollBody=o),e.container=t[0],e.visible=!0,e.initWidget(),e.updateAPI(),e.addEventHandlers(),e.skipSyncContainer=e.skipSyncWidget=!1},initWidget:function(){var n=this,i=n.orientationProps,e=i.ORIENTATION,o=i.SIZE,r=i.SCROLL_SIZE,c=n.widget=t('<div class="fl-scrolls" data-orientation="'+e+'"></div>');t("<div></div>").appendTo(c)[o](n.container[r]),c.appendTo(n.container)},addEventHandlers:function(){var n=this;(n.eventHandlers=[{$el:t(window),handlers:{"destroyDetached.fscroll":function(t){"fscroll"===t.namespace&&n.destroyDetachedAPI()}}},{$el:n.scrollBody||t(window),handlers:{scroll:function(){n.updateAPI()},resize:function(){n.updateAPI()}}},{$el:n.widget,handlers:{scroll:function(){n.visible&&!n.skipSyncContainer&&n.syncContainer(),n.skipSyncContainer=!1}}},{$el:t(n.container),handlers:{scroll:function(){n.skipSyncWidget||n.syncWidget(),n.skipSyncWidget=!1},focusin:function(){setTimeout((function(){n.widget&&n.syncWidget()}),0)},"update.fscroll":function(t){"fscroll"===t.namespace&&n.updateAPI()},"destroy.fscroll":function(t){"fscroll"===t.namespace&&n.destroyAPI()}}}]).forEach((function(t){var n=t.$el,i=t.handlers;return n.bind(i)}))},checkVisibility:function(){var t=this,n=t.widget,i=t.container,e=t.scrollBody,o=t.orientationProps,r=o.SCROLL_SIZE,c=o.OFFSET_SIZE,s=o.X_START,l=o.X_END,d=o.INNER_X_SIZE,a=o.CLIENT_X_SIZE,f=n[0][r]<=n[0][c];if(!f){var u=i.getBoundingClientRect(),h=e?e[0].getBoundingClientRect()[l]:window[d]||document.documentElement[a];f=u[l]<=h||u[s]>h}t.visible===f&&(t.visible=!f,n.toggleClass("fl-scrolls-hidden"))},syncContainer:function(){var t=this,n=t.orientationProps.SCROLL_POS,i=t.widget[0][n];t.container[n]!==i&&(t.skipSyncWidget=!0,t.container[n]=i)},syncWidget:function(){var t=this,n=t.orientationProps.SCROLL_POS,i=t.container[n];t.widget[0][n]!==i&&(t.skipSyncContainer=!0,t.widget[0][n]=i)},updateAPI:function(){var n=this,i=n.orientationProps,e=i.SIZE,o=i.X_SIZE,r=i.OFFSET_X_SIZE,c=i.CLIENT_SIZE,s=i.CLIENT_X_SIZE,l=i.SCROLL_SIZE,d=i.START,a=n.widget,f=n.container,u=n.scrollBody,h=f[c],S=f[l];a[e](h),u||a.css(d,f.getBoundingClientRect()[d]+"px"),t("div",a)[e](S),S>h&&a[o](a[0][r]-a[0][s]+1),n.syncWidget(),n.checkVisibility()},destroyAPI:function(){var t=this;t.eventHandlers.forEach((function(t){var n=t.$el,i=t.handlers;return n.unbind(i)})),t.widget.remove(),t.eventHandlers=t.widget=t.container=t.scrollBody=null},destroyDetachedAPI:function(){t.contains(document.body,this.container)||this.destroyAPI()}};t.fn.floatingScroll=function(o,r){if(void 0===o&&(o="init"),void 0===r&&(r={}),"init"===o){var c=r.orientation,s=void 0===c?n:c;if(s!==n&&s!==i)throw new Error("Scrollbar orientation should be either start_quote"+n+"end_quote or start_quote"+i+"end_quote");this.each((function(n,i){return Object.create(e).init(t(i),s)}))}else Object.prototype.hasOwnProperty.call(e,o+"API")&&this.trigger(o+".fscroll");return this},t((function(){t("body [data-fl-scrolls]").each((function(n,i){var e=t(i);e.floatingScroll("init",e.data("flScrolls")||{})}))}))}));</script>
         <script>
             function postreq(id, turns, name, btn_id) {
                 console.log('button click registered')
@@ -98,8 +132,7 @@
         </script>
     </head>
     <body>
-        <div style="overflow-x:auto;">
-            <table id="grid" style="overflow-x:auto;">
+            <table id="grid" style="overflow-x:auto;" data-fl-scrolls>
                 <tbody>
                     <tr>
                         <th>Nation id</th>
@@ -115,10 +148,11 @@
                         <th><abbr title="Reminders for when the nation exits beige.">Reminder</abbr></th>
                         % endif
 
+                        <th><abbr title="The net value of everything stolen from the nation when the nation was last beiged.&#10;Income is frankly a better metric if the nation is not in an alliance.&#10;Beige loot varies based on policies and war types, so you may get a lot more/less than the previous guy.">Beige loot</abbr></th>
                         <th>Days inactive</th>
                         <th><abbr title="The net value of a nation's daily production/consumption.&#10;Be wary if the nation is in an alliance. Taxes are not considered in these calculations.">Monetary Net Income</abbr></th>
                         <th><abbr title="The raw money income of a nation. Be wary if the nation is in an alliance.&#10;Taxes are not considered in these calculations.">Net Cash Income</abbr></th>
-                        <th><abbr title="The net value of everything stolen from the nation when the nation was last beiged.&#10;Income is frankly a better metric if the nation is not in an alliance.&#10;Beige loot varies based on policies and war types, so you may get a lot more/less than the previous guy.">Beige loot</abbr></th>
+                        <th><abbr title="If a nation can be taxed. Nations not on their alliance's color can't be taxed.">Taxable</abbr></th>
                         <th>Treasures</th>
                         <th><abbr title="The number of defensive slots currently occupied.">Used slots</abbr></th>
                         <th>Days since war</th>
@@ -169,6 +203,8 @@
                             % endif
                         % endif
 
+                        <td class="right">${nation['nation_loot']}</td>
+
                         % if nation['last_active'] == '-0001-11-30 00:00:00':
                         <td class="right">0</td>
                         % else:
@@ -177,7 +213,7 @@
 
                         <td class="right">${f"{nation['monetary_net_num']:,}"}</td>
                         <td class="right">${f"{nation['net_cash_num']:,}"}</td>
-                        <td class="right">${nation['nation_loot']}</td>
+                        <td class="right">${f"{nation['taxable']}"}</td>
                         <td class="right">${nation['treasures']}</td>
 
                         <td class="right">${nation['def_slots']}/3</td>
@@ -199,7 +235,14 @@
             </table>
             <p>Time fetched: ${datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC<br><a href="http://www.timezoneconverter.com/cgi-bin/tzc.tzc" target="_blank">Timezone converter</a></p>
             <p style="color:gray">Please report bugs to RandomNoobster#0093<br>Courtesy of Church of Atom</p>
-        </div>
+
+            <!-- Context menu HTML -->
+            <div id="contextMenu" class="context-menu">
+                <div class="context-menu-item" id="menuItem1"><a target="blank_" href="" rel="noopener noreferrer">Go to nation page</a></div>
+                <div class="context-menu-item" id="menuItem2">Add beige reminder</div>
+                <!-- Add more context menu items as needed -->
+            </div>
+
         <script>
             const getCellValue = (tr, idx) => tr.children[idx].innerText
                 .replace(/,/g, '')
@@ -225,14 +268,111 @@
                     });
             };
 
-            document.querySelectorAll('th').forEach(th => th.addEventListener('click', (async function () {
-                console.time();
-                this.style.cursor = "wait";
-                await refresh()
-                await sortArrayTable(th);
-                this.style.cursor = "pointer";
-                console.timeEnd();
-            })));
+            document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('th').forEach(th => th.addEventListener('click', (async function () {
+                    console.time();
+                    this.style.cursor = "wait";
+                    await refresh()
+                    await sortArrayTable(th);
+                    this.style.cursor = "pointer";
+                    console.timeEnd();
+                })));
+
+                let isMouseDown = false;
+
+                // Attach mousedown and mouseup event listeners to the table
+                table.addEventListener('mousedown', function () {
+                    if (event.button == '0') {
+                        isMouseDown = true;
+                    }
+                });
+
+                table.addEventListener('mouseup', function () {
+                    if (event.button == '0') {
+                        isMouseDown = false;
+                    }
+                });
+
+                // Attach mouseover event listener to the table rows
+                table.addEventListener('mouseover', function (event) {
+                    if (isMouseDown && event.target.tagName.toLowerCase() === 'td' && event.button == '0') {
+                        // Toggle the 'highlighted' class on the hovered row
+                        event.target.parentNode.classList.toggle('highlighted');
+                    }
+                });
+
+                table.addEventListener('click', async function (event) {
+                    // Check if the clicked element is a table row
+                    if (event.target.tagName.toLowerCase() === 'td' && event.button == '0') {
+                        // Toggle the 'highlighted' class on the clicked row
+                        event.target.parentNode.classList.toggle('highlighted');
+                    }
+                });
+
+                var contextMenu = document.getElementById('contextMenu');
+                var menuItem1 = document.getElementById('menuItem1');
+                var menuItem1Link = menuItem1.querySelector('a')
+                var menuItem2 = document.getElementById('menuItem2');
+
+                var targetRow = null;
+
+                table.addEventListener('contextmenu', function (event) {
+                    event.preventDefault();
+                    
+                    // Remove style from previous row
+                    if (targetRow) {
+                        targetRow.classList.remove('contextMenu')
+                    }
+
+                    // Find the closest table row
+                    targetRow = event.target.closest('tr');
+                    console.log(targetRow)
+
+                    if (targetRow) {
+                        targetRow.classList.add('contextMenu')
+
+                        // Position and display the context menu
+                        contextMenu.style.left = event.clientX + window.scrollX + 'px';
+                        contextMenu.style.top = event.clientY + window.scrollY + 'px';
+                        contextMenu.style.display = 'block';
+
+                        var nationLink = targetRow.querySelector('a')
+                        menuItem1Link.href = nationLink.href;
+
+                        var remindButton = targetRow.querySelector('button');
+                        if (remindButton == null) {
+                            menuItem2.onclick = null;
+                            menuItem2.style.color = "gray";
+                            menuItem2.style.cursor = "default";
+                        } else {
+                            menuItem2.onclick = remindButton.onclick;
+                            menuItem2.style.color = "black";
+                            menuItem2.style.cursor = "pointer";
+                        }
+
+                    }
+                });
+
+                document.addEventListener('click', function (event) {
+                    // Hide the context menu when clicking outside of it
+                    if (!contextMenu.contains(event.target)) {
+                        contextMenu.style.display = 'none';
+                        targetRow.classList.remove('contextMenu')
+                    }
+                });
+
+                // Handle context menu item clicks
+                document.getElementById('menuItem1').addEventListener('click', function () {
+                    contextMenu.style.display = 'none';
+                    targetRow.classList.remove('contextMenu')
+                });
+
+                document.getElementById('menuItem2').addEventListener('click', function () {
+                    menuItem2.onclick();
+                    contextMenu.style.display = 'none';
+                    targetRow.classList.remove('contextMenu')
+                });
+            });
         </script>
     </body>
 </html>

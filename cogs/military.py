@@ -612,11 +612,18 @@ class TargetFinding(commands.Cog):
 
             await ctx.edit(content='Calculating best targets...')
 
+            alliances = {x['id']: x for x in await utils.listify(async_mongo.alliances.find({"id": {"$in": [x['alliance_id'] for x in target_list]}}))}
+
             for target in target_list:
                 embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
                 target['infrastructure'] = 0
                 
                 embed.add_field(name="Previous nation loot", value=target["nation_loot"])
+
+                if target['alliance_id'] != "0":
+                    target['taxable'] = (target['color'] == alliances[target['alliance_id']]['color'])
+                else: 
+                    target['taxable'] = False
 
                 rev_obj = await utils.revenue_calc(ctx, target, radiation, treasures, prices, colors, seasonal_mod)
 
