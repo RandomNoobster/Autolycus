@@ -60,9 +60,7 @@ class General(commands.Cog):
                         else:
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} left beige while I wasn't looking!"
                             logger.debug("Reminders (1.5)")
-                            print("How did we get here?")
-                            logger.error(f"Something fucky with beige alerts (2)\n\nAlert: {alert}\n\nUser: {user}")
-                            await debug_channel.send(utils.cut_string(f"**Exception passed**\n\nSomething fucky with beige alerts (2).\n\nAlert: {alert}\n\nUser: {user}"))
+                            # End up here if the api is faster than subs
 
                         try:
                             await disc_user.send(content)
@@ -109,9 +107,7 @@ class General(commands.Cog):
                                 elif nation['vacation_mode_turns'] >= 1:
                                     exiting_time = utils.get_datetime_of_turns(int(nation['vacation_mode_turns']))
                                 else:
-                                    print("How did we get here?")
-                                    logger.error(f"Something fucky with beige alerts (1)\n\nNation: {nation}\n\nUser: {user}")
-                                    await debug_channel.send(utils.cut_string(f"**Exception passed**\n\nSomething fucky with beige alerts (1).\n\nNation: {nation}\n\nUser: {user}"))
+                                    # End up here if the api is faster than subs
                                     exiting_time = utils.get_datetime_of_turns(0)
                                 reminded = False
                                 for sending_time in times_to_send:
