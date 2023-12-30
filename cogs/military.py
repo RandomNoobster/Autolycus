@@ -621,7 +621,11 @@ class TargetFinding(commands.Cog):
                 embed.add_field(name="Previous nation loot", value=target["nation_loot"])
 
                 if target['alliance_id'] != "0":
-                    target['taxable'] = (target['color'] == alliances[target['alliance_id']]['color'])
+                    try:
+                        target['taxable'] = (target['color'] == alliances[target['alliance_id']]['color'])
+                    except KeyError:
+                        # Here we are if the alliance is not in the cache
+                        target['taxable'] = True
                 else: 
                     target['taxable'] = False
 
