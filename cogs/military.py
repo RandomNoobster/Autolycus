@@ -130,7 +130,7 @@ class TargetFinding(commands.Cog):
                 return
             
             minscore = round(atck_ntn['score'] * 0.75)
-            maxscore = round(atck_ntn['score'] * 1.75)
+            maxscore = round(atck_ntn['score'] * 2.5)
             
             use_same = None
             class stage_one(discord.ui.View):
@@ -1268,7 +1268,7 @@ class TargetFinding(commands.Cog):
                 chances = []
                 for ally in allied_nations:
                     minscore = round(ally['score'] * 0.75)
-                    maxscore = round(ally['score'] * 1.75)
+                    maxscore = round(ally['score'] * 2.5)
                     if enemy['score'] >= minscore and enemy['score'] <= maxscore:
                         results = await self.battle_calc(nation1 = ally, nation2 = enemy)
                         chances.append({"id": ally['id'], "winchance": (results["nation1_ground_win_rate"] + results["nation1_air_win_rate"]) / 2})
@@ -1338,7 +1338,7 @@ class TargetFinding(commands.Cog):
         else:
             alliance = "No alliance"
 
-        desc = f"[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']}) | {alliance}\n\nLast login: <t:{round(datetime.strptime(nation['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R>\nOffensive wars: {len(nation['offensive_wars'])}/{max_offense}\nDefensive wars: {len(nation['defensive_wars'])}/3\nDefensive range: {round(nation['score'] / 1.75)} - {round(nation['score'] / 0.75)}\nCities: {nation['num_cities']}\nBeige (turns): {nation['beigeturns']}\n\nSoldiers: **{nation['soldiers']:,}** / {max_sol:,}\nTanks: **{nation['tanks']:,}** / {max_tnk:,}\nPlanes: **{nation['aircraft']:,}** / {max_pln:,}\nShips: **{nation['ships']:,}** / {max_shp:,}"
+        desc = f"[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']}) | {alliance}\n\nLast login: <t:{round(datetime.strptime(nation['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R>\nOffensive wars: {len(nation['offensive_wars'])}/{max_offense}\nDefensive wars: {len(nation['defensive_wars'])}/3\nDefensive range: {round(nation['score'] / 2.5)} - {round(nation['score'] / 0.75)}\nCities: {nation['num_cities']}\nBeige (turns): {nation['beigeturns']}\n\nSoldiers: **{nation['soldiers']:,}** / {max_sol:,}\nTanks: **{nation['tanks']:,}** / {max_tnk:,}\nPlanes: **{nation['aircraft']:,}** / {max_pln:,}\nShips: **{nation['ships']:,}** / {max_shp:,}"
         embed = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
         embed1 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
         embed2 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
@@ -1529,11 +1529,11 @@ class TargetFinding(commands.Cog):
                 res = await utils.call(f"{{nations(first:1 id:{user['id']}){{data{utils.get_query(queries.NUKETARGETS)}}}}}")
                 user_nation = res['data']['nations']['data'][0]
                 minscore = round(user_nation['score'] * 0.75)
-                maxscore = round(user_nation['score'] * 1.75)
+                maxscore = round(user_nation['score'] * 2.5)
                 all_nations = await utils.paginate_call(f"{{nations(first:150 page:page_number vmode:false max_score:{maxscore} min_score:{minscore} alliance_id:[{' '.join(alliance_ids)}]) {{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.NUKETARGETS)}}}}}", "nations")
 
             minscore = round(user_nation['score'] * 0.75)
-            maxscore = round(user_nation['score'] * 1.75)
+            maxscore = round(user_nation['score'] * 2.5)
             nation_list = []
             for nation in all_nations:
                 try:

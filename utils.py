@@ -585,7 +585,7 @@ def score_range(score: float) -> Tuple[float, float]:
     :return: Minimum attacking range and maximum attacking range, in that order.
     """
     min_score = score * 0.75
-    max_score = score * 1.75
+    max_score = score * 2.5
     return min_score, max_score
 
 

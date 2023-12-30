@@ -55,7 +55,7 @@ class Background(commands.Cog):
             nation_info = f"> Nation Name: [{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})\n> Leader Name: {nation['leader_name']}\n> Cities: [{nation['num_cities']}](https://politicsandwar.com/city/manager/n={nation['nation_name'].replace(' ', '%20')})\n> War Policy: [{nation['warpolicy']}](https://politicsandwar.com/pwpedia/war-policy/)\n> Dom. Policy: [{nation['dompolicy']}](https://politicsandwar.com/pwpedia/domestic-policy/)"
             embed.add_field(name="Nation Info", value=nation_info)
 
-            nation_info_2 = f"> Score: `{nation['score']}`\n> Def. Range: `{round(nation['score']/1.75)}`-`{round(nation['score']/0.75)}`\n> Off. Range: `{round(nation['score']*0.75)}`-`{round(nation['score']*1.75)}`\n> Color: [{nation['color'].capitalize()}](https://politicsandwar.com/leaderboards/display=color)\n> Turns of VM: `{nation['vmode']}`"
+            nation_info_2 = f"> Score: `{nation['score']}`\n> Def. Range: `{round(nation['score']/2.5)}`-`{round(nation['score']/0.75)}`\n> Off. Range: `{round(nation['score']*0.75)}`-`{round(nation['score']*2.5)}`\n> Color: [{nation['color'].capitalize()}](https://politicsandwar.com/leaderboards/display=color)\n> Turns of VM: `{nation['vmode']}`"
             embed.add_field(name="\u200b", value=nation_info_2)
 
             if nation['alliance']:
