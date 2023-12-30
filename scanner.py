@@ -107,6 +107,8 @@ async def transaction_scanner() -> None:
             rss_tx = {}
 
             for note in guild['transactions_exempt_notes']:
+                if note.strip() == "":
+                    continue
                 if note.lower() == tx['note'].lower():
                     return
 
