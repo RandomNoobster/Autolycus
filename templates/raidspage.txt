@@ -92,7 +92,7 @@
                 border: 1px solid #ccc;
                 box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
                 z-index: 1000;
-                width: 150px;
+                width: 170px;
             }
 
             .context-menu-item {
@@ -148,7 +148,7 @@
                         <th><abbr title="Reminders for when the nation exits beige.">Reminder</abbr></th>
                         % endif
 
-                        <th><abbr title="The net value of everything stolen from the nation when the nation was last beiged.&#10;Income is frankly a better metric if the nation is not in an alliance.&#10;Beige loot varies based on policies and war types, so you may get a lot more/less than the previous guy.">Beige loot</abbr></th>
+                        <th><abbr title="The net value of everything stolen from the nation when the nation was last beiged.&#10;The number shown here is adjusted for war policies, war types and projects.&#10;The number shown is what they would have looted in a raid war if they had a war&#10;policy that did not affect loot stolen, and if they did not have Advanced Pirate Economy.&#10;If you are using the Pirate war policy, you can multiply these numbers by 1.4, and&#10;if you have APE you can further multiply by 1.1 to see what you'd expect to loot yourself.">Beige loot</abbr></th>
                         <th>Days inactive</th>
                         <th><abbr title="The net value of a nation's daily production/consumption.&#10;Be wary if the nation is in an alliance. Taxes are not considered in these calculations.">Monetary Net Income</abbr></th>
                         <th><abbr title="The raw money income of a nation. Be wary if the nation is in an alliance.&#10;Taxes are not considered in these calculations.">Net Cash Income</abbr></th>
@@ -238,7 +238,8 @@
 
             <!-- Context menu HTML -->
             <div id="contextMenu" class="context-menu">
-                <div class="context-menu-item" id="menuItem1"><a target="blank_" href="" rel="noopener noreferrer">Go to nation page</a></div>
+                <div class="context-menu-item" id="menuItem0"><a target="blank_" href="" rel="noopener noreferrer">War declaration page</a></div>
+                <div class="context-menu-item" id="menuItem1"><a target="blank_" href="" rel="noopener noreferrer">Nation page</a></div>
                 <div class="context-menu-item" id="menuItem2">Add beige reminder</div>
                 <!-- Add more context menu items as needed -->
             </div>
@@ -310,6 +311,8 @@
                 });
 
                 var contextMenu = document.getElementById('contextMenu');
+                var menuItem0 = document.getElementById('menuItem0');
+                var menuItem0Link = menuItem0.querySelector('a')
                 var menuItem1 = document.getElementById('menuItem1');
                 var menuItem1Link = menuItem1.querySelector('a')
                 var menuItem2 = document.getElementById('menuItem2');
@@ -336,6 +339,9 @@
                         contextMenu.style.top = event.clientY + window.scrollY + 'px';
                         contextMenu.style.display = 'block';
 
+                        var nationID = targetRow.querySelector('td').textContent
+                        menuItem0Link.href = "https://politicsandwar.com/nation/war/declare/id=" + nationID
+
                         var nationLink = targetRow.querySelector('a')
                         menuItem1Link.href = nationLink.href;
 
@@ -349,7 +355,6 @@
                             menuItem2.style.color = "black";
                             menuItem2.style.cursor = "pointer";
                         }
-
                     }
                 });
 
