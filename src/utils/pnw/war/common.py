@@ -3,7 +3,6 @@ import math
 import re
 from typing import Union
 from warnings import WarningMessage
-import numpy as np
 import aiohttp
 from ....types import War, TradePrices, Nation, WarPolicyDetails, WarTypeDetails, WarTypeEnum, WarPolicyEnum, AttackType, MilitaryUnit, MilitaryUnitEnum, AttackSuccess, AttackerEnum, StatsEnum, WarAttackerFilter, WarActiveFilter
 from ... import execute_query, weird_division
@@ -89,7 +88,7 @@ def resisting_population(population: float) -> float:
 
 def scale_with_winrate(winrate: float) -> float: 
     """
-    Returns a modifier that scales with the winrate. 1 for Utter Failure, and decreases.
+    Returns a modifier that scales with the winrate.
     """
     rate = -0.4624 * winrate**2 + 1.06256 * winrate + 0.3999            
     if rate < 0.4:
