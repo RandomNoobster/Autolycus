@@ -475,6 +475,14 @@ class TargetFinding(commands.Cog):
                     else:
                         minimum_beige_loot = 0
                     break
+
+            if guild_config := await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id}):
+                if "dnr_alliance_ids" in guild_config:
+                    dnr_alliance_ids = guild_config['dnr_alliance_ids']
+                else:
+                    dnr_alliance_ids = []
+            else:
+                dnr_alliance_ids = []
             
             view = None
 
@@ -507,7 +515,7 @@ class TargetFinding(commands.Cog):
                         for attack in war['attacks']:
                             if attack['loot_info']:
                                 attack['loot_info'] = attack['loot_info'].replace("\r\n", "")
-                    if x['alliance_id'] in ["4729", "8819"]:
+                    if x['alliance_id'] in ["4729", "8819"] + dnr_alliance_ids:
                         continue
                     if used_slots > max_wars:
                         continue
@@ -584,7 +592,7 @@ class TargetFinding(commands.Cog):
 
             filters = f"Nation information was fetched <t:{last_fetched}:R>\n"
             filter_list = []
-            if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0:
+            if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0 or minimum_beige_loot != 0 or dnr_alliance_ids != []:
                 filters += "Active filters: "
                 if not beige:
                     filter_list.append("hide beige nations")
@@ -604,6 +612,8 @@ class TargetFinding(commands.Cog):
                     filter_list.append(f"hide nations that logged in within the last {inactive_limit} days")
                 if minimum_beige_loot != 0:
                     filter_list.append(f"hide nations with less than ${minimum_beige_loot:,} previous beige loot".replace(",000,000","m"))
+                if dnr_alliance_ids:
+                    filter_list.append(f"hide {len(dnr_alliance_ids)} alliances marked as do not raid")
                 filters = filters + ", ".join(filter_list)
             else:
                 filters += "No active filters"

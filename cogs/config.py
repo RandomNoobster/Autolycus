@@ -37,6 +37,29 @@ class Config(commands.Cog):
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
+        
+    @config_group.command(
+        name="dnr",
+        description="Configure a DNR list for the /raids command",
+    )
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def config_dnr(
+        self,
+        ctx: discord.ApplicationContext,
+        alliance_ids: Option(str, "The alliance id(s) to include in the DNR list") = []
+    ):      
+        try:  
+            if alliance_ids != []:
+                id_list, id_str = utils.str_to_id_list(alliance_ids)
+            else:
+                id_list = []
+                id_str = "None"
+            await async_mongo.guild_configs.find_one_and_update({"guild_id": ctx.guild.id}, {"$set": {"dnr_alliance_ids": id_list}}, upsert=True)
+            await ctx.respond(f"DNR set to `{id_str}`")
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            raise e
     
     @config_group.command(
         name="war_threads",
