@@ -2,14 +2,14 @@ from __future__ import annotations
 import asyncio
 import discord
 import math
-from . import EMBED_COLOR
-from .. import LOGGER
+from typing import Union
+import src.utils.discord as discord_utils
 
 
 __all__ = ["embed_pager", "reaction_checker", "SimpleModal"]
 
 
-def embed_pager(title: str, fields: list, fields_per_embed: int = 24, description: str = "", color: int = EMBED_COLOR, inline: bool = True) -> list[discord.Embed]:
+def embed_pager(title: str, fields: list, fields_per_embed: int = 24, description: str = "", color: int = discord_utils.EMBED_COLOR, inline: bool = True) -> list[discord.Embed]:
     """
     Takes a list of fields and returns a list of embeds.
     """
@@ -203,7 +203,7 @@ async def run_timeout(ctx, view):
                 x.disabled = True
             await ctx.edit(view=view)
     except Exception as e:
-        LOGGER.error(str(e) + "|| This error was ignored", exc_info=False)
+        utils.LOGGER.error(str(e) + "|| This error was ignored", exc_info=False)
 
 async def yes_or_no(self, ctx) -> Union[bool, None]:
     try:
@@ -214,3 +214,24 @@ async def yes_or_no(self, ctx) -> Union[bool, None]:
             return False
     except asyncio.TimeoutError:
         return None
+    
+def order_fields(pattern: list[int], embed: discord.Embed) -> None:
+    """
+    Updates the fields of an embed to match the pattern.
+    :param: pattern: The pattern specifies the amount of fields per line.
+    """
+    if max(pattern) > 3:
+        raise ValueError("The maximum amount of fields per line is 3.")
+    if sum(pattern) != len(embed.fields):
+        raise ValueError("The sum of the pattern must equal the amount of fields in the embed.")
+    
+    fields = embed.fields.copy()
+    counter = 0
+    for fields_in_this_row in pattern:
+        for i in range(fields_in_this_row):
+            field_to_add = fields.pop(0)
+            embed.set_field_at(counter, name=field_to_add.name, value=field_to_add.value, inline=True if fields_in_this_row == 1 else False)
+            counter += 1
+            if fields_in_this_row == 2 and i == 0:
+                embed.set_field_at(counter, name="\u200b", value="\u200b", inline=False)
+                counter += 1

@@ -1,2 +1,2 @@
-from classes import *
-from enums import *
+from .classes import *
+from .enums import *

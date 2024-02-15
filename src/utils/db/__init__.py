@@ -1,2 +1,2 @@
-from sql import *
-from mongo import *
+from .sql import *
+from .mongo import *

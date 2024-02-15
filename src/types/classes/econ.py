@@ -1,10 +1,9 @@
 from __future__ import annotations
 from async_property import async_cached_property
 from typing import TYPE_CHECKING, Awaitable
-from enums import *
-from ...utils import get_date_from_string, PROJECT_BITMAP, execute_query
-from . import Nation, Alliance, BaseClass
-
+import src.utils as utils
+import src.types as types
+from .__base import BaseClass
 
 __all__ = ["ColorBloc", "Treasure", "TaxBracket", "BankRec", "ResourceWrapper"]
 
@@ -14,7 +13,7 @@ class ColorBloc(BaseClass):
         BaseClass.__init__(self, json, **kwargs)
 
         # Ensuring types
-        self.color = Color(self.color)
+        self.color = types.Color(self.color)
         self.bloc_name = str(self.bloc_name)
         self.turn_bonus = int(self.turn_bonus)
 
@@ -25,20 +24,20 @@ class Treasure(BaseClass):
 
         # Ensuring types
         self.name = str(self.name)
-        self.color = Color(self.color)
-        self.continent = Continent(self.continent)
+        self.color = types.Color(self.color)
+        self.continent = types.Continent(self.continent)
         self.bonus = int(self.bonus)
-        self.spawn_date = get_date_from_string(self.spawn_date)
+        self.spawn_date = utils.get_date_from_string(self.spawn_date)
         self.nation_id = int(self.nation_id)
 
         if TYPE_CHECKING:
             # Type hinting for cached properties
-            self.nation: Awaitable[Nation]
+            self.nation: Awaitable[types.Nation]
 
     @async_cached_property
-    async def nation(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.nation_id}")
-        return Nation(nation[0])
+    async def nation(self) -> Awaitable[types.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.nation_id}")
+        return types.Nation(nation[0])
 
 
 class TaxBracket(BaseClass):
@@ -48,8 +47,8 @@ class TaxBracket(BaseClass):
         # Ensuring types
         self.id = int(self.id)
         self.alliance_id = int(self.alliance_id)
-        self.date = get_date_from_string(self.date)
-        self.date_modified = get_date_from_string(self.date_modified)
+        self.date = utils.get_date_from_string(self.date)
+        self.date_modified = utils.get_date_from_string(self.date_modified)
         self.last_modifier_id = int(self.last_modifier_id)
         self.tax_rate = int(self.tax_rate)
         self.resource_tax_rate = int(self.resource_tax_rate)
@@ -57,18 +56,18 @@ class TaxBracket(BaseClass):
 
         if TYPE_CHECKING:
             # Type hinting for cached properties
-            self.last_modifier: Awaitable[Nation]
-            self.alliance: Awaitable[Alliance]
+            self.last_modifier: Awaitable[types.Nation]
+            self.alliance: Awaitable[types.Alliance]
 
     @async_cached_property
-    async def last_modifier(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.last_modifier_id}")
-        return Nation(nation[0])
+    async def last_modifier(self) -> Awaitable[types.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.last_modifier_id}")
+        return types.Nation(nation[0])
 
     @async_cached_property
-    async def alliance(self) -> Awaitable[Alliance]:
-        alliance = await execute_query(f"SELECT * FROM `alliances` WHERE `id` = {self.alliance_id}")
-        return Alliance(alliance[0])
+    async def alliance(self) -> Awaitable[types.Alliance]:
+        alliance = await utils.execute_query(f"SELECT * FROM `alliances` WHERE `id` = {self.alliance_id}")
+        return types.Alliance(alliance[0])
 
 
 class BankRec(BaseClass):
@@ -79,9 +78,9 @@ class BankRec(BaseClass):
         self.id = int(self.id)
         self.date = str(self.date)
         self.sender_id = int(self.sender_id)
-        self.sender_type = TransactioneeType(self.sender_type)
+        self.sender_type = types.TransactioneeType(self.sender_type)
         self.receiver_id = int(self.receiver_id)
-        self.receiver_type = TransactioneeType(self.receiver_type)
+        self.receiver_type = types.TransactioneeType(self.receiver_type)
         self.banker_id = int(self.banker_id)
         self.note = str(self.note)
         self.money = float(self.money)
@@ -100,24 +99,24 @@ class BankRec(BaseClass):
 
         if TYPE_CHECKING:
             # Type hinting for async properties
-            self.sender: Awaitable[Nation | Alliance]
-            self.receiver: Awaitable[Nation | Alliance]
-            self.banker: Awaitable[Nation]
+            self.sender: Awaitable[types.Nation | types.Alliance]
+            self.receiver: Awaitable[types.Nation | types.Alliance]
+            self.banker: Awaitable[types.Nation]
 
     @async_cached_property
-    async def sender(self) -> Awaitable[Nation | Alliance]:
-        nation = await execute_query(f"SELECT * FROM `{self.sender_type[1]}` WHERE `id` = {self.sender_id}")
-        return Nation(nation[0])
+    async def sender(self) -> Awaitable[types.Nation | types.Alliance]:
+        nation = await utils.execute_query(f"SELECT * FROM `{self.sender_type[1]}` WHERE `id` = {self.sender_id}")
+        return types.Nation(nation[0])
 
     @async_cached_property
-    async def receiver(self) -> Awaitable[Nation | Alliance]:
-        nation = await execute_query(f"SELECT * FROM `{self.receiver_type[1]}` WHERE `id` = {self.receiver_id}")
-        return Nation(nation[0])
+    async def receiver(self) -> Awaitable[types.Nation | types.Alliance]:
+        nation = await utils.execute_query(f"SELECT * FROM `{self.receiver_type[1]}` WHERE `id` = {self.receiver_id}")
+        return types.Nation(nation[0])
 
     @async_cached_property
-    async def banker(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.banker_id}")
-        return Nation(nation[0])
+    async def banker(self) -> Awaitable[types.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.banker_id}")
+        return types.Nation(nation[0])
 
 
 class ResourceWrapper(BaseClass):
@@ -140,8 +139,8 @@ class ResourceWrapper(BaseClass):
         if include_credits:
             self.credits = int(self.credits)
 
-    def __iter__(self) -> tuple[ResourceEnum, float | int]:
+    def __iter__(self) -> tuple[types.ResourceEnum, float | int]:
         for key, value in self.__dict__.items():
-            yield ResourceEnum(key), value
+            yield types.ResourceEnum(key), value
 
 

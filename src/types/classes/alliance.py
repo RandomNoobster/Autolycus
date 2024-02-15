@@ -1,9 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Awaitable
 from async_property import async_cached_property
-from enums import *
+from ..enums import *
 from ...utils import get_date_from_string, execute_query
-from . import Nation, BaseClass, Treasure, TreatyType
+import src.types as types
+from .__base import BaseClass
 
 
 __all__ = ["Alliance", "AlliancePrivate", "Treaty"]
@@ -29,14 +30,14 @@ class Alliance(BaseClass):
 
         if TYPE_CHECKING:
             # Type hinting for async properties
-            self.members: Awaitable[list[Nation]]
+            self.members: Awaitable[list[types.Nation]]
             self.private: Awaitable[AlliancePrivate]
-            self.treasures: Awaitable[list[Treasure]]
+            self.treasures: Awaitable[list[types.Treasure]]
 
     @async_cached_property
-    async def members(self) -> Awaitable[list[Nation]]:
+    async def members(self) -> Awaitable[list[types.Nation]]:
         members = await execute_query(f"SELECT * FROM `nations` WHERE `alliance_id` = {self.id}")
-        return [Nation(member) for member in members]
+        return [types.Nation(member) for member in members]
 
     @async_cached_property
     async def private(self) -> Awaitable[AlliancePrivate]:
@@ -46,7 +47,7 @@ class Alliance(BaseClass):
     @async_cached_property
     async def treasures(self) -> Awaitable[AlliancePrivate]:
         treasures = await execute_query(f"SELECT * FROM `treasures` WHERE `nation_id` IN (SELECT `id` FROM `nations` WHERE `alliance_id` = {self.id})")
-        return [Treasure(treasure) for treasure in treasures]
+        return [types.Treasure(treasure) for treasure in treasures]
     
 
 

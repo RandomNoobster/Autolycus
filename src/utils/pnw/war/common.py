@@ -1,13 +1,16 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 import math
 import re
 from typing import Union
 from warnings import WarningMessage
 import aiohttp
-from ....types import War, TradePrices, Nation, WarPolicyDetails, WarTypeDetails, WarTypeEnum, WarPolicyEnum, AttackType, MilitaryUnit, MilitaryUnitEnum, AttackSuccess, AttackerEnum, StatsEnum, WarAttackerFilter, WarActiveFilter
 from ... import execute_query, weird_division
-from .. import SOLDIERS_PER_BARRACKS, TANKS_PER_FACTORY, AIRCRAFT_PER_HANGAR, SHIPS_PER_DRYDOCK, BARRACKS_PER_CITY, FACTORY_PER_CITY, HANGAR_PER_CITY, DRYDOCK_PER_CITY, RESOURCES, infra_cost
+import src.utils as utils
+# from .. import SOLDIERS_PER_BARRACKS, TANKS_PER_FACTORY, AIRCRAFT_PER_HANGAR, SHIPS_PER_DRYDOCK, BARRACKS_PER_CITY, FACTORY_PER_CITY, HANGAR_PER_CITY, DRYDOCK_PER_CITY, RESOURCES, infra_cost
 
+if TYPE_CHECKING:
+    from ....types import War, TradePrices, Nation, WarPolicyDetails, WarTypeDetails, WarTypeEnum, WarPolicyEnum, AttackType, MilitaryUnit, MilitaryUnitEnum, AttackSuccess, AttackerEnum, StatsEnum, WarAttackerFilter, WarActiveFilter
 
 def defender_fortified_modifier(defender_fortified: bool) -> float:
     """
@@ -66,7 +69,7 @@ async def infrastructure_destroyed_value(destroyed_infra: float, defender: Natio
     """
     starting_infra = (await defender.highest_infra_city).infrastructure
     ending = starting_infra - destroyed_infra
-    return infra_cost(starting_infra, ending, defender)
+    return utils.infra_cost(starting_infra, ending, defender)
 
 
 def recovered_by_military_salvage(attacker_used: float, defender_used: float, winrate: float) -> float:
@@ -129,10 +132,10 @@ def beige_loot_value(loot_string: str, prices: TradePrices) -> int:
     n = 0
     loot = {}
     for sub in loot_string.split("-"):
-        loot[RESOURCES[n]] = int(sub)
+        loot[utils.RESOURCES[n]] = int(sub)
         n += 1
     nation_loot = 0
-    for rs in RESOURCES:
+    for rs in utils.RESOURCES:
         amount = loot[rs]
         price = prices[rs]
         nation_loot += amount * price
@@ -172,19 +175,19 @@ def population_ships_limit(population: int) -> int:
 
 
 def max_soldiers(barracks: int, population: int) -> int:
-    return math.floor(min(SOLDIERS_PER_BARRACKS * barracks, population_soldiers_limit(population)))
+    return math.floor(min(utils.SOLDIERS_PER_BARRACKS * barracks, population_soldiers_limit(population)))
 
 
 def max_tanks(factories: int, population: int) -> int:
-    return math.floor(min(TANKS_PER_FACTORY * factories, population_tanks_limit(population)))
+    return math.floor(min(utils.TANKS_PER_FACTORY * factories, population_tanks_limit(population)))
 
 
 def max_aircraft(hangars: int, population: int) -> int:
-    return math.floor(min(AIRCRAFT_PER_HANGAR * hangars, population_aircraft_limit(population)))
+    return math.floor(min(utils.AIRCRAFT_PER_HANGAR * hangars, population_aircraft_limit(population)))
 
 
 def max_ships(drydocks: int, population: int) -> int:
-    return math.floor(min(SHIPS_PER_DRYDOCK * drydocks, population_ships_limit(population)))
+    return math.floor(min(utils.SHIPS_PER_DRYDOCK * drydocks, population_ships_limit(population)))
 
 
 def max_spies(central_intelligence_agency: bool) -> int:
@@ -232,35 +235,35 @@ def days_to_max_spies(spies: int, central_intelligence_agency: bool, spy_satelli
 
 
 def soldiers_absolute_militarization(soldiers: int, cities: int) -> float:
-    return soldiers / (cities * BARRACKS_PER_CITY * SOLDIERS_PER_BARRACKS)
+    return soldiers / (cities * utils.BARRACKS_PER_CITY * utils.SOLDIERS_PER_BARRACKS)
 
 
 def soldiers_relative_militarization(soldiers: int, barracks: int) -> float:
-    return soldiers / (barracks * SOLDIERS_PER_BARRACKS)
+    return soldiers / (barracks * utils.SOLDIERS_PER_BARRACKS)
 
 
 def tanks_absolute_militarization(tanks: int, cities: int) -> float:
-    return tanks / (cities * FACTORY_PER_CITY * TANKS_PER_FACTORY)
+    return tanks / (cities * utils.FACTORY_PER_CITY * utils.TANKS_PER_FACTORY)
 
 
 def tanks_relative_militarization(tanks: int, factories: int) -> float:
-    return tanks / (factories * TANKS_PER_FACTORY)
+    return tanks / (factories * utils.TANKS_PER_FACTORY)
 
 
 def aircraft_absolute_militarization(aircraft: int, cities: int) -> float:
-    return aircraft / (cities * HANGAR_PER_CITY * AIRCRAFT_PER_HANGAR)
+    return aircraft / (cities * utils.HANGAR_PER_CITY * utils.AIRCRAFT_PER_HANGAR)
 
 
 def aircraft_relative_militarization(aircraft: int, hangars: int) -> float:
-    return aircraft / (hangars * AIRCRAFT_PER_HANGAR)
+    return aircraft / (hangars * utils.AIRCRAFT_PER_HANGAR)
 
 
 def ships_absolute_militarization(ships: int, cities: int) -> float:
-    return ships / (cities * DRYDOCK_PER_CITY * SHIPS_PER_DRYDOCK)
+    return ships / (cities * utils.DRYDOCK_PER_CITY * utils.SHIPS_PER_DRYDOCK)
 
 
 def ships_relative_militarization(ships: int, drydocks: int) -> float:
-    return ships / (drydocks * SHIPS_PER_DRYDOCK)
+    return ships / (drydocks * utils.SHIPS_PER_DRYDOCK)
 
 
 def total_absolute_militarization(soldiers: int, tanks: int, aircraft: int, ships: int, cities: int) -> float:
@@ -271,7 +274,7 @@ def total_relative_militarization(soldiers: int, barracks: int, tanks: int, fact
     return (soldiers_relative_militarization(soldiers, barracks) + tanks_relative_militarization(tanks, factories) + aircraft_relative_militarization(aircraft, hangars) + ships_relative_militarization(ships, drydocks)) / 4
 
 
-@WarningMessage.deprecated("This function is deprecated. Use the spy field in `Nation` instead.")
+# This function is deprecated. Use the spy field in `Nation` instead.
 async def spy_calc(nation: Nation) -> int:
     """
     Calculates the amount of spies a nation has.

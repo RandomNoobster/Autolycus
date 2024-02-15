@@ -1,9 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from cache import AsyncTTL
-from ...types.classes import TradePrices, ResourceWrapper
 from .. import execute_query
 
+if TYPE_CHECKING:
+    from ...types.classes.nation import ResourceWrapper
+    from ...types.classes.trade import TradePrices
 
 __all__ = ["get_prices", "total_value"]
 
@@ -12,6 +14,7 @@ async def get_prices() -> TradePrices:
     """
     Gets the current trade prices.
     """
+    from ...types.classes.trade import TradePrices
     prices = await execute_query("SELECT * FROM `trade_prices` ORDER BY `id` DESC LIMIT 1")
     return TradePrices(prices[0])
 

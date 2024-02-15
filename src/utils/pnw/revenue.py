@@ -7,10 +7,8 @@ from cache import AsyncTTL
 from functools import reduce
 from operator import mul
 from cachetools import TTLCache
-from ...types import DomesticPolicy, Continent, ResourceEnum, Nation, ColorBloc, Color, Radiation
-from .. import execute_query
-from . import SHIPS_PER_DRYDOCK, AIRCRAFT_PER_HANGAR, TANKS_PER_FACTORY, SOLDIERS_PER_BARRACKS
-
+import src.types as types
+import src.utils as utils
 
 __all__ = (
     'seasonal_food_modifier',
@@ -74,31 +72,31 @@ def get_game_date() -> datetime:
     return datetime.fromtimestamp(singularity) + timedelta(days=math.floor((real - singularity) / 7200))
 
 
-def seasonal_food_modifier(continent: Continent, date: datetime) -> float:
-    if continent == Continent.ANTARCTICA:
+def seasonal_food_modifier(continent: types.Continent, date: datetime) -> float:
+    if continent == types.Continent.ANTARCTICA:
         return 0.5
     month = date.month
     if month in [6, 7, 8]:
-        if continent in [Continent.NORTH_AMERICA, Continent.ASIA, Continent.EUROPE]:
+        if continent in [types.Continent.NORTH_AMERICA, types.Continent.ASIA, types.Continent.EUROPE]:
             return 1.2
-        elif continent in [Continent.SOUTH_AMERICA, Continent.AFRICA, Continent.AUSTRALIA]:
+        elif continent in [types.Continent.SOUTH_AMERICA, types.Continent.AFRICA, types.Continent.AUSTRALIA]:
             return 0.8
     elif month in [12, 1, 2]:
-        if continent in [Continent.NORTH_AMERICA, Continent.ASIA, Continent.EUROPE]:
+        if continent in [types.Continent.NORTH_AMERICA, types.Continent.ASIA, types.Continent.EUROPE]:
             return 0.8
-        elif continent in [Continent.SOUTH_AMERICA, Continent.AFRICA, Continent.AUSTRALIA]:
+        elif continent in [types.Continent.SOUTH_AMERICA, types.Continent.AFRICA, types.Continent.AUSTRALIA]:
             return 1.2
     return 1
 
 
 @AsyncTTL(time_to_live=60, maxsize=8)
-async def radiation_modifier(continent: Continent) -> Awaitable[float]:
-    radiation = Radiation(await execute_query("SELECT * FROM radiation"))
+async def radiation_modifier(continent: types.Continent) -> Awaitable[float]:
+    radiation = types.Radiation(await utils.execute_query("SELECT * FROM radiation"))
     # TODO not sure if I have to include global here as well
     return 1 - radiation.__getattribute__(continent.value[1].lower()) / 1000
 
 
-def food_produced(land: int, farms: int, continent: Continent, date: datetime, mass_irrigation: bool, fallout_shelter: bool) -> float:
+def food_produced(land: int, farms: int, continent: types.Continent, date: datetime, mass_irrigation: bool, fallout_shelter: bool) -> float:
     """
     Returns the amount of food produced per day.
     """
@@ -140,7 +138,7 @@ def steel_mill_coal_consumed(steel_mills: int, ironworks: bool) -> float:
     return (steel_mills * 3 * (1 + ((0.5 * (steel_mills - 1)) / (5 - 1)))) * (1 + 0.36 * int(ironworks))
 
 
-def resource_consumed_by_power(infrastructure: float, wind_power: int, nuclear_power: int, oil_power: int, coal_power: int, resource: Union[ResourceEnum.URANIUM, ResourceEnum.OIL, ResourceEnum.COAL]) -> float:
+def resource_consumed_by_power(infrastructure: float, wind_power: int, nuclear_power: int, oil_power: int, coal_power: int, resource: Union[types.ResourceEnum.URANIUM, types.ResourceEnum.OIL, types.ResourceEnum.COAL]) -> float:
     """
     Returns the amount of infrastructure powered by resources per day.
     """
@@ -151,16 +149,16 @@ def resource_consumed_by_power(infrastructure: float, wind_power: int, nuclear_p
     for _ in range(nuclear_power):
         if infrastructure > 0:
             infrastructure -= 1000
-            power[ResourceEnum.URANIUM] = power.get(
-                ResourceEnum.URANIUM, 0) + 2.4
+            power[types.ResourceEnum.URANIUM] = power.get(
+                types.ResourceEnum.URANIUM, 0) + 2.4
     for _ in range(oil_power):
         if infrastructure > 0:
             infrastructure -= 100
-            power[ResourceEnum.OIL] = power.get(ResourceEnum.OIL, 0) + 1.2
+            power[types.ResourceEnum.OIL] = power.get(types.ResourceEnum.OIL, 0) + 1.2
     for _ in range(coal_power):
         if infrastructure > 0:
             infrastructure -= 100
-            power[ResourceEnum.COAL] = power.get(ResourceEnum.COAL, 0) + 1.2
+            power[types.ResourceEnum.COAL] = power.get(types.ResourceEnum.COAL, 0) + 1.2
     return power.get(resource, 0)
 
 
@@ -168,7 +166,7 @@ def coal_consumed(steel_mills: int, ironworks: bool, infrastructure: float, wind
     """
     Returns the amount of coal consumed per day.
     """
-    return steel_mill_coal_consumed(steel_mills, ironworks) + resource_consumed_by_power(infrastructure, wind_power, nuclear_power, oil_power, coal_power, ResourceEnum.COAL)
+    return steel_mill_coal_consumed(steel_mills, ironworks) + resource_consumed_by_power(infrastructure, wind_power, nuclear_power, oil_power, coal_power, types.ResourceEnum.COAL)
 
 
 def oil_produced(oil_wells: int) -> float:
@@ -189,7 +187,7 @@ def oil_consumed(gasoline_refineries: int, emergency_gasoline_reserve: bool, inf
     """
     Returns the amount of oil consumed per day.
     """
-    return gasoline_refinery_oil_consumed(gasoline_refineries, emergency_gasoline_reserve) + resource_consumed_by_power(infrastructure, wind_power, nuclear_power, oil_power, coal_power, ResourceEnum.OIL)
+    return gasoline_refinery_oil_consumed(gasoline_refineries, emergency_gasoline_reserve) + resource_consumed_by_power(infrastructure, wind_power, nuclear_power, oil_power, coal_power, types.ResourceEnum.OIL)
 
 
 def uranium_produced(uranium_mines: int, uranium_enrichment_program: bool) -> float:
@@ -203,7 +201,7 @@ def uranium_consumed(infrastructure: float, wind_power: int, nuclear_power: int,
     """
     Returns the amount of uranium consumed per day.
     """
-    return resource_consumed_by_power(infrastructure, wind_power, nuclear_power, oil_power, coal_power, ResourceEnum.URANIUM)
+    return resource_consumed_by_power(infrastructure, wind_power, nuclear_power, oil_power, coal_power, types.ResourceEnum.URANIUM)
 
 
 def iron_produced(iron_mines: int) -> float:
@@ -311,7 +309,7 @@ def military_buildings_upkeep(barracks: int, factory: int, hangar: int, drydock:
     """
     Returns the amount of money spent on upkeep for the units that live in certain buildings.
     """
-    return military_upkeep(barracks * SOLDIERS_PER_BARRACKS, factory * TANKS_PER_FACTORY, hangar * AIRCRAFT_PER_HANGAR, drydock * SHIPS_PER_DRYDOCK, 0, 0, 0, imperialism, at_war)
+    return military_upkeep(barracks * utils.SOLDIERS_PER_BARRACKS, factory * utils.TANKS_PER_FACTORY, hangar * utils.AIRCRAFT_PER_HANGAR, drydock * utils.SHIPS_PER_DRYDOCK, 0, 0, 0, imperialism, at_war)
 
 
 # disregards nukes
@@ -405,7 +403,7 @@ def money_from_population(commerce: int, real_population: int):
     return (((commerce / 50) * 0.725) + 0.725) * real_population
 
 
-async def personal_treasure_bonus(nation: Nation) -> Awaitable[float]:
+async def personal_treasure_bonus(nation: types.Nation) -> Awaitable[float]:
     """
     Returns the personal treasure bonus.
     """
@@ -413,7 +411,7 @@ async def personal_treasure_bonus(nation: Nation) -> Awaitable[float]:
     return reduce(mul, [1 + x.bonus/100 for x in treasures])
 
 
-async def alliance_treasure_bonus(nation: Nation) -> Awaitable[float]:
+async def alliance_treasure_bonus(nation: types.Nation) -> Awaitable[float]:
     """
     Returns the alliance treasure bonus.
     """
@@ -421,7 +419,7 @@ async def alliance_treasure_bonus(nation: Nation) -> Awaitable[float]:
     return 1 + math.sqrt(treasures * 4) / 100
 
 
-async def total_treasure_bonus(nation: Nation) -> Awaitable[float]:
+async def total_treasure_bonus(nation: types.Nation) -> Awaitable[float]:
     """
     Returns the total treasure bonus.
     """
@@ -429,11 +427,11 @@ async def total_treasure_bonus(nation: Nation) -> Awaitable[float]:
 
 
 @AsyncTTL(time_to_live=60, maxsize=16)
-async def color_bonus(color: Color) -> Awaitable[float]:
+async def color_bonus(color: types.Color) -> Awaitable[float]:
     """
     Returns the color bonus.
     """
-    return (await execute_query(f"SELECT turn_bonus FROM colors WHERE color = {color.value[0]}")) * 12
+    return (await utils.execute_query(f"SELECT turn_bonus FROM colors WHERE color = {color.value[0]}")) * 12
 
 
 def new_player_bonus(cities: int) -> float:

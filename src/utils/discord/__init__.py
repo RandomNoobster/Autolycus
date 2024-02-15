@@ -1,3 +1,3 @@
-from common import *
-from consts import *
-from config import *
+from .consts import *
+from .common import *
+from .config import *

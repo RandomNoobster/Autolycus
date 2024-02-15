@@ -2,14 +2,13 @@ from __future__ import annotations
 from datetime import datetime
 from async_property import async_cached_property, async_property
 from typing import TYPE_CHECKING, Awaitable, Union
-from enums import *
-from ...utils import get_date_from_string, execute_query, get_datetime_of_turns, get_prices
-from . import Nation, City, BaseClass
+import src.utils as utils
+import src.types as types
+from .__base import BaseClass
 
 
 __all__ = ["War", "WarAttack", "Bounty",
            "MilitaryUnit", "WarTypeDetails",
-
            ]
 
 
@@ -19,9 +18,9 @@ class War(BaseClass):
 
         # Ensuring types
         self.id = int(self.id)
-        self.date = get_date_from_string(self.date)
+        self.date = utils.get_date_from_string(self.date)
         self.reason = str(self.reason)
-        self.war_type = WarTypeEnum(self.war_type)
+        self.war_type = types.WarTypeEnum(self.war_type)
         self.att_id = int(self.att_id)
         self.att_alliance_id = int(self.att_alliance_id)
         self.def_id = int(self.def_id)
@@ -71,27 +70,27 @@ class War(BaseClass):
         if TYPE_CHECKING:
             # Type hinting for async properties
             self.attacks: Awaitable[list[WarAttack]]
-            self.attacker: Awaitable[Nation]
-            self.defender: Awaitable[Nation]
+            self.attacker: Awaitable[utils.Nation]
+            self.defender: Awaitable[utils.Nation]
 
     @async_cached_property
     async def attacks(self) -> Awaitable[list[WarAttack]]:
-        attacks = await execute_query(f"SELECT * FROM `war_attacks` WHERE `war_id` = {self.id}")
+        attacks = await utils.execute_query(f"SELECT * FROM `war_attacks` WHERE `war_id` = {self.id}")
         return [WarAttack(attack) for attack in attacks]
 
     @async_cached_property
-    async def attacker(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.att_id}")
-        return Nation(nation[0])
+    async def attacker(self) -> Awaitable[utils.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.att_id}")
+        return utils.Nation(nation[0])
 
     @async_cached_property
-    async def defender(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.def_id}")
-        return Nation(nation[0])
+    async def defender(self) -> Awaitable[utils.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.def_id}")
+        return utils.Nation(nation[0])
 
     @property
     def expires(self) -> datetime:
-        return get_datetime_of_turns(self.turns_left)
+        return utils.get_datetime_of_turns(self.turns_left)
 
     @property
     def active(self) -> bool:
@@ -104,13 +103,13 @@ class WarAttack(BaseClass):
 
         # Ensuring types
         self.id = int(self.id)
-        self.date = get_date_from_string(self.date)
+        self.date = utils.get_date_from_string(self.date)
         self.att_id = int(self.att_id)
         self.def_id = int(self.def_id)
-        self.type = AttackType(self.type)
+        self.type = types.AttackType(self.type)
         self.war_id = int(self.war_id)
         self.victor = int(self.victor)
-        self.success = AttackSuccess(self.success)
+        self.success = types.AttackSuccess(self.success)
         self.city_id = int(self.city_id)
         self.infra_destroyed = float(self.infra_destroyed)
         self.improvements_lost = int(self.improvements_lost)
@@ -164,30 +163,30 @@ class WarAttack(BaseClass):
 
         if TYPE_CHECKING:
             # Type hinting for async properties
-            self.city: Awaitable[City]
+            self.city: Awaitable[types.City]
             self.war: Awaitable[War]
-            self.attacker: Awaitable[Nation]
-            self.defender: Awaitable[Nation]
+            self.attacker: Awaitable[utils.Nation]
+            self.defender: Awaitable[utils.Nation]
 
     @async_cached_property
-    async def city(self) -> Awaitable[City]:
-        city = await execute_query(f"SELECT * FROM `cities` WHERE `id` = {self.city_id}")
-        return City(city[0])
+    async def city(self) -> Awaitable[types.City]:
+        city = await utils.execute_query(f"SELECT * FROM `cities` WHERE `id` = {self.city_id}")
+        return types.City(city[0])
 
     @async_cached_property
     async def war(self) -> Awaitable[War]:
-        war = await execute_query(f"SELECT * FROM `wars` WHERE `id` = {self.war_id}")
+        war = await utils.execute_query(f"SELECT * FROM `wars` WHERE `id` = {self.war_id}")
         return War(war[0])
 
     @async_cached_property
-    async def attacker(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.att_id}")
-        return Nation(nation[0])
+    async def attacker(self) -> Awaitable[utils.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.att_id}")
+        return utils.Nation(nation[0])
 
     @async_cached_property
-    async def defender(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.def_id}")
-        return Nation(nation[0])
+    async def defender(self) -> Awaitable[utils.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.def_id}")
+        return utils.Nation(nation[0])
 
 
 class Bounty(BaseClass):
@@ -196,19 +195,19 @@ class Bounty(BaseClass):
 
         # Ensuring types
         self.id = int(self.id)
-        self.date = get_date_from_string(self.date)
+        self.date = utils.get_date_from_string(self.date)
         self.nation_id = int(self.nation_id)
         self.amount = int(self.amount)
-        self.type = BountyType(self.type)
+        self.type = types.BountyType(self.type)
 
         if TYPE_CHECKING:
             # Type hinting for async properties
-            self.nation: Awaitable[Nation]
+            self.nation: Awaitable[utils.Nation]
 
     @async_cached_property
-    async def nation(self) -> Awaitable[Nation]:
-        nation = await execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.nation_id}")
-        return Nation(nation[0])
+    async def nation(self) -> Awaitable[utils.Nation]:
+        nation = await utils.execute_query(f"SELECT * FROM `nations` WHERE `id` = {self.nation_id}")
+        return utils.Nation(nation[0])
 
 
 class MilitaryUnit:
@@ -225,8 +224,8 @@ class MilitaryUnit:
         munitions_used: float
         gasoline_used: float
 
-    def __init__(self, unit_type: MilitaryUnitEnum, using_munitions: bool = True, enemy_air_superiority: bool = False) -> None:
-        if unit_type == MilitaryUnitEnum.SOLDIER:
+    def __init__(self, unit_type: types.MilitaryUnitEnum, using_munitions: bool = True, enemy_air_superiority: bool = False) -> None:
+        if unit_type == types.MilitaryUnitEnum.SOLDIER:
             self.money_cost = 5
             self.uranium_cost = 0
             self.gasoline_cost = 0
@@ -238,7 +237,7 @@ class MilitaryUnit:
             self.munitions_used = 0.0002 if using_munitions else 0
             self.gasoline_used = 0
 
-        elif unit_type == MilitaryUnitEnum.TANK:
+        elif unit_type == types.MilitaryUnitEnum.TANK:
             self.money_cost = 60
             self.uranium_cost = 0
             self.gasoline_cost = 0
@@ -250,7 +249,7 @@ class MilitaryUnit:
             self.munitions_used = 0.01
             self.gasoline_used = 0.01
 
-        elif unit_type == MilitaryUnitEnum.AIRCRAFT:
+        elif unit_type == types.MilitaryUnitEnum.AIRCRAFT:
             self.money_cost = 4000
             self.uranium_cost = 0
             self.gasoline_cost = 0
@@ -262,7 +261,7 @@ class MilitaryUnit:
             self.munitions_used = 0.25
             self.gasoline_used = 0.25
 
-        elif unit_type == MilitaryUnitEnum.SHIP:
+        elif unit_type == types.MilitaryUnitEnum.SHIP:
             self.money_cost = 50000
             self.uranium_cost = 0
             self.gasoline_cost = 0
@@ -274,7 +273,7 @@ class MilitaryUnit:
             self.munitions_used = 2.5
             self.gasoline_used = 1.5
 
-        elif unit_type == MilitaryUnitEnum.SPY:
+        elif unit_type == types.MilitaryUnitEnum.SPY:
             self.money_cost = 50000
             self.uranium_cost = 0
             self.gasoline_cost = 0
@@ -286,7 +285,7 @@ class MilitaryUnit:
             self.munitions_used = 0
             self.gasoline_used = 0
 
-        elif unit_type == MilitaryUnitEnum.MISSILE:
+        elif unit_type == types.MilitaryUnitEnum.MISSILE:
             self.money_cost = 150000
             self.uranium_cost = 0
             self.gasoline_cost = 75
@@ -298,7 +297,7 @@ class MilitaryUnit:
             self.munitions_used = 0
             self.gasoline_used = 0
 
-        elif unit_type == MilitaryUnitEnum.NUKE:
+        elif unit_type == types.MilitaryUnitEnum.NUKE:
             self.money_cost = 1750000
             self.uranium_cost = 250
             self.gasoline_cost = 500
@@ -315,7 +314,7 @@ class MilitaryUnit:
 
     @async_property
     async def total_cost(self) -> float:
-        prices = await get_prices()
+        prices = await utils.get_prices()
         return (
             self.money_cost
             + self.uranium_cost * prices.uranium
@@ -327,26 +326,26 @@ class MilitaryUnit:
 
 
 class WarTypeDetails:
-    def __init__(self, type: WarTypeEnum) -> None:
+    def __init__(self, type: types.WarTypeEnum) -> None:
         if TYPE_CHECKING:
             self.attacker_loot: float
             self.defender_loot: float
             self.attacker_infra_destroyed: float
             self.defender_infra_destroyed: float
 
-        if type == WarTypeEnum.ATTRITION:
+        if type == types.WarTypeEnum.ATTRITION:
             self.attacker_loot = 0.25
             self.defender_loot = 0.5
             self.attacker_infra_destroyed = 1
             self.defender_infra_destroyed = 1
 
-        elif type == WarTypeEnum.ORDINARY:
+        elif type == types.WarTypeEnum.ORDINARY:
             self.attacker_loot = 0.5
             self.defender_loot = 0.5
             self.attacker_infra_destroyed = 0.5
             self.defender_infra_destroyed = 0.5
 
-        elif type == WarTypeEnum.RAID:
+        elif type == types.WarTypeEnum.RAID:
             self.attacker_loot = 1
             self.defender_loot = 1
             self.attacker_infra_destroyed = 0.25

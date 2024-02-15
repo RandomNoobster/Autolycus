@@ -3,7 +3,7 @@ import aiohttp
 from typing import Union
 from ...env import API_KEY, BOT_KEY
 from .. import LOGGER
-from ...types.classes import ResourceWrapper, Nation, Alliance
+from ...types import ResourceWrapper, Nation, Alliance
 
 
 async def paginate_call(data: str, path: str, key: str = API_KEY) -> Union[dict, aiohttp.ClientResponse]:
@@ -60,7 +60,7 @@ async def call(data: str, key: str = API_KEY, retry_limit: int = 2, use_bot_key=
                     elif "errors" in json_response:
                         raise Exception(json_response["errors"])
                 return json_response
-            
+
 
 async def withdraw(api_key: str, recipient: Union[Nation, Alliance], resources: ResourceWrapper, note: str = "") -> bool:
     try:
@@ -70,7 +70,7 @@ async def withdraw(api_key: str, recipient: Union[Nation, Alliance], resources: 
             call_string = f"receiver:{recipient.id} receiver_type:2"
         else:
             raise Exception("Recipient must be a Nation or an Alliance.")
-        
+
         for resource, amount in resources:
             call_string += f"{resource}:{amount} "
         call_string += f"note:\"{note}\""
@@ -79,9 +79,9 @@ async def withdraw(api_key: str, recipient: Union[Nation, Alliance], resources: 
 
         if "errors" in res:
             raise Exception(res["errors"])
-        
+
         return True
-    
+
     except Exception as e:
         LOGGER.error(
             f"Error withdrawing resources.\nApi key: {api_key}\nResources: {resources}\nError: {e}", exc_info=True)
@@ -159,4 +159,3 @@ def merge(*queries: dict) -> dict:
                     raise Exception(
                         f"Value {line} is not a dictionary or a list.")
     return composite_query
-    

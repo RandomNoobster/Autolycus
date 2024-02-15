@@ -16,6 +16,10 @@ __all__ = (
 
 print("env.py was run (maybe bad)")
 
+# load .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 pymongolink = os.environ["pymongolink"]
 sync_client = pymongo.MongoClient(pymongolink)
 version = os.environ["version"]

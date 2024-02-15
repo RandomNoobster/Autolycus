@@ -1,6 +1,6 @@
 from __future__ import annotations
 from . import defender_fortified_modifier, scale_with_winrate, infrastructure_destroyed_modifier
-from ....types import WarTypeEnum, WarTypeDetails, MilitaryUnitEnum, MilitaryUnit, WarPolicyDetails, AttackerEnum
+import src.types as types
 
 
 def air_v_air_attacker_aircraft_casualties(defender_casualties_aircraft_value: float, attacker_aircraft: float, random_factor: float, defender_fortified: bool) -> float:
@@ -59,7 +59,7 @@ def air_v_tanks_defender_tanks_casualties(defender_tanks: int, attacker_aircraft
     return max(min(defender_tanks, defender_tanks * 0.75 + 10, (attacker_aircraft - defender_aircraft * 0.5) * 1.25 * random_factor), 0) * scale_with_winrate(air_winrate)
 
 
-async def air_v_infra_infrastructure_destroyed(attacker_aircraft: int, defender_aircraft: int, city_infrastructure: int, random_factor: float, air_winrate: float, attacker: AttackerEnum, attacker_war_policy_details: WarPolicyDetails, defender_war_policy_details: WarPolicyDetails, war_type_details: WarTypeDetails = WarTypeDetails(WarTypeEnum.ORDINARY)) -> float:
+async def air_v_infra_infrastructure_destroyed(attacker_aircraft: int, defender_aircraft: int, city_infrastructure: int, random_factor: float, air_winrate: float, attacker: types.AttackerEnum, attacker_war_policy_details: types.WarPolicyDetails, defender_war_policy_details: types.WarPolicyDetails, war_type_details: types.WarTypeDetails) -> float:
     """
     Calculates the amount of infrastructure the defender will lose in an air v infrastructure attack.
     """
@@ -72,7 +72,7 @@ async def air_v_infra_infrastructure_destroyed(attacker_aircraft: int, defender_
             , 0)) * infrastructure_destroyed_modifier(war_type_details, attacker, attacker_war_policy_details, defender_war_policy_details)
 
 
-async def air_v_other_infrastructure_destroyed(attacker_aircraft: int, defender_aircraft: int, city_infrastructure: int, random_factor: float, air_winrate: float, attacker: AttackerEnum, attacker_war_policy_details: WarPolicyDetails, defender_war_policy_details: WarPolicyDetails, war_type_details: WarTypeDetails = WarTypeDetails(WarTypeEnum.ORDINARY)) -> float:
+async def air_v_other_infrastructure_destroyed(attacker_aircraft: int, defender_aircraft: int, city_infrastructure: int, random_factor: float, air_winrate: float, attacker: types.AttackerEnum, attacker_war_policy_details: types.WarPolicyDetails, defender_war_policy_details: types.WarPolicyDetails, war_type_details: types.WarTypeDetails) -> float:
     """
     Calculates the amount of infrastructure the defender will lose in an air v (other than infra) attack.
     """
