@@ -675,21 +675,78 @@ class Background(commands.Cog):
                     name = 'lowest'
                 
                 people = await utils.listify(async_mongo.balance.find({"guild_id": ctx.guild.id}))
+                users = await utils.listify(async_mongo.world_nations.find({"id": {"$in": [p['nation_id'] for p in people]}}))
 
                 people = sorted(people, key=lambda k: total_bal(k), reverse=reverse)
                 embed = discord.Embed(title=f"The {name} balances:", description="", color=0xff5100)
 
-                n = 0
+                balance_line_nation = []
+                balance_line_balance = []
+                i = 0
                 for ind in people:
-                    if n == 10:
-                        break
-                    user = await async_mongo.world_nations.find_one({"id": ind['nation_id']})
-                    if user == None:
+                    success = False
+                    for user in users:
+                        if user['id'] == ind['nation_id']:
+                            success = True
+                            break
+                    if user == None or not success:
                         continue
-                    embed.add_field(name=user['leader_name'], inline=False, value=f"Cumulative balance: ${round(total_bal(ind)):,}")
-                    n += 1
-                await ctx.edit(embed=embed, content='')
-                return
+                    balance_line_nation.append(f"[{user['leader_name']}](https://politicsandwar.com/nation/id={user['id']}): ")
+                    balance_line_balance.append(f"${round(total_bal(ind)):,}")
+                    i += 1
+                
+                embeds = []
+
+                for n in range(0, len(balance_line_nation), 14):
+                    embed = discord.Embed(title=f"The {name} balances:", description="", color=0xff5100)
+                    embed.add_field(name="\u200b", value="\n".join(balance_line_nation[n:n+14])[:1024], inline=True)
+                    embed.add_field(name="\u200b", value="\n".join(balance_line_balance[n:n+14])[:1024], inline=True)
+                    embed.set_footer(text=f"Page {n//14 + 1}/{len(balance_line_nation)//14}")
+                    embeds.append(embed)
+
+                if len(embeds) > 1:
+                    cur_page = 0
+                    pages = len(embeds)
+                    class switch(discord.ui.View):
+                        @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
+                        async def left_callback(self, b: discord.Button, i: discord.Interaction):
+                            nonlocal cur_page
+                            if cur_page == 0:
+                                cur_page = pages - 1
+                                await i.response.edit_message(embed=embeds[cur_page])
+                            else:
+                                cur_page -= 1
+                                await i.response.edit_message(embed=embeds[cur_page])
+                        
+                        @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
+                        async def right_callback(self, b: discord.Button, i: discord.Interaction):
+                            nonlocal cur_page
+                            if cur_page == pages - 1:
+                                cur_page = 0
+                                await i.response.edit_message(embed=embeds[cur_page])
+                            else:
+                                cur_page += 1
+                                await i.response.edit_message(embed=embeds[cur_page])
+                        
+                        async def interaction_check(self, interaction) -> bool:
+                            if interaction.user != ctx.author:
+                                await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
+                                return False
+                            else:
+                                return True
+                        
+                        async def on_timeout(self):
+                            await utils.run_timeout(ctx, view)
+                    
+                    view = switch()
+                else:
+                    view = None
+
+                await ctx.respond(embed=embeds[0])
+                if view != None:
+                    await ctx.edit(view=view)
+                    return
+                
             else:
                 person = await utils.find_nation_plus(self, person)
 
