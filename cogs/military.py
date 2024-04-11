@@ -938,7 +938,7 @@ class TargetFinding(commands.Cog):
             embeds = []
 
             for n in range(0, len(reminders), 20):
-                embed = discord.Embed(title="Beige reminders", description="".join(reminders[n:n+30]), color=0xff5100)
+                embed = discord.Embed(title="Beige reminders", description="".join(reminders[n:n+20]), color=0xff5100)
                 embeds.append(embed)
 
             if len(embeds) > 1:
@@ -948,8 +948,8 @@ class TargetFinding(commands.Cog):
                     @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
                     async def left_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal cur_page
-                        if cur_page == 1:
-                            cur_page = pages
+                        if cur_page == 0:
+                            cur_page = pages - 1
                             await i.response.edit_message(embed=embeds[cur_page])
                         else:
                             cur_page -= 1
@@ -958,7 +958,7 @@ class TargetFinding(commands.Cog):
                     @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
                     async def right_callback(self, b: discord.Button, i: discord.Interaction):
                         nonlocal cur_page
-                        if cur_page == pages:
+                        if cur_page == pages - 1:
                             cur_page = 0
                             await i.response.edit_message(embed=embeds[cur_page])
                         else:
