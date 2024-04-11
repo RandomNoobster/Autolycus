@@ -701,7 +701,7 @@ class Background(commands.Cog):
                     embed = discord.Embed(title=f"The {name} balances:", description="", color=0xff5100)
                     embed.add_field(name="\u200b", value="\n".join(balance_line_nation[n:n+14])[:1024], inline=True)
                     embed.add_field(name="\u200b", value="\n".join(balance_line_balance[n:n+14])[:1024], inline=True)
-                    embed.set_footer(text=f"Page {n//14 + 1}/{len(balance_line_nation)//14}")
+                    embed.set_footer(text=f"Page {n/14 + 1}/{math.ceil(len(balance_line_nation)/14)}")
                     embeds.append(embed)
 
                 if len(embeds) > 1:
