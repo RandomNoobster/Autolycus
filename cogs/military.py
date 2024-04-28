@@ -476,9 +476,12 @@ class TargetFinding(commands.Cog):
                         minimum_beige_loot = 0
                     break
 
-            if guild_config := await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id}):
-                if "dnr_alliance_ids" in guild_config:
-                    dnr_alliance_ids = guild_config['dnr_alliance_ids']
+            if ctx.guild:
+                if guild_config := await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id}):
+                    if "dnr_alliance_ids" in guild_config:
+                        dnr_alliance_ids = guild_config['dnr_alliance_ids']
+                    else:
+                        dnr_alliance_ids = []
                 else:
                     dnr_alliance_ids = []
             else:
