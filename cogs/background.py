@@ -656,6 +656,9 @@ class General(commands.Cog):
 
                 #may produce duplicate messages??
 
+                #clean mongodb by deleting all wars older than 31 days
+                await async_mongo.wars.delete_many({"date": {"$lt": datetime.utcnow() - timedelta(days=31)}})
+
                 while True:
                     try:
                         alliance_ids = []
