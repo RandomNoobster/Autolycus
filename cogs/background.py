@@ -51,11 +51,11 @@ class General(commands.Cog):
                             logger.debug("Reminders (1.2)")
                         elif beige >= 1:
                             turns = int(beige)
-                            content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving beige <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
+                            content = f"Hey, https://politicsandwar.com/nation/id={alert} is scheduled to leave beige at <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:f> (<t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>)"
                             logger.debug("Reminders (1.3)")
                         elif vm >= 1:
                             turns = int(vm)
-                            content = f"Hey, https://politicsandwar.com/nation/id={alert} is leaving vacation mode <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>!"
+                            content = f"Hey, https://politicsandwar.com/nation/id={alert} is scheduled to leave vacation mode at <t:{round(utils.get_datetime_of_turns(turns).timestamp())}:f> (<t:{round(utils.get_datetime_of_turns(turns).timestamp())}:R>)"
                             logger.debug("Reminders (1.4)")
                         else:
                             content = f"Hey, https://politicsandwar.com/nation/id={alert} left beige while I wasn't looking!"
