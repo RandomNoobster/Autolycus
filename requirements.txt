@@ -11,3 +11,4 @@ pnwkit-py==2.6.23
 py-cord==2.4.0
 aiofiles==22.1.0
 waitress==2.1.2
+Werkzeug==2.2.2
