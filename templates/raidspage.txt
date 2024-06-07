@@ -107,6 +107,84 @@
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
         <script>!function(t,n){"object"==typeof exports&&"undefined"!=typeof module?n(require("jquery")):"function"==typeof define&&define.amd?define(["jquery"],n):n((t="undefined"!=typeof globalThis?globalThis:t||self).jQuery)}(this,(function(t){"use strict";var n="horizontal",i="vertical",e={init:function(t,i){var e=this;e.orientationProps=function(t){var i=t===n;return{ORIENTATION:t,SIZE:i?"width":"height",X_SIZE:i?"height":"width",OFFSET_SIZE:i?"offsetWidth":"offsetHeight",OFFSET_X_SIZE:i?"offsetHeight":"offsetWidth",CLIENT_SIZE:i?"clientWidth":"clientHeight",CLIENT_X_SIZE:i?"clientHeight":"clientWidth",INNER_X_SIZE:i?"innerHeight":"innerWidth",SCROLL_SIZE:i?"scrollWidth":"scrollHeight",SCROLL_POS:i?"scrollLeft":"scrollTop",START:i?"left":"top",X_START:i?"top":"left",X_END:i?"bottom":"right"}}(i);var o=t.closest(".fl-scrolls-body");o.length&&(e.scrollBody=o),e.container=t[0],e.visible=!0,e.initWidget(),e.updateAPI(),e.addEventHandlers(),e.skipSyncContainer=e.skipSyncWidget=!1},initWidget:function(){var n=this,i=n.orientationProps,e=i.ORIENTATION,o=i.SIZE,r=i.SCROLL_SIZE,c=n.widget=t('<div class="fl-scrolls" data-orientation="'+e+'"></div>');t("<div></div>").appendTo(c)[o](n.container[r]),c.appendTo(n.container)},addEventHandlers:function(){var n=this;(n.eventHandlers=[{$el:t(window),handlers:{"destroyDetached.fscroll":function(t){"fscroll"===t.namespace&&n.destroyDetachedAPI()}}},{$el:n.scrollBody||t(window),handlers:{scroll:function(){n.updateAPI()},resize:function(){n.updateAPI()}}},{$el:n.widget,handlers:{scroll:function(){n.visible&&!n.skipSyncContainer&&n.syncContainer(),n.skipSyncContainer=!1}}},{$el:t(n.container),handlers:{scroll:function(){n.skipSyncWidget||n.syncWidget(),n.skipSyncWidget=!1},focusin:function(){setTimeout((function(){n.widget&&n.syncWidget()}),0)},"update.fscroll":function(t){"fscroll"===t.namespace&&n.updateAPI()},"destroy.fscroll":function(t){"fscroll"===t.namespace&&n.destroyAPI()}}}]).forEach((function(t){var n=t.$el,i=t.handlers;return n.bind(i)}))},checkVisibility:function(){var t=this,n=t.widget,i=t.container,e=t.scrollBody,o=t.orientationProps,r=o.SCROLL_SIZE,c=o.OFFSET_SIZE,s=o.X_START,l=o.X_END,d=o.INNER_X_SIZE,a=o.CLIENT_X_SIZE,f=n[0][r]<=n[0][c];if(!f){var u=i.getBoundingClientRect(),h=e?e[0].getBoundingClientRect()[l]:window[d]||document.documentElement[a];f=u[l]<=h||u[s]>h}t.visible===f&&(t.visible=!f,n.toggleClass("fl-scrolls-hidden"))},syncContainer:function(){var t=this,n=t.orientationProps.SCROLL_POS,i=t.widget[0][n];t.container[n]!==i&&(t.skipSyncWidget=!0,t.container[n]=i)},syncWidget:function(){var t=this,n=t.orientationProps.SCROLL_POS,i=t.container[n];t.widget[0][n]!==i&&(t.skipSyncContainer=!0,t.widget[0][n]=i)},updateAPI:function(){var n=this,i=n.orientationProps,e=i.SIZE,o=i.X_SIZE,r=i.OFFSET_X_SIZE,c=i.CLIENT_SIZE,s=i.CLIENT_X_SIZE,l=i.SCROLL_SIZE,d=i.START,a=n.widget,f=n.container,u=n.scrollBody,h=f[c],S=f[l];a[e](h),u||a.css(d,f.getBoundingClientRect()[d]+"px"),t("div",a)[e](S),S>h&&a[o](a[0][r]-a[0][s]+1),n.syncWidget(),n.checkVisibility()},destroyAPI:function(){var t=this;t.eventHandlers.forEach((function(t){var n=t.$el,i=t.handlers;return n.unbind(i)})),t.widget.remove(),t.eventHandlers=t.widget=t.container=t.scrollBody=null},destroyDetachedAPI:function(){t.contains(document.body,this.container)||this.destroyAPI()}};t.fn.floatingScroll=function(o,r){if(void 0===o&&(o="init"),void 0===r&&(r={}),"init"===o){var c=r.orientation,s=void 0===c?n:c;if(s!==n&&s!==i)throw new Error("Scrollbar orientation should be either start_quote"+n+"end_quote or start_quote"+i+"end_quote");this.each((function(n,i){return Object.create(e).init(t(i),s)}))}else Object.prototype.hasOwnProperty.call(e,o+"API")&&this.trigger(o+".fscroll");return this},t((function(){t("body [data-fl-scrolls]").each((function(n,i){var e=t(i);e.floatingScroll("init",e.data("flScrolls")||{})}))}))}));</script>
         <script>
+
+
+            // Populate the dropdown filters with unique values from the table
+            function populateFilters() {
+                const columns = [
+                    "nationId", "nationName", "leaderName", "alliance", "alliancePos", "cities", "color",
+                    "beige", "lastBeigedFor", "netIncome", "rawIncome", "ifTaxed", "treasures", "defSlots",
+                    "daysSinceWar", "soldiers", "tanks", "planes", "ships", "missiles", "nukes",
+                    "groundWin", "airWin", "navyWin", "totalWin"
+                ];
+            
+                columns.forEach((col, index) => {
+                    const select = document.getElementById(`${col}Filter`);
+                    const uniqueValues = Array.from(new Set([...document.querySelectorAll(`#grid tbody tr td:nth-child(${index + 1})`)].map(td => td.innerText)));
+                    uniqueValues.sort();
+                    uniqueValues.forEach(value => {
+                        const option = document.createElement("option");
+                        option.value = value;
+                        option.text = value;
+                        select.add(option);
+                    });
+                });
+            }
+            
+            // Filter table based on the selected dropdown values
+            function filterTable() {
+                const filters = {
+                    nationId: document.getElementById("nationIdFilter").value.toUpperCase(),
+                    nationName: document.getElementById("nationNameFilter").value.toUpperCase(),
+                    leaderName: document.getElementById("leaderNameFilter").value.toUpperCase(),
+                    alliance: document.getElementById("allianceFilter").value.toUpperCase(),
+                    alliancePos: document.getElementById("alliancePosFilter").value.toUpperCase(),
+                    cities: document.getElementById("citiesFilter").value.toUpperCase(),
+                    color: document.getElementById("colorFilter").value.toUpperCase(),
+                    beige: document.getElementById("beigeFilter").value.toUpperCase(),
+                    lastBeigedFor: document.getElementById("lastBeigedForFilter").value.toUpperCase(),
+                    netIncome: document.getElementById("netIncomeFilter").value.toUpperCase(),
+                    rawIncome: document.getElementById("rawIncomeFilter").value.toUpperCase(),
+                    ifTaxed: document.getElementById("ifTaxedFilter").value.toUpperCase(),
+                    treasures: document.getElementById("treasuresFilter").value.toUpperCase(),
+                    defSlots: document.getElementById("defSlotsFilter").value.toUpperCase(),
+                    daysSinceWar: document.getElementById("daysSinceWarFilter").value.toUpperCase(),
+                    soldiers: document.getElementById("soldiersFilter").value.toUpperCase(),
+                    tanks: document.getElementById("tanksFilter").value.toUpperCase(),
+                    planes: document.getElementById("planesFilter").value.toUpperCase(),
+                    ships: document.getElementById("shipsFilter").value.toUpperCase(),
+                    missiles: document.getElementById("missilesFilter").value.toUpperCase(),
+                    nukes: document.getElementById("nukesFilter").value.toUpperCase(),
+                    groundWin: document.getElementById("groundWinFilter").value.toUpperCase(),
+                    airWin: document.getElementById("airWinFilter").value.toUpperCase(),
+                    navyWin: document.getElementById("navyWinFilter").value.toUpperCase(),
+                    totalWin: document.getElementById("totalWinFilter").value.toUpperCase()
+                };
+            
+                const table = document.getElementById("grid");
+                const tr = table.getElementsByTagName("tr");
+            
+                for (let i = 2; i < tr.length; i++) {
+                    let showRow = true;
+                    const td = tr[i].getElementsByTagName("td");
+            
+                    for (let j = 0; j < td.length; j++) {
+                        const colName = Object.keys(filters)[j];
+                        if (filters[colName] && td[j].innerText.toUpperCase() !== filters[colName]) {
+                            showRow = false;
+                            break;
+                        }
+                    }
+                    tr[i].style.display = showRow ? "" : "none";
+                }
+            }
+            
+            // Initialize filters after content is loaded
+            document.addEventListener("DOMContentLoaded", populateFilters);
+            
+            
+
+
             function postreq(id, turns, name, btn_id) {
                 console.log('button click registered')
                 var to_parse = {turns: turns, invoker: "${invoker}", id: id, endpoint: "${endpoint}"}
@@ -132,8 +210,37 @@
         </script>
     </head>
     <body>
-            <table id="grid" style="overflow-x:auto;" data-fl-scrolls>
-                <tbody>
+
+                    <table id="grid" style="overflow-x:auto;" data-fl-scrolls>
+                        <tr id="filters">
+                            <th><select id="nationIdFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="nationNameFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="leaderNameFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="allianceFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="alliancePosFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="citiesFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="colorFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="beigeFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="lastBeigedForFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="netIncomeFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="rawIncomeFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="ifTaxedFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="treasuresFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="defSlotsFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="daysSinceWarFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="soldiersFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="tanksFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="planesFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="shipsFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="missilesFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="nukesFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="groundWinFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="airWinFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="navyWinFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                            <th><select id="totalWinFilter" onchange="filterTable()"><option value="">All</option></select></th>
+                        </tr>
+                    
+
                     <tr>
                         <th>Nation id</th>
                         <th>Nation name</th>
@@ -269,6 +376,9 @@
                     });
             };
 
+
+       
+
             document.addEventListener('DOMContentLoaded', function () {
                 document.querySelectorAll('th').forEach(th => th.addEventListener('click', (async function () {
                     console.time();
@@ -378,6 +488,11 @@
                     targetRow.classList.remove('contextMenu')
                 });
             });
+
+            
         </script>
+
+    
+
     </body>
 </html>
