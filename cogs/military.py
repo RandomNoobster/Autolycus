@@ -114,7 +114,11 @@ class TargetFinding(commands.Cog):
         name="raids",
         description="Find raid targets",
     )
-    async def raids(self, ctx: discord.ApplicationContext):
+    async def raids(
+        self, 
+        ctx: discord.ApplicationContext,
+        score: Option(float, "Set a custom score range.") = None
+        ):
         try:
             await ctx.defer()
             
@@ -129,8 +133,12 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(content='I did not find that person!')
                 return
             
-            minscore = round(atck_ntn['score'] * 0.75)
-            maxscore = round(atck_ntn['score'] * 2.5)
+            if score:
+                minscore = round(score * 0.75)
+                maxscore = round(score * 2.5)
+            else:
+                minscore = round(atck_ntn['score'] * 0.75)
+                maxscore = round(atck_ntn['score'] * 2.5)
             
             use_same = None
             class stage_one(discord.ui.View):
