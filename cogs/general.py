@@ -173,8 +173,8 @@ class Background(commands.Cog):
 
             max_recycling = 3 + int(nation['recycling_initiative'])
             max_hospital = 5 + int(nation['clinical_research_center'])
-            max_police = 4 + int(nation['specialized_police_training_program'])
-
+            max_bank = 5 + int(nation['international_trade_center'])
+            max_mall = 4 + int(nation['telecommunications_satellite'])
             to_scan = []
             rss = []
             all_rss = ['net income', 'aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium']
@@ -239,9 +239,11 @@ class Background(commands.Cog):
 
                     if int(city['hospitals']) > max_hospital:
                         continue
-                    if int(city['police_stations']) > max_police:
-                        continue
                     if int(city['recycling_centers']) > max_recycling:
+                        continue
+                    if int(city['banks']) > max_bank:
+                        continue
+                    if int(city['malls']) > max_mall:
                         continue
 
                     city.pop('\u2229\u2557\u2510city_id')
@@ -308,11 +310,13 @@ class Background(commands.Cog):
                         if skip:
                             continue
 
-                        if city['hospital'] > max_hospital:
+                        if int(city['hospitals']) > max_hospital:
                             continue
-                        if city['policestation'] > max_police:
+                        if int(city['recycling_centers']) > max_recycling:
                             continue
-                        if city['recyclingcenter'] > max_recycling:
+                        if int(city['banks']) > max_bank:
+                            continue
+                        if int(city['malls']) > max_mall:
                             continue
                         
                         city['powered'] = "am powered" #must be string to work when being in the webpage
