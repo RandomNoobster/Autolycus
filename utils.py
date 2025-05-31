@@ -1110,19 +1110,19 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         if include_spies: 
             military_upkeep += await spy_calc(nation) * 2400
         if not at_war:
-            military_upkeep += nation['soldiers'] * (1.25 - 0.02 * nation['military_research']['ground_cost'])
-            food -= nation['soldiers'] / (750 + 10 * nation['military_research']['ground_cost'])
-            military_upkeep += nation['tanks'] * (50 - 1 * nation['military_research']['ground_cost'])
-            military_upkeep += nation['aircraft'] * (750 - 15 * nation['military_research']['air_cost'])
-            military_upkeep += nation['ships'] * (3300 - 30 * nation['military_research']['naval_cost'])
+            military_upkeep += nation['soldiers'] * (1.25 - 0.04 * nation['military_research']['ground_cost'])
+            food -= nation['soldiers'] / (750 + 20 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['tanks'] * (50 - 2 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['aircraft'] * (750 - 30 * nation['military_research']['air_cost'])
+            military_upkeep += nation['ships'] * (3300 - 60 * nation['military_research']['naval_cost'])
             military_upkeep += nation['missiles'] * 21000
             military_upkeep += nation['nukes'] * 35000
         else:
-            military_upkeep += nation['soldiers'] * (1.88 - 0.03 * nation['military_research']['ground_cost'])
-            food -= nation['soldiers'] / (500 + 15 * nation['military_research']['ground_cost'])
-            military_upkeep += nation['tanks'] * (75 - 1.5 * nation['military_research']['ground_cost'])
-            military_upkeep += nation['aircraft'] * (1000 - 10 * nation['military_research']['air_cost'])
-            military_upkeep += nation['ships'] * (5000 - 50 * nation['military_research']['naval_cost'])
+            military_upkeep += nation['soldiers'] * (1.88 - 0.06 * nation['military_research']['ground_cost'])
+            food -= nation['soldiers'] / (500 + 30 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['tanks'] * (75 - 3 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['aircraft'] * (1000 - 20 * nation['military_research']['air_cost'])
+            military_upkeep += nation['ships'] * (5000 - 100 * nation['military_research']['naval_cost'])
             military_upkeep += nation['missiles'] * 31500 
             military_upkeep += nation['nukes'] * 52500
     else:
