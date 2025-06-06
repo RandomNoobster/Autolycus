@@ -792,8 +792,15 @@ async def pre_revenue_calc(message: discord.Message, query_for_nation: bool = Fa
     game_info = res['data']['game_info']
 
     rad = game_info['radiation']
-    radiation = {"na": 1 - (rad['north_america'] + rad['global'])/1000, "sa": 1 - (rad['south_america'] + rad['global'])/1000, "eu": (rad['europe'] + rad['global'])/1000, "as": 1 - (rad['asia'] + rad['global'])/1000, "af": 1 - (rad['africa'] + rad['global'])/1000, "au": 1 - (rad['australia'] + rad['global'])/1000, "an": 1 - (rad['antarctica'] + rad['global'])/1000}
-    
+    radiation = {
+        "na": (rad['north_america'] + rad['global']) / -1000,
+        "sa": (rad['south_america'] + rad['global']) / -1000,
+        "eu": (rad['europe'] + rad['global']) / -1000,
+        "as": (rad['asia'] + rad['global']) / -1000,
+        "af": (rad['africa'] + rad['global']) / -1000,
+        "au": (rad['australia'] + rad['global']) / -1000,
+        "an": (rad['antarctica'] + rad['global']) / -1000
+    }
     month = int(game_info['game_date'][5:7])
     seasonal_mod = {"na": 1, "sa": 1, "eu": 1, "as": 1, "af": 1, "au": 1, "an": 0.5}
     if month in [6,7,8]:
@@ -828,6 +835,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
     rec_poll = 70
     pol_cri_red = 2.5
     food_land_mod = 500
+    food_rad_effect_mod = 1
     uranium_mod = 1
     rss_upkeep = 0
     civil_upkeep = 0
@@ -848,22 +856,23 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
     policy_bonus_text = ""
     treasure_text = ""
     footer = ""
-    
+
     if nation['ironw'] == True:
         ste_mod = 1.36
     if nation['bauxitew'] == True:
         alu_mod = 1.36
     if nation['armss'] == True:
-        mun_mod = 1.34
+        mun_mod = 1.2
     if nation['egr'] == True:
         gas_mod = 2
     if nation['massirr'] == True:
         food_land_mod = 400
     if nation['itc'] == True:
         max_commerce = 115
+        base_com = 1
     if nation['telecom_satellite'] == True:
         max_commerce = 125
-        base_com = 2
+        base_com += 2
     if nation['recycling_initiative'] == True:
         rec_poll = 75
     if nation['green_tech'] == True:
@@ -875,9 +884,12 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         hos_dis_red = 3.5
     if nation['specialized_police_training'] == True:
         pol_cri_red = 3.5
+        base_com += 4
     if nation['uap'] == True:
         uranium_mod = 2
-
+    if nation['fallout_shelter'] == True:
+        food_rad_effect_mod = 0.85
+        
     coal = 0
     oil = 0
     uranium = 0
@@ -908,7 +920,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         city['date'] = nation['cities'][math.ceil(nation['num_cities']/2)]['date']
         city['airforcebase'] = city['hangars']
         nation['cities'] = [city]
-    
+
     for city in nation['cities']:
         total_infra += city['infrastructure']
         base_pop = city['infrastructure'] * 100
@@ -917,7 +929,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         for wind_plant in range(city['windpower']): #can add something about wasted slots
             if unpowered_infra > 0:
                 unpowered_infra -= 250
-                power_upkeep += 42
+                power_upkeep += 500
         for nucl_plant in range(city['nuclearpower']): 
             power_upkeep += 10500
             for level in range(2):
@@ -965,12 +977,12 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
 
         rss_upkeep += 300 * city['farm'] * rss_upkeep_mod ## seasonal modifiers and radiation
         pollution += 2 * city['farm'] * farm_poll_mod
-        food_prod = city['land']/food_land_mod * city['farm'] * (1 + ((0.5 * (city['farm'] - 1)) / (20 - 1))) * seasonal_mod[nation['continent']] * max(radiation[nation['continent']], 0.1 * int(nation['fallout_shelter'])) * 12
+        food_prod = city['land']/food_land_mod * city['farm'] * (1 + ((0.5 * (city['farm'] - 1)) / (20 - 1))) * seasonal_mod[nation['continent']] * (1 + radiation[nation['continent']] * food_rad_effect_mod) * 12
         if food_prod < 0:
             food += 0
         else:
             food += food_prod
-        
+            
         commerce = base_com
         if unpowered_infra <= 0 and city['powered']:
             rss_upkeep += 4000 * city['gasrefinery'] * rss_upkeep_mod
@@ -991,7 +1003,7 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
 
             rss_upkeep += 3500 * city['munitionsfactory'] * rss_upkeep_mod
             pollution += 32 * city['munitionsfactory'] * manu_poll_mod
-            lead -= 6 * city['munitionsfactory'] * (1 + ((0.5 * (city['munitionsfactory'] - 1)) / (5 - 1))) * mun_mod
+            lead -= 6 * city['munitionsfactory'] * (1 + ((0.5 * (city['munitionsfactory'] - 1)) / (5 - 1)))
             munitions += 18 * city['munitionsfactory'] * (1 + ((0.5 * (city['munitionsfactory'] - 1)) / (5 - 1))) * mun_mod
                 
             civil_upkeep += city['policestation'] * 750 
@@ -1019,10 +1031,10 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
             city['pollution'] = pollution
 
             commerce += city['subway'] * 8
-            commerce += city['supermarket'] * 3 
-            commerce += city['bank'] * 5 
-            commerce += city['mall'] * 9
-            commerce += city['stadium'] * 12 
+            commerce += city['supermarket'] * 4
+            commerce += city['bank'] * 6 
+            commerce += city['mall'] * 8
+            commerce += city['stadium'] * 10 
 
             city['real_commerce'] = commerce
             if commerce > max_commerce:
@@ -1037,12 +1049,12 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
             city['real_commerce'] = 0
             city['commerce'] = 0
 
-        crime_rate = ((103 - commerce)**2 + (city['infrastructure'] * 100))/(111111) - police_stations * pol_cri_red
+        crime_rate = (math.pow(103 - commerce, 2) + (base_pop))/(111111) - police_stations * pol_cri_red
         city['real_crime_rate'] = crime_rate
         if crime_rate < 0:
             crime_rate = 0
         city['crime_rate'] = crime_rate
-        crime_deaths = ((crime_rate) / 10) * (100 * city['infrastructure']) - 25
+        crime_deaths = max(((crime_rate) / 10) * (base_pop) - 25,0)
         disease_rate = (((((base_pop / city['land'])**2) * 0.01) - 25)/100) + (base_pop/100000) + pollution * 0.05 - hospitals * hos_dis_red
         city['real_disease_rate'] = disease_rate
         if disease_rate > 100:
@@ -1050,16 +1062,16 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         elif disease_rate < 0:
             disease_rate = 0
         city['disease_rate'] = disease_rate
-        disease_deaths = base_pop * (disease_rate/100)
-        if disease_deaths < 0:
-            disease_deaths = 0
+        disease_deaths = max(base_pop * (disease_rate/100),0)
         city_age = (datetime.utcnow() - datetime.strptime(city['date'], "%Y-%m-%d")).days
         if city_age == 0:
             city_age = 1
-        population = ((base_pop - disease_deaths - crime_deaths) * (1 + math.log(city_age)/15))
+        city_age_mod = 1 + math.log(city_age)/15
+        food -= (base_pop**2 / 125000000) + ((base_pop * city_age_mod - base_pop) / 850)
+        population = ((base_pop - disease_deaths - crime_deaths) * city_age_mod)
         nationpop += population
         money_income += (((commerce / 50) * 0.725) + 0.725) * population
-    
+        
     alliance_treasures = 0
     nation_treasure_bonus = 1
     for treasure in treasures:
@@ -1074,19 +1086,22 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         nation_treasure_bonus += math.sqrt(alliance_treasures * 4) / 100
     if nation_treasure_bonus > 1:
         treasure_text = f"\n\nTreasure Bonus: ${round(money_income * (nation_treasure_bonus - 1)):,}"
-    
+
     if not single_city:
         color_bonus = colors[nation['color']]
         color_text = f"\n\nColor Trade Bloc Bonus: ${round(color_bonus):,}"
-    food -= nationpop / 1000
 
     if nation['num_cities'] < 21:
         new_player_bonus = 2.05 - 0.05 * nation['num_cities']
         new_player_text = f"\n\nNew Player Bonus: ${round((new_player_bonus - 1) * money_income):,}"
     if nation['dompolicy'] == "Open Markets":
         policy_bonus = 1.01
-        policy_bonus_text = f"\n\nOpen Markets Bonus: ${round(money_income * 0.01):,}"
-    
+        if nation['government_support_agency']:
+            policy_bonus = 1.015
+        if nation['bureau_of_domestic_affairs']:
+            policy_bonus = 1.0175
+        policy_bonus_text = f"\n\nOpen Markets Bonus: ${round(money_income * (1 - policy_bonus)):,}"
+
     at_war = False
     if not single_city:
         for war in nation['wars']:
@@ -1095,19 +1110,19 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
         if include_spies: 
             military_upkeep += await spy_calc(nation) * 2400
         if not at_war:
-            military_upkeep += nation['soldiers'] * 1.25
-            food -= nation['soldiers'] / 750
-            military_upkeep += nation['tanks'] * 50
-            military_upkeep += nation['aircraft'] * 500
-            military_upkeep += nation['ships'] * 3375
+            military_upkeep += nation['soldiers'] * (1.25 - 0.04 * nation['military_research']['ground_cost'])
+            food -= nation['soldiers'] / (750 + 20 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['tanks'] * (50 - 2 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['aircraft'] * (750 - 30 * nation['military_research']['air_cost'])
+            military_upkeep += nation['ships'] * (3300 - 60 * nation['military_research']['naval_cost'])
             military_upkeep += nation['missiles'] * 21000
             military_upkeep += nation['nukes'] * 35000
         else:
-            military_upkeep += nation['soldiers'] * 1.88
-            food -= nation['soldiers'] / 500
-            military_upkeep += nation['tanks'] * 75
-            military_upkeep += nation['aircraft'] * 750
-            military_upkeep += nation['ships'] * 5062.50
+            military_upkeep += nation['soldiers'] * (1.88 - 0.06 * nation['military_research']['ground_cost'])
+            food -= nation['soldiers'] / (500 + 30 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['tanks'] * (75 - 3 * nation['military_research']['ground_cost'])
+            military_upkeep += nation['aircraft'] * (1000 - 20 * nation['military_research']['air_cost'])
+            military_upkeep += nation['ships'] * (5000 - 100 * nation['military_research']['naval_cost'])
             military_upkeep += nation['missiles'] * 31500 
             military_upkeep += nation['nukes'] * 52500
     else:
@@ -1118,13 +1133,17 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
 
     if nation['dompolicy'] == "Imperialism":
         mil_cost = 0.95
-        policy_bonus_text = f"\n\nImperialism Bonus: ${round(military_upkeep * 0.05):,}"
+        if nation['government_support_agency']:
+            mil_cost = 0.925
+        if nation['bureau_of_domestic_affairs']:
+            mil_cost = 0.9125
+        policy_bonus_text = f"\n\nImperialism Bonus: ${round(military_upkeep * (1 - mil_cost)):,}"
     if food < 0:
         starve_exp_text = f"\n\nPossible Starvation Penalty: ${round(money_income * policy_bonus * new_player_bonus * 0.33):,}*"
         starve_money_text = f" (${round(money_income * policy_bonus * new_player_bonus * 0.67 + color_bonus - power_upkeep - rss_upkeep - military_upkeep * mil_cost - civil_upkeep):,}*)"
         starve_net_text = f" (${round(money_income * policy_bonus * new_player_bonus * 0.67 + color_bonus - power_upkeep - rss_upkeep - military_upkeep * mil_cost - civil_upkeep + coal * prices['coal'] + oil * prices['oil'] + uranium * prices['uranium'] + lead * prices['lead'] + iron * prices['iron'] + bauxite * prices['bauxite'] + gasoline * prices['gasoline'] + munitions * prices['munitions'] + steel * prices['steel'] + aluminum * prices['aluminum'] + food * prices['food']):,}*)"
         footer = "* The income if the nation is suffering from a starvation penalty"
-    
+
     max_infra = sorted(nation['cities'], key=lambda k: k['infrastructure'], reverse=True)[0]['infrastructure']
 
     if single_city:
@@ -1165,37 +1184,8 @@ async def revenue_calc(message: discord.Message, nation: dict, radiation: dict, 
     return rev_obj
 
 async def spy_calc(nation: dict) -> int:
-    """
-    Nation must include 'warpolicy', 'cia' and 'id'
-    """
-    async with aiohttp.ClientSession() as session:
-        if nation['warpolicy'] == "Arcane":
-            percent = 57.5
-        elif nation['warpolicy'] == "Tactician":
-            percent = 42.5
-        else:
-            percent = 50
-        upper_lim = 60
-        lower_lim = 0
-        while True:
-            spycount = math.floor((upper_lim + lower_lim)/2)
-            async with session.get(f"https://politicsandwar.com/war/espionage_get_odds.php?id1=341326&id2={nation['id']}&id3=0&id4=1&id5={spycount}") as probability:
-                probability = await probability.text()
-            #print(probability, spycount, upper_lim, lower_lim)
-            if "Greater than 50%" in probability:
-                upper_lim = spycount
-            else:
-                lower_lim = spycount
-            if upper_lim - 1 == lower_lim:
-                break
-        enemyspy = round((((100*int(spycount))/(percent-25))-2)/3)
-        if enemyspy > 60:
-            enemyspy = 60
-        elif enemyspy > 50 and not nation['cia']:
-            enemyspy = 50
-        elif enemyspy < 2:
-            enemyspy = 0
-    return enemyspy
+    """ nation must contain 'spies' """
+    return nation['spies']
 
 import sys
 from types import ModuleType, FunctionType
