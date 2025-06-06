@@ -173,8 +173,8 @@ class Background(commands.Cog):
 
             max_recycling = 3 + int(nation['recycling_initiative'])
             max_hospital = 5 + int(nation['clinical_research_center'])
-            max_bank = 5 + int(nation['international_trade_center'])
-            max_mall = 4 + int(nation['telecommunications_satellite'])
+            max_bank = 5 + int(nation['itc'])
+            max_mall = 4 + int(nation['telecom_satellite'])
             to_scan = []
             rss = []
             all_rss = ['net income', 'aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium']
@@ -243,7 +243,7 @@ class Background(commands.Cog):
                         continue
                     if int(city['banks']) > max_bank:
                         continue
-                    if int(city['malls']) > max_mall:
+                    if int(city['shopping_malls']) > max_mall:
                         continue
 
                     city.pop('\u2229\u2557\u2510city_id')
