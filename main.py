@@ -4,6 +4,7 @@ import os
 import pathlib
 import discord
 import logging
+from logging.handlers import RotatingFileHandler
 import datetime
 import pnwkit
 import motor.motor_asyncio
@@ -33,9 +34,37 @@ dependent_async_db = db_async_client[str(db_version)]
 api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
-# logger
-logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
-logger = logging.getLogger()
+# logging
+logger = logging.getLogger("my_app")
+logger.setLevel(logging.DEBUG) # CRITICAL: The logger itself must allow the lowest level (DEBUG) to pass through.
+log_formatter = logging.Formatter(
+    '%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', 
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+# maxBytes=5*1024*1024 means 5MB. 
+# backupCount=1 means it keeps 'debug.log' and 'debug.log.1'. When full, it deletes .1, moves .log to .1, and starts new.
+LOG_SIZE = 5 * 1024 * 1024 
+BACKUP_COUNT = 1
+debug_handler = RotatingFileHandler(
+    filename='debug.log', 
+    mode='a', 
+    maxBytes=LOG_SIZE, 
+    backupCount=BACKUP_COUNT, 
+    encoding='utf-8'
+)
+debug_handler.setFormatter(log_formatter)
+debug_handler.setLevel(logging.DEBUG) # Captures everything
+high_level_handler = RotatingFileHandler(
+    filename='important.log', 
+    mode='a', 
+    maxBytes=LOG_SIZE, 
+    backupCount=BACKUP_COUNT, 
+    encoding='utf-8'
+)
+high_level_handler.setFormatter(log_formatter)
+high_level_handler.setLevel(logging.WARNING) 
+logger.addHandler(debug_handler)
+logger.addHandler(high_level_handler)
 
 # pnwkit
 kit = pnwkit.QueryKit(api_key)
@@ -47,7 +76,13 @@ bot = commands.Bot(intents=intents, command_prefix="!")
 cwd = pathlib.Path.cwd()
 
 if os.path.exists(f"{cwd}/data/web"):
-    shutil.rmtree(f"{cwd}/data/web")
+    # On Windows, files may be locked by other processes (VS Code, browser, etc.)
+    # Try to remove, but continue if it fails
+    try:
+        shutil.rmtree(f"{cwd}/data/web")
+    except PermissionError as e:
+        print(f"Warning: Could not delete data/web directory: {e}")
+        print("Close any programs using these files and try again, or manually delete the directory.")
 
 for make_directory in [
     "data",
@@ -55,11 +90,6 @@ for make_directory in [
     "data/web/builds", "data/web/damage", "data/web/raids", "data/web/attacksheet",
     ]:
     pathlib.Path(f"{cwd}/{make_directory}").mkdir(exist_ok=True)
-
-for touch_file in [
-    "data/nations.json"
-    ]:
-    pathlib.Path(f"{cwd}/{touch_file}").touch(exist_ok=True)
 
 # cogs
 for filename in os.listdir('./cogs'):

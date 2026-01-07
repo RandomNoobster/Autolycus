@@ -10,7 +10,7 @@ import os
 import asyncio
 from motor.core import AgnosticClient
 import logging
-import utils
+from utils import pw_utils as utils
 from waitress import serve
 
 # to avoid "RuntimeError: Event loop is closed" error
@@ -121,14 +121,3 @@ async def attacksheet(user_id: int, timestamp: int):
 
 async def run():
     Thread(target=lambda: serve(app, host="0.0.0.0", port=5000)).start()
-
-    # while True:
-    #     try:
-    #         t = Thread(target=lambda: serve(app, host="0.0.0.0", port=5000))
-    #         t.start()
-    #         await asyncio.sleep(5)
-    #         t.join()
-    #         logger.info("Restarting server")
-    #     except Exception as e:
-    #         logger.error(e, exc_info=True)
-    #         await asyncio.sleep(600)
