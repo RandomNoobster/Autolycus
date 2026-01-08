@@ -1,31 +1,31 @@
-from datetime import datetime, timedelta
-import pathlib
-from utils import pw_utils as utils
-import aiohttp
-import time
 import asyncio
 import json
-import queries
-from dotenv import load_dotenv
-import os
 import logging
+import os
+import pathlib
+import sqlite3
+import time
+from datetime import datetime, timedelta
+from functools import partial
+
+import aiohttp
 import motor.motor_asyncio
 import pnwkit
-import sqlite3
-from utils.db_utils import (
-    ensure_table_and_columns,
-    row_to_db_values,
-    upsert,
-    ensure_metadata_table,
-    set_metadata,
-    get_nations_db_path,
-)
+from dotenv import load_dotenv
+
+import queries
+from logic.api_client import call
+from logic.merge_utils import get_query
+from utils.db_utils import (ensure_metadata_table, ensure_table_and_columns,
+                            get_nations_db_path, row_to_db_values,
+                            set_metadata, upsert)
 
 load_dotenv()
 version = os.getenv("version")
 async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
 async_mongo = async_client[str(version)]
 api_key = os.getenv("api_key")
+call_api = partial(call, api_key=api_key)
 
 kit = pnwkit.QueryKit(api_key)
 
@@ -43,7 +43,7 @@ async def nation_scanner():
                 start = time.time()
                 try:
                     await asyncio.sleep(2)
-                    resp = await utils.call(f"{{nations(page:{n} first:100 vmode:false min_score:15 orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.BACKGROUND_SCANNER)}}}}}", api_key)
+                    resp = await call_api(f"{{nations(page:{n} first:100 vmode:false min_score:15 orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{get_query(queries.BACKGROUND_SCANNER)}}}}}")
                     new_nations['nations'] += resp['data']['nations']['data']
                     more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
                 except (aiohttp.client_exceptions.ContentTypeError, TypeError):

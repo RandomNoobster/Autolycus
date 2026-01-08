@@ -247,3 +247,47 @@ def fetch_build_rows(
     for row in rows:
         results.append({key: int(row[key]) for key in fields})
     return results
+
+
+# --- Web data storage helpers ---
+
+async def write_web(category: str, user_id: int, data: Dict[str, Any], timestamp: int) -> None:
+    """Write data to the web storage directory as JSON.
+    
+    Args:
+        category: The category (e.g., 'damage', 'raids', 'builds')
+        user_id: The user ID
+        data: Dictionary to store as JSON
+        timestamp: Unix timestamp for the file
+    """
+    import aiofiles
+    
+    web_path = Path.cwd() / 'data' / 'web' / category / str(user_id)
+    web_path.mkdir(parents=True, exist_ok=True)
+    
+    file_path = web_path / f"{timestamp}.json"
+    async with aiofiles.open(file_path, 'w') as f:
+        await f.write(json.dumps(data))
+
+
+async def read_web(category: str, user_id: int, timestamp: int) -> Optional[Dict[str, Any]]:
+    """Read data from the web storage directory.
+    
+    Args:
+        category: The category (e.g., 'damage', 'raids', 'builds')
+        user_id: The user ID
+        timestamp: Unix timestamp for the file
+        
+    Returns:
+        Dictionary containing the stored data, or None if file not found
+    """
+    import aiofiles
+    
+    file_path = Path.cwd() / 'data' / 'web' / category / str(user_id) / f"{timestamp}.json"
+    
+    if not file_path.exists():
+        return None
+    
+    async with aiofiles.open(file_path, 'r') as f:
+        content = await f.read()
+        return json.loads(content)

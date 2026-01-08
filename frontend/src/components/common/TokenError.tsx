@@ -1,0 +1,96 @@
+/**
+ * Token Error Component
+ *
+ * Displayed when no token is present or token is invalid.
+ */
+
+import { Container, Title, Text, Stack, Alert, Button } from '@mantine/core';
+import { IconAlertTriangle, IconLock, IconShield } from '@tabler/icons-react';
+import { useNavigate } from 'react-router-dom';
+
+interface TokenErrorProps {
+  type: 'missing' | 'expired' | 'invalid';
+  message?: string;
+}
+
+export function TokenError({ type, message }: TokenErrorProps) {
+  const navigate = useNavigate();
+  
+  const config = {
+    missing: {
+      title: 'Authentication Required',
+      description:
+        'This page requires a valid access token. You can generate one directly or use a Discord bot link.',
+      icon: <IconLock size={48} />,
+    },
+    expired: {
+      title: 'Link Expired',
+      description:
+        'Your access link has expired. Please generate a new token or request one from the Discord bot.',
+      icon: <IconAlertTriangle size={48} />,
+    },
+    invalid: {
+      title: 'Invalid Link',
+      description:
+        'The access link is invalid or has been tampered with. Please generate a new token.',
+      icon: <IconAlertTriangle size={48} />,
+    },
+  };
+
+  const { title, description, icon } = config[type];
+
+  const handleGenerateToken = () => {
+    navigate('/token-request?type=raids&redirect=/raids&auto=true');
+  };
+
+  return (
+    <Container size="sm" py="xl">
+      <Stack align="center" gap="lg">
+        <Alert
+          variant="light"
+          color="orange"
+          title={title}
+          icon={icon}
+          radius="md"
+          style={{ width: '100%' }}
+        >
+          <Stack gap="sm">
+            <Text>{description}</Text>
+            {message && (
+              <Text size="sm" c="dimmed">
+                Error: {message}
+              </Text>
+            )}
+            <Button
+              leftSection={<IconShield size={16} />}
+              onClick={handleGenerateToken}
+              variant="light"
+              color="green"
+              mt="xs"
+            >
+              Generate Secure Token
+            </Button>
+          </Stack>
+        </Alert>
+
+        <Stack gap="xs" align="center">
+          <Title order={4}>How to access this page:</Title>
+          <Text size="sm" c="dimmed" ta="center">
+            <strong>Option 1: Generate a Token (Recommended)</strong>
+            <br />
+            Click the button above to generate a secure token instantly.
+            <br />
+            <br />
+            <strong>Option 2: Discord Bot Link</strong>
+            <br />
+            1. Open Discord and go to a server with Autolycus bot
+            <br />
+            2. Use the appropriate slash command (e.g., /raids, /builds, /damage)
+            <br />
+            3. Click the link provided by the bot
+          </Text>
+        </Stack>
+      </Stack>
+    </Container>
+  );
+}

@@ -7,10 +7,10 @@ import discord
 from discord.ext import commands
 from discord.commands import Option, SlashCommandGroup
 
-from utils import pw_utils as utils
-from main import async_mongo, logger
-
-API_KEY: str | None = os.getenv("api_key")
+from logic import common
+from database import mongo as db_mongo
+from discord_utils import views
+from main import logger
 
 
 class Config(commands.Cog):
@@ -51,9 +51,10 @@ class Config(commands.Cog):
             id_str: str = "None"
             
             if alliance_ids:
-                id_list, id_str = utils.str_to_id_list(alliance_ids)
+                id_list, id_str = common.str_to_id_list(alliance_ids)
             
-            await async_mongo.guild_configs.find_one_and_update(
+            db = db_mongo.get_db()
+            await db.guild_configs.find_one_and_update(
                 {"guild_id": ctx.guild.id},
                 {"$set": {"dnr_alliance_ids": id_list}},
                 upsert=True,
@@ -84,7 +85,8 @@ class Config(commands.Cog):
         """
         try:
             await ctx.defer(ephemeral=True)
-            server = await async_mongo.guild_configs.find_one({"guild_id": ctx.guild.id})
+            db = db_mongo.get_db()
+            server = await db.guild_configs.find_one({"guild_id": ctx.guild.id})
             
             if not server:
                 await ctx.edit("No configurable commands have been configured in this server!")
@@ -119,7 +121,8 @@ class Config(commands.Cog):
         """
         try:
             await ctx.defer()
-            user = await async_mongo.global_users.find_one({"user": ctx.user.id})
+            db = db_mongo.get_db()
+            user = await db.global_users.find_one({"user": ctx.user.id})
             
             if not user:
                 verify_cmd = ctx.bot.get_application_command("verify")
@@ -135,7 +138,7 @@ class Config(commands.Cog):
             while True:
                 # Check if user already has reminders configured
                 if user["beige_alerts_config"]:
-                    reminders_text = utils.comma_and_list(
+                    reminders_text = common.comma_and_list(
                         [f"{minutes} minutes" for minutes in user["beige_alerts_config"]]
                     )
                     description = (
@@ -146,9 +149,9 @@ class Config(commands.Cog):
                     embed = discord.Embed(
                         title="Configuration of beige reminders",
                         description=description,
-                        color=utils.EMBED_COLOR,
+                        color=common.EMBED_COLOR,
                     )
-                    view = utils.yes_or_no_view(
+                    view = views.YesOrNoView(
                         ctx, positive="Keep", negative="Discard"
                     )
                     await ctx.edit(embed=embed, view=view)
@@ -162,7 +165,7 @@ class Config(commands.Cog):
 
                 # Prompt for adding more reminders
                 if user["beige_alerts_config"]:
-                    reminders_text = utils.comma_and_list(
+                    reminders_text = common.comma_and_list(
                         [f"{minutes} minutes" for minutes in user["beige_alerts_config"]]
                     )
                     description = (
@@ -178,14 +181,14 @@ class Config(commands.Cog):
                 embed = discord.Embed(
                     title="Configuration of beige reminders",
                     description=description,
-                    color=utils.EMBED_COLOR,
+                    color=common.EMBED_COLOR,
                 )
-                modal = utils.SimpleModal(
+                modal = views.SimpleModal(
                     title="Configuration of beige reminders",
                     label="Minutes before exiting beige",
                     placeholder="Enter an integer, e.g. 5",
                 )
-                view = utils.yes_or_no_view(
+                view = views.YesOrNoView(
                     ctx,
                     positive="Add more",
                     negative="Finish configuration",
@@ -209,7 +212,7 @@ class Config(commands.Cog):
                 if not view.result:
                     # User chose to finish configuration
                     if user["beige_alerts_config"]:
-                        reminders_text = utils.comma_and_list(
+                        reminders_text = common.comma_and_list(
                             [f"{minutes} minutes" for minutes in user["beige_alerts_config"]]
                         )
                         description = f"You will be reminded {reminders_text} before a nation exits beige."
@@ -222,7 +225,7 @@ class Config(commands.Cog):
                     embed = discord.Embed(
                         title="Configuration of beige reminders",
                         description=description,
-                        color=utils.EMBED_COLOR,
+                        color=common.EMBED_COLOR,
                     )
                     view.disable_all_items()
                     await ctx.edit(embed=embed, view=view)
@@ -240,7 +243,7 @@ class Config(commands.Cog):
                         user["beige_alerts_config"].append(reminder)
                         user["beige_alerts_config"].sort()
                     
-                    await async_mongo.global_users.find_one_and_update(
+                    await db.global_users.find_one_and_update(
                         {"user": ctx.user.id},
                         {"$set": {"beige_alerts_config": user["beige_alerts_config"]}},
                         upsert=True,

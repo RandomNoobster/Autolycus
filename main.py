@@ -1,16 +1,18 @@
-from dotenv import load_dotenv
-import pymongo
+import asyncio
+import datetime
+import logging
 import os
 import pathlib
-import discord
-import logging
-from logging.handlers import RotatingFileHandler
-import datetime
-import pnwkit
-import motor.motor_asyncio
-import asyncio
-from discord.ext import commands
 import shutil
+from logging.handlers import RotatingFileHandler
+
+import discord
+import motor.motor_asyncio
+import pnwkit
+import pymongo
+from discord.ext import commands
+from dotenv import load_dotenv
+
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
@@ -35,7 +37,7 @@ api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
 # logging
-logger = logging.getLogger("my_app")
+logger = logging.getLogger("discord_bot")
 logger.setLevel(logging.DEBUG) # CRITICAL: The logger itself must allow the lowest level (DEBUG) to pass through.
 log_formatter = logging.Formatter(
     '%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', 
@@ -95,6 +97,11 @@ for make_directory in [
 for filename in os.listdir('./cogs'):
     if filename.endswith('.py'):
         bot.load_extension(f'cogs.{filename[:-3]}')
+
+# Initialize lookup module with async client
+from logic import api_lookup
+
+api_lookup.set_async_client(async_client, str(version))
 
 @bot.event
 async def on_ready():
@@ -157,8 +164,5 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
 @bot.slash_command(name="ping", description="Pong!")
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
-
-from server import run
-asyncio.ensure_future(run())
 
 bot.run(os.getenv("bot_token"))

@@ -14,10 +14,10 @@ from typing import Optional
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-from main import api_key
+from main import logger, kit
 
-from main import async_mongo, logger, kit
-from utils import pw_utils as utils
+from logic import api_client, common
+from database import mongo as db_mongo
 
 load_dotenv()
 
@@ -73,7 +73,7 @@ class General(commands.Cog):
             except Exception as e:
                 logger.error(f"Exception in alert scanner: {e}", exc_info=True)
                 if debug_channel:
-                    error_msg = utils.cut_string(
+                    error_msg = common.cut_string(
                         f"**Exception caught!**\n"
                         f"Where: Scanning beige alerts\n\n"
                         f"Error:```{traceback.format_exc()}```"
@@ -118,8 +118,9 @@ class General(commands.Cog):
         Returns:
             List of user documents containing beige alert configurations.
         """
-        return await utils.listify(
-            async_mongo.global_users.find({
+        db = db_mongo.get_db()
+        return await db_mongo.listify(
+            db.global_users.find({
                 "beige_alerts": {"$exists": True, "$not": {"$size": 0}}
             })
         )
@@ -147,13 +148,14 @@ class General(commands.Cog):
         Returns:
             List of nation data dictionaries.
         """
+        api_key = os.getenv("api_key")
         query = (
             f"{{nations(page:page_number first:500 "
             f"id:[{','.join(nation_ids)}])"
             f"{{paginatorInfo{{hasMorePages}} "
             f"data{{id vacation_mode_turns beige_turns}}}}}}"
         )
-        return await utils.paginate_call(query, "nations")
+        return await api_client.paginate_call(query, "nations", api_key)
 
     async def _check_and_remind_alerts(
         self,
@@ -253,11 +255,11 @@ class General(commands.Cog):
             Datetime when the nation exits status.
         """
         if beige_turns >= 1:
-            return utils.get_datetime_of_turns(beige_turns)
+            return common.get_datetime_of_turns(beige_turns)
         elif vm_turns >= 1:
-            return utils.get_datetime_of_turns(vm_turns)
+            return common.get_datetime_of_turns(vm_turns)
         else:
-            return utils.get_datetime_of_turns(0)
+            return common.get_datetime_of_turns(0)
 
     @staticmethod
     def _is_reminder_time(reminder_time: datetime) -> bool:
@@ -299,13 +301,20 @@ class General(commands.Cog):
             logger.info(f"Reminder sent to {user['user']} about {nation_id}")
 
             if pull_after:
-                await async_mongo.global_users.find_one_and_update(
+                db = db_mongo.get_db()
+                await db.global_users.find_one_and_update(
                     {"user": user["user"]},
                     {"$pull": {"beige_alerts": nation_id}},
                 )
 
-        except discord.NotFound:
-            logger.warning(f"User {user['user']} not found for reminder DM")
+        except (discord.NotFound, discord.Forbidden):
+            logger.warning(f"Discord did not find/allow me to message {user['user']}, removing alert")
+            if pull_after:
+                db = db_mongo.get_db()
+                await db.global_users.find_one_and_update(
+                    {"user": user["user"]},
+                    {"$pull": {"beige_alerts": nation_id}},
+                )
         except Exception as e:
             logger.error(f"Error sending reminder: {e}")
             debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
@@ -334,14 +343,14 @@ class General(commands.Cog):
         nation_url = f"https://politicsandwar.com/nation/id={nation_id}"
 
         if beige_turns > 0:
-            exit_time = utils.get_datetime_of_turns(beige_turns)
+            exit_time = common.get_datetime_of_turns(beige_turns)
             timestamp = round(exit_time.timestamp())
             return (
                 f"Hey, {nation_url} is scheduled to leave beige at "
                 f"<t:{timestamp}:f> (<t:{timestamp}:R>)"
             )
         elif vm_turns > 0:
-            exit_time = utils.get_datetime_of_turns(vm_turns)
+            exit_time = common.get_datetime_of_turns(vm_turns)
             timestamp = round(exit_time.timestamp())
             return (
                 f"Hey, {nation_url} is scheduled to leave vacation mode at "
@@ -380,7 +389,8 @@ class General(commands.Cog):
                 )
 
                 # Remove alert after sending
-                await async_mongo.global_users.find_one_and_update(
+                db = db_mongo.get_db()
+                await db.global_users.find_one_and_update(
                     {"user": user["user"]},
                     {"$pull": {"beige_alerts": nation_id}},
                 )

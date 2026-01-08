@@ -1,0 +1,62 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Custom scrollbar for tables */
+.mantine-ScrollArea-scrollbar {
+  background-color: transparent;
+}
+
+.mantine-ScrollArea-thumb {
+  background-color: var(--mantine-color-gray-6);
+}
+
+/* Resource icon styling */
+.resource-icon {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* Table cell alignment */
+.text-right {
+  text-align: right;
+}
+
+.text-center {
+  text-align: center;
+}
+
+/* Highlighted rows */
+.row-highlighted {
+  background-color: rgba(255, 183, 77, 0.2) !important;
+}
+
+/* Link styling */
+a {
+  color: var(--mantine-color-blue-6);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}

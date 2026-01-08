@@ -1,14 +1,33 @@
+# Backend dependencies for Autolycus API
+
+# Database
 pymongo==4.6.1
 motor==3.1.1
 dnspython==2.2.1
-Mako==1.2.4
-python-dotenv==0.21.0
+
+# Web Framework
 Flask[async]==2.2.2
-aiohttp==3.8.3
-requests==2.28.1
-dload==0.6
-pnwkit-py==2.6.23
-py-cord==2.4.0
-aiofiles==22.1.0
+flask-cors==4.0.0
 waitress==2.1.2
 Werkzeug==2.2.2
+
+# Templates (legacy - for migration reference)
+Mako==1.2.4
+
+# Security (for token-based auth)
+itsdangerous==2.1.2
+
+# HTTP Client
+aiohttp==3.8.3
+requests==2.28.1
+
+# Discord Bot
+py-cord==2.4.0
+
+# P&W API
+pnwkit-py==2.6.23
+
+# Utilities
+python-dotenv==0.21.0
+dload==0.6
+aiofiles==22.1.0
