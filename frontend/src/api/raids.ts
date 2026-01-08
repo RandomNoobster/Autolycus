@@ -16,6 +16,7 @@ import type {
  * @returns RaidsResponse with targets and alerts
  */
 export interface RaidFilterParams {
+  attackerNationId?: number;
   minCities?: number;
   maxCities?: number;
   alliance?: string;

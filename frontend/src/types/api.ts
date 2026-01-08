@@ -59,7 +59,7 @@ export interface AttackerInfo {
   id: number;
   nation_name: string;
   leader_name: string;
-  // Add other fields as needed
+  score?: number;
 }
 
 export interface RaidsResponse {
@@ -68,6 +68,8 @@ export interface RaidsResponse {
   beigeAlerts: string[];
   showBeige: boolean;
   generatedAt: string;
+  discordLinked: boolean;
+    warning?: string | null;
 }
 
 export interface ReminderRequest {

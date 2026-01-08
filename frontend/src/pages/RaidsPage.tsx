@@ -1,7 +1,7 @@
 /**
  * Raids Page
  *
- * Displays raid targets with secure token authentication.
+ * Displays raid targets with token authentication.
  */
 
 import {
@@ -11,7 +11,7 @@ import {
   Stack,
   Group,
   Badge,
-  Card,
+  Paper,
   Grid,
   NumberInput,
   Select,
@@ -21,22 +21,27 @@ import {
   ActionIcon,
   Autocomplete,
   Anchor,
+  Alert,
+  Loader,
 } from '@mantine/core';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { IconClock, IconQuestionMark, IconSearch, IconX } from '@tabler/icons-react';
+import { IconQuestionMark, IconSearch, IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 
 import { fetchRaids, searchAlliances } from '@/api';
-import { useUrlParams } from '@/hooks';
+import { useUrlParams, useNationId } from '@/hooks';
 import { RaidsTable } from '@/components/raids';
-import { TokenError, LoadingState, ErrorState } from '@/components/common';
+import { TokenError, LoadingState, ErrorState, NationIdField } from '@/components/common';
 import type { ApiError } from '@/types';
 
 export function RaidsPage() {
   const { token, initialColumnFilters, initialSorting } = useUrlParams();
+  const { nationId: savedNationId, parseNationId } = useNationId();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [appliedNationId, setAppliedNationId] = useState(savedNationId);
+  const [draftNationId, setDraftNationId] = useState(savedNationId);
 
   const parseNumber = (key: string): number | undefined => {
     const val = searchParams.get(key);
@@ -75,7 +80,7 @@ export function RaidsPage() {
     scope: activeFilters.scope || 'all',
     minBeigeLoot: activeFilters.minBeigeLoot?.toString() || '0',
     performance: activeFilters.performance ?? false,
-    scoreMode: activeFilters.scoreMode || 'yours',
+    scoreMode: activeFilters.scoreMode || (savedNationId ? 'yours' : 'custom'),
     yourScore: activeFilters.yourScore?.toString() || '',
     minScore: activeFilters.minScore?.toString() || '',
     maxScore: activeFilters.maxScore?.toString() || '',
@@ -97,11 +102,39 @@ export function RaidsPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['raids', token],
-    queryFn: () => fetchRaids(token || '', {}),
+    queryKey: ['raids', token, appliedNationId],
+    queryFn: () => {
+      const filters: any = {};
+      if (appliedNationId) {
+        filters.attackerNationId = parseInt(appliedNationId, 10);
+      }
+      return fetchRaids(token || '', filters);
+    },
     retry: false,
     enabled: !!token,
   });
+
+  // Auto-fill score when attacker data loads and we have a nation ID
+  useEffect(() => {
+    if (data?.attacker?.score && appliedNationId) {
+      setDraftFilters(prev => ({ 
+        ...prev, 
+        yourScore: data.attacker.score!.toString(),
+        scoreMode: 'yours'
+      }));
+    } else if (!appliedNationId && draftFilters.scoreMode === 'yours') {
+      // Reset to custom if nation ID is cleared
+      setDraftFilters(prev => ({ ...prev, scoreMode: 'custom' }));
+    }
+  }, [data?.attacker?.score, appliedNationId]);
+
+  // Sync draftNationId with savedNationId when it changes
+  useEffect(() => {
+    if (savedNationId && !appliedNationId) {
+      setAppliedNationId(savedNationId);
+      setDraftNationId(savedNationId);
+    }
+  }, [savedNationId, appliedNationId]);
 
   // Apply filters locally in the browser - must be before conditional returns
   const filteredTargets = useMemo(() => {
@@ -241,7 +274,7 @@ export function RaidsPage() {
   }
 
   if (isLoading) {
-    return <LoadingState message="Loading raid targets, this may take some time..." />;
+    return <LoadingState message="Loading raid targets..." />;
   }
 
   if (error) {
@@ -270,294 +303,396 @@ export function RaidsPage() {
   return (
     <Container size="xl" py="md">
       <Stack gap="md">
-        <Card withBorder shadow="xs">
-          <Stack gap="md">
-            <Title order={4}>Filters</Title>
-            <Grid gutter="md">
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap={4}>
-                  <Group gap="xs" justify="space-between">
-                    <Text size="sm" fw={500}>Beige Status</Text>
-                    {draftFilters.beige !== 'all' && (
-                      <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, beige: 'all' }))}>
-                        reset
-                      </Anchor>
-                    )}
-                  </Group>
-                  <Select
-                    data={[
-                      { value: 'all', label: 'Show all nations' },
-                      { value: 'only', label: 'Only beige nations' },
-                      { value: 'hide', label: 'Hide beige nations' },
-                    ]}
-                    value={draftFilters.beige}
-                    onChange={(val) => setDraftFilters(prev => ({ ...prev, beige: val || 'all' }))}
-                  />
-                </Stack>
-              </Grid.Col>
-              
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap={4}>
-                  <Group gap="xs" justify="space-between">
-                    <Text size="sm" fw={500}>Alliance Name</Text>
-                    {draftFilters.alliance && (
-                      <Anchor size="xs" onClick={() => {
-                        setAllianceQuery('');
-                        setDraftFilters(prev => ({ ...prev, alliance: '' }));
-                      }}>
-                        reset
-                      </Anchor>
-                    )}
-                  </Group>
-                  <Autocomplete
-                    placeholder="Search by name, acronym, or ID..."
-                    value={allianceQuery}
-                    onChange={(val) => {
-                      setAllianceQuery(val);
-                      setDraftFilters(prev => ({ ...prev, alliance: val }));
-                    }}
-                    data={allianceOptions.map(a => a.label)}
-                    limit={15}
-                    onOptionSubmit={(val) => {
-                      // Extract the alliance name from "Name [Acronym]" format
-                      const match = val.match(/^(.+?)\s*\[/);
-                      const allianceName = match ? match[1] : val;
-                      setAllianceQuery(allianceName);
-                      setDraftFilters(prev => ({ ...prev, alliance: allianceName }));
-                    }}
-                  />
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap={4}>
-                  <Group gap="xs" justify="space-between">
-                    <Text size="sm" fw={500}>Alliance Membership</Text>
-                    {draftFilters.scope !== 'all' && (
-                      <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, scope: 'all' }))}>
-                        reset
-                      </Anchor>
-                    )}
-                  </Group>
-                  <Select
-                    data={[
-                      { value: 'all', label: 'All nations' },
-                      { value: 'apps_or_none', label: 'Applicants + No alliance' },
-                      { value: 'no_alliance', label: 'No alliance only' },
-                    ]}
-                    value={draftFilters.scope}
-                    onChange={(val) => setDraftFilters(prev => ({ ...prev, scope: (val || 'all') as 'all' | 'apps_or_none' | 'no_alliance' }))}
-                  />
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap={4}>
-                  <Group gap="xs" justify="space-between">
-                    <Text size="sm" fw={500}>Defensive Wars</Text>
-                    {draftFilters.maxWars !== 'all' && (
-                      <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, maxWars: 'all' }))}>
-                        reset
-                      </Anchor>
-                    )}
-                  </Group>
-                  <Group gap="xs" align="center" wrap="nowrap">
-                    <Select
-                      style={{ flex: 1, minWidth: 120 }}
-                      data={[
-                        { value: 'all', label: 'Any' },
-                        { value: '0', label: '0' },
-                        { value: '1', label: '≤1' },
-                        { value: '2', label: '≤2' },
-                      ]}
-                      value={draftFilters.maxWars}
-                      onChange={(val) => setDraftFilters(prev => ({ ...prev, maxWars: val || 'all' }))}
-                    />
-                    <Text size="sm" c="dimmed">
-                      active wars
-                    </Text>
-                  </Group>
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap={4}>
-                  <Group gap="xs" justify="space-between">
-                    <Text size="sm" fw={500}>Inactivity</Text>
-                    {draftFilters.inactiveMinDays !== 'none' && (
-                      <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, inactiveMinDays: 'none' }))}>
-                        reset
-                      </Anchor>
-                    )}
-                  </Group>
-                  <Group gap="xs" align="center" wrap="nowrap">
-                    <Select
-                      style={{ flex: 1 }}
-                      data={[
-                        { value: 'none', label: "Not" },
-                        { value: '3', label: '3+ days' },
-                        { value: '5', label: '5+ days' },
-                        { value: '7', label: '7+ days' },
-                        { value: '14', label: '14+ days' },
-                        { value: '30', label: '30+ days' },
-                      ]}
-                      value={draftFilters.inactiveMinDays}
-                      onChange={(val) => setDraftFilters(prev => ({ ...prev, inactiveMinDays: val || 'none' }))}
-                    />
-                    <Text size="sm" c="dimmed">
-                      inactive
-                    </Text>
-                  </Group>
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap={4}>
-                  <Group gap="xs" justify="space-between">
-                    <Text size="sm" fw={500}>Min Previous Beige Loot</Text>
-                    {draftFilters.minBeigeLoot !== '0' && (
-                      <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, minBeigeLoot: '0' }))}>
-                        reset
-                      </Anchor>
-                    )}
-                  </Group>
-                  <Select
-                    data={[
-                      { value: '0', label: 'No minimum' },
-                      { value: '5000000', label: '$5 million' },
-                      { value: '10000000', label: '$10 million' },
-                      { value: '20000000', label: '$20 million' },
-                    ]}
-                    value={draftFilters.minBeigeLoot}
-                    onChange={(val) => setDraftFilters(prev => ({ ...prev, minBeigeLoot: val || '0' }))}
-                  />
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={12}>
-                <Stack gap="xs">
-                  <Group gap="xs" justify="space-between">
-                    <Text size="sm" fw={500}>Score Range</Text>
-                    {(draftFilters.scoreMode !== 'yours' || draftFilters.yourScore || draftFilters.minScore || draftFilters.maxScore) && (
-                      <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, scoreMode: 'yours', yourScore: '', minScore: '', maxScore: '' }))}>
-                        reset
-                      </Anchor>
-                    )}
-                  </Group>
-                  <Select
-                    data={[
-                      { value: 'custom', label: 'Custom min/max' },
-                      { value: 'yours', label: 'Based on your score (0.75x - 2.5x)' },
-                    ]}
-                    value={draftFilters.scoreMode}
-                    onChange={(val) => setDraftFilters(prev => ({ ...prev, scoreMode: val || 'yours' }))}
-                  />
-                  
-                  {draftFilters.scoreMode === 'yours' ? (
-                    <NumberInput
-                      label="Your Score"
-                      placeholder="Enter your nation score"
-                      value={draftFilters.yourScore}
-                      onChange={(val) => setDraftFilters(prev => ({ ...prev, yourScore: val?.toString() || '' }))}
-                      min={0}
-                      step={0.01}
-                    />
-                  ) : (
-                    <Grid gutter="sm">
-                      <Grid.Col span={6}>
-                        <NumberInput
-                          label="Min Score"
-                          placeholder="Min"
-                          value={draftFilters.minScore}
-                          onChange={(val) => setDraftFilters(prev => ({ ...prev, minScore: val?.toString() || '' }))}
-                          min={0}
-                          step={0.1}
-                        />
-                      </Grid.Col>
-                      <Grid.Col span={6}>
-                        <NumberInput
-                          label="Max Score"
-                          placeholder="Max"
-                          value={draftFilters.maxScore}
-                          onChange={(val) => setDraftFilters(prev => ({ ...prev, maxScore: val?.toString() || '' }))}
-                          min={0}
-                          step={0.1}
-                        />
-                      </Grid.Col>
-                    </Grid>
-                  )}
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={12}>
-                <Group gap="xs">
-                  <Switch
-                    label="Performance Filter"
-                    checked={draftFilters.performance}
-                    onChange={(event) =>
-                      setDraftFilters(prev => ({ ...prev, performance: event.currentTarget.checked }))
-                    }
-                  />
-                  <Tooltip
-                    label='Filters out "bad" targets: nations with negative income, stronger ground force than you, or $0 previous beige loot'
-                    multiline
-                    w={250}
-                  >
-                    <ActionIcon size="sm" variant="subtle" color="gray">
-                      <IconQuestionMark size={14} />
-                    </ActionIcon>
-                  </Tooltip>
-                </Group>
-              </Grid.Col>
-
-              <Grid.Col span={12}>
-                <Group gap="sm">
-                  <Button
-                    leftSection={<IconSearch size={16} />}
-                    onClick={applyFilters}
-                    style={{ flex: 1 }}
-                  >
-                    Apply Filters
-                  </Button>
-                  <Button
-                    leftSection={<IconX size={16} />}
-                    onClick={resetFilters}
-                    variant="light"
-                    color="gray"
-                    style={{ flex: 1 }}
-                  >
-                    Reset All
-                  </Button>
-                </Group>
-              </Grid.Col>
-            </Grid>
-          </Stack>
-        </Card>
-
-        {/* Header */}
-        <Group justify="space-between" align="flex-start">
+        {/* Nation Configuration */}
+        <Paper withBorder radius="md" p="lg" style={{ position: 'relative' }}>
           <Stack gap="xs">
-            <Title order={2}>Raid Targets</Title>
-            <Text c="dimmed">
-              Find profitable targets to raid. Click column headers to sort,
-              use filters to narrow down results.
+            <Group gap="xs">
+              <Title order={3}>Your Nation</Title>
+              <Badge color="blue" variant="light">Optional</Badge>
+            </Group>
+            <Text size="sm" c="dimmed">
+              Load your nation to pull your score automatically and keep the win% + score range aligned to you.
             </Text>
           </Stack>
-          <Badge
-            leftSection={<IconClock size={12} />}
+
+          <NationIdField
+            label="Nation ID"
+            placeholder="Nation ID or Link to Nation"
+            description="Used for win% calculations"
+            size="sm"
+            value={draftNationId || ''}
+            onChange={setDraftNationId}
+            onSubmit={() => {
+              const parsed = parseNationId(draftNationId);
+              if (parsed) {
+                setAppliedNationId(parsed);
+                setDraftNationId(parsed);
+              }
+            }}
+            buttonLabel="Load Nation"
+            buttonIcon={<IconDownload size={14} />}
+            buttonDisabled={!draftNationId || draftNationId === appliedNationId}
+            inputProps={{ style: { maxWidth: 260 } }}
+            warningMessage={data?.warning || null}
+          />
+          
+          {data?.attacker && appliedNationId && !isLoading && (
+            <Group gap="xs" style={{ position: 'absolute', top: 16, right: 16 }}>
+              <Text size="sm" c="dimmed">
+                {data.attacker.nation_name}
+              </Text>
+              <Badge variant="light" color="blue">
+                Score: {data.attacker.score?.toFixed(2) || 'N/A'}
+              </Badge>
+            </Group>
+          )}
+          {isLoading && appliedNationId && (
+            <Group gap="xs" style={{ position: 'absolute', top: 16, right: 16 }}>
+              <Loader size="xs" />
+              <Text size="xs" c="dimmed">Loading...</Text>
+            </Group>
+          )}
+        </Paper>
+
+        <Paper withBorder radius="md" p="lg">
+          <Stack gap="sm">
+            <Stack gap={4}>
+              <Group gap="xs">
+                <Title order={3}>Raid Filters</Title>
+              </Group>
+              <Text size="sm" c="dimmed">
+                Adjust the filters below to refine your raid target list.
+              </Text>
+            </Stack>
+            <Grid gutter={{ base: 'sm', sm: 'md' }}>
+              <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap={6}>
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Beige Status</Text>
+                      {draftFilters.beige !== 'all' && (
+                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, beige: 'all' }))}>
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">Choose whether to include beige nations.</Text>
+                    <Select
+                      size="xs"
+                      data={[
+                        { value: 'all', label: 'Show all nations' },
+                        { value: 'only', label: 'Only beige nations' },
+                        { value: 'hide', label: 'Hide beige nations' },
+                      ]}
+                      value={draftFilters.beige}
+                      onChange={(val) => setDraftFilters(prev => ({ ...prev, beige: val || 'all' }))}
+                    />
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap={6}>
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Alliance Name</Text>
+                      {draftFilters.alliance && (
+                        <Anchor size="xs" onClick={() => {
+                          setAllianceQuery('');
+                          setDraftFilters(prev => ({ ...prev, alliance: '' }));
+                        }}>
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">Search by name, acronym, or ID.</Text>
+                    <Autocomplete
+                      size="xs"
+                      placeholder="Search by name, acronym, or ID..."
+                      value={allianceQuery}
+                      onChange={(val) => {
+                        setAllianceQuery(val);
+                        setDraftFilters(prev => ({ ...prev, alliance: val }));
+                      }}
+                      data={allianceOptions.map(a => a.label)}
+                      limit={15}
+                      onOptionSubmit={(val) => {
+                        const match = val.match(/^(.+?)\s*\[/);
+                        const allianceName = match ? match[1] : val;
+                        setAllianceQuery(allianceName);
+                        setDraftFilters(prev => ({ ...prev, alliance: allianceName }));
+                      }}
+                    />
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap={6}>
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Alliance Membership</Text>
+                      {draftFilters.scope !== 'all' && (
+                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, scope: 'all' }))}>
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">Limit results by applicant or unaffiliated status.</Text>
+                    <Select
+                      size="xs"
+                      data={[
+                        { value: 'all', label: 'All nations' },
+                        { value: 'apps_or_none', label: 'Applicants + No alliance' },
+                        { value: 'no_alliance', label: 'No alliance only' },
+                      ]}
+                      value={draftFilters.scope}
+                      onChange={(val) => setDraftFilters(prev => ({ ...prev, scope: (val || 'all') as 'all' | 'apps_or_none' | 'no_alliance' }))}
+                    />
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap={6}>
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Defensive Wars</Text>
+                      {draftFilters.maxWars !== 'all' && (
+                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, maxWars: 'all' }))}>
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">Upper bound on current defensive wars.</Text>
+                    <Group gap="xs" align="center" wrap="nowrap">
+                      <Select
+                        size="xs"
+                        style={{ flex: 1, minWidth: 120 }}
+                        data={[
+                          { value: 'all', label: 'Any' },
+                          { value: '0', label: '0' },
+                          { value: '1', label: '≤1' },
+                          { value: '2', label: '≤2' },
+                        ]}
+                        value={draftFilters.maxWars}
+                        onChange={(val) => setDraftFilters(prev => ({ ...prev, maxWars: val || 'all' }))}
+                      />
+                      <Text size="sm" c="dimmed">
+                        active wars
+                      </Text>
+                    </Group>
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap={6}>
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Inactivity</Text>
+                      {draftFilters.inactiveMinDays !== 'none' && (
+                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, inactiveMinDays: 'none' }))}>
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">Pick a minimum days inactive window.</Text>
+                    <Group gap="xs" align="center" wrap="nowrap">
+                      <Select
+                        size="xs"
+                        style={{ flex: 1 }}
+                        data={[
+                          { value: 'none', label: "Not" },
+                          { value: '3', label: '3+ days' },
+                          { value: '5', label: '5+ days' },
+                          { value: '7', label: '7+ days' },
+                          { value: '14', label: '14+ days' },
+                          { value: '30', label: '30+ days' },
+                        ]}
+                        value={draftFilters.inactiveMinDays}
+                        onChange={(val) => setDraftFilters(prev => ({ ...prev, inactiveMinDays: val || 'none' }))}
+                      />
+                      <Text size="sm" c="dimmed">
+                        inactive
+                      </Text>
+                    </Group>
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap={6}>
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Min Previous Beige Loot</Text>
+                      {draftFilters.minBeigeLoot !== '0' && (
+                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, minBeigeLoot: '0' }))}>
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">Require a minimum prior beige payout.</Text>
+                    <Select
+                      size="xs"
+                      data={[
+                        { value: '0', label: 'No minimum' },
+                        { value: '5000000', label: '$5 million' },
+                        { value: '10000000', label: '$10 million' },
+                        { value: '20000000', label: '$20 million' },
+                      ]}
+                      value={draftFilters.minBeigeLoot}
+                      onChange={(val) => setDraftFilters(prev => ({ ...prev, minBeigeLoot: val || '0' }))}
+                    />
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, md: 8, lg: 8 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap="xs">
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Score Range</Text>
+                      {(draftFilters.scoreMode !== 'yours' || draftFilters.yourScore || draftFilters.minScore || draftFilters.maxScore) && (
+                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, scoreMode: 'yours', yourScore: '', minScore: '', maxScore: '' }))}>
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">Use your score or set custom limits.</Text>
+                    <Select
+                      size="xs"
+                      data={[
+                        { value: 'custom', label: 'Custom min/max' },
+                        { value: 'yours', label: 'Based on your score (0.75x - 2.5x)', disabled: !appliedNationId },
+                      ]}
+                      value={draftFilters.scoreMode}
+                      onChange={(val) => setDraftFilters(prev => ({ ...prev, scoreMode: val || 'custom' }))}
+                    />
+                    
+                    {draftFilters.scoreMode === 'yours' ? (
+                      <NumberInput
+                        size="xs"
+                        label="Your Score"
+                        placeholder={appliedNationId ? "Auto-filled from nation" : "Set nation ID above"}
+                        value={draftFilters.yourScore}
+                        onChange={(val) => setDraftFilters(prev => ({ ...prev, yourScore: val?.toString() || '' }))}
+                        min={0}
+                        step={0.01}
+                        disabled={!appliedNationId}
+                      />
+                    ) : (
+                      <Grid gutter="sm">
+                        <Grid.Col span={6}>
+                          <NumberInput
+                            size="xs"
+                            label="Min Score"
+                            placeholder="Min"
+                            value={draftFilters.minScore}
+                            onChange={(val) => setDraftFilters(prev => ({ ...prev, minScore: val?.toString() || '' }))}
+                            min={0}
+                            step={0.1}
+                          />
+                        </Grid.Col>
+                        <Grid.Col span={6}>
+                          <NumberInput
+                            size="xs"
+                            label="Max Score"
+                            placeholder="Max"
+                            value={draftFilters.maxScore}
+                            onChange={(val) => setDraftFilters(prev => ({ ...prev, maxScore: val?.toString() || '' }))}
+                            min={0}
+                            step={0.1}
+                          />
+                        </Grid.Col>
+                      </Grid>
+                    )}
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
+                <Paper withBorder radius="sm" p="sm">
+                  <Stack gap={6}>
+                    <Text size="sm" fw={600}>Performance Filter</Text>
+                    <Text size="xs" c="dimmed">
+                      Filters out "bad" targets: nations with negative income, stronger ground force than you, or $0 previous beige loot.
+                    </Text>
+                    <Switch
+                      size="sm"
+                      label="Hide low-value targets"
+                      checked={draftFilters.performance}
+                      onChange={(event) =>
+                        setDraftFilters(prev => ({ ...prev, performance: event.currentTarget.checked }))
+                      }
+                    />
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+            </Grid>
+
+            <Group gap="sm" justify="center">
+              <Button
+                leftSection={<IconSearch size={16} />}
+                onClick={applyFilters}
+                size="sm"
+              >
+                Apply Filters
+              </Button>
+              <Button
+                leftSection={<IconX size={16} />}
+                onClick={resetFilters}
+                variant="light"
+                color="gray"
+                size="sm"
+              >
+                Reset All
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+
+        {/* Discord Linking Alert */}
+        {!data.discordLinked && (
+          <Alert
+            icon={<IconAlertCircle size={16} />}
+            title="Discord Integration Required for Reminders"
+            color="blue"
             variant="light"
-            color="gray"
           >
-            Generated: {new Date(data.generatedAt).toLocaleString()}
-          </Badge>
-        </Group>
+            <Stack gap="xs">
+              <Text size="sm">
+                To enable beige reminder notifications, you need to link your Discord account with Autolycus.
+              </Text>
+              <Group gap="xs" align="center">
+                <IconBrandDiscord size={20} />
+                <Text size="sm" fw={600}>
+                  Run <Text span c="blue" ff="monospace">/raids</Text> in any Discord server where the Autolycus bot is present.
+                </Text>
+              </Group>
+              <Text size="xs" c="dimmed">
+                Once linked, you'll see reminder toggle buttons in the table below for beige nations.
+              </Text>
+            </Stack>
+          </Alert>
+        )}
+
+        {/* Header */}
+        <Stack gap="xs">
+          <Title order={2}>Raid Targets</Title>
+          <Text c="dimmed">
+            Find profitable targets to raid. Click column headers to sort,
+            use filters to narrow down results.
+          </Text>
+        </Stack>
 
         {/* Table */}
         <RaidsTable
           data={filteredTargets}
           token={token}
           showBeige={data.showBeige}
-          initialFilters={initialColumnFilters}
+          discordLinked={data.discordLinked}
+          initialFilters={initialColumnFilters.filter(f => !['scoreMode', 'yourScore', 'minScore', 'maxScore'].includes(f.id))}
           initialSorting={initialSorting}
         />
       </Stack>

@@ -34,18 +34,21 @@ import { useState, useEffect } from 'react';
 
 import { fetchNationData, fetchBuilds, fetchGameData } from '@/api/builds';
 import { BuildsGrid } from '@/components/builds';
-import { ResourceIcon } from '@/components/common';
+import { ResourceIcon, NationIdField } from '@/components/common';
 import type { BuildConfiguration, BuildsResponse, ResourceType } from '@/types';
 import type { GameDataResponse } from '@/types/gameData';
 import { CONTINENTS } from '@/utils/continents';
 import { formatNumber } from '@/utils';
+import { useNationId } from '@/hooks';
 
 export function BuildsPage() {
+  const { nationId: savedNationId } = useNationId();
   const [showResults, setShowResults] = useState(false);
   const [buildsData, setBuildsData] = useState<BuildsResponse | null>(null);
   const [isLoadingNation, setIsLoadingNation] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+    const [nationError, setNationError] = useState<string | null>(null);
   const [gameData, setGameData] = useState<GameDataResponse | null>(null);
 
   // Load projects and policies on mount
@@ -64,6 +67,7 @@ export function BuildsPage() {
   // Form state
   const form = useForm<BuildConfiguration>({
     initialValues: {
+      nationId: savedNationId ? parseInt(savedNationId, 10) : undefined,
       infrastructure: 2000,
       land: 1500,
       continent: 'na',
@@ -88,12 +92,24 @@ export function BuildsPage() {
     return allowed.includes(policy) ? policy : undefined;
   };
 
+  const handleNationIdChange = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      form.setFieldValue('nationId', undefined);
+      return;
+    }
+
+    const parsed = Number(trimmed);
+    form.setFieldValue('nationId', Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed);
+  };
+
   // Nation data loading
   const handleLoadNation = async () => {
     const nationId = form.values.nationId;
     if (!nationId) return;
 
     setIsLoadingNation(true);
+      setNationError(null);
     try {
       const data = await fetchNationData(nationId);
       
@@ -123,8 +139,11 @@ export function BuildsPage() {
         policies: data.policies,
         domesticPolicy: sanitizeDomesticPolicy(data.policies?.dompolicy),
       });
+        setNationError(null);
     } catch (error) {
       console.error('Failed to load nation data:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load nation data';
+        setNationError(errorMessage);
     } finally {
       setIsLoadingNation(false);
     }
@@ -179,21 +198,19 @@ export function BuildsPage() {
                 <Text size="sm" c="dimmed" mb="md">
                   Enter your nation ID to auto-fill configuration with your current stats.
                 </Text>
-                <Group>
-                  <NumberInput
-                    placeholder="Nation ID (e.g., 123456)"
-                    {...form.getInputProps('nationId')}
-                    style={{ flex: 1 }}
-                    min={1}
-                  />
-                  <Button
-                    leftSection={isLoadingNation ? <Loader size="xs" /> : <IconDownload size={16} />}
-                    onClick={handleLoadNation}
-                    disabled={!form.values.nationId || isLoadingNation}
-                  >
-                    {isLoadingNation ? 'Loading...' : 'Load Nation'}
-                  </Button>
-                </Group>
+                <NationIdField
+                  placeholder="Nation ID or Link to Nation"
+                  size="md"
+                  value={form.values.nationId?.toString() ?? ''}
+                  onChange={handleNationIdChange}
+                  onSubmit={handleLoadNation}
+                  buttonLabel="Load Nation"
+                  buttonIcon={<IconDownload size={16} />}
+                  buttonDisabled={!form.values.nationId}
+                  loading={isLoadingNation}
+                  inputProps={{ type: 'number', min: 1 }}
+                  errorMessage={nationError}
+                />
               </div>
 
               {/* Manual Configuration */}
@@ -681,7 +698,7 @@ function PriceTable({ prices }: { prices: PricePayload }) {
               <Table.Th>Resource</Table.Th>
               <Table.Th>Live</Table.Th>
               <Table.Th>30 Day Average</Table.Th>
-              <Table.Th>Delta</Table.Th>
+              <Table.Th>Live Deviation from Average</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>

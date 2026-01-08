@@ -79,7 +79,7 @@ export function HomePage() {
           <Title order={1}>Welcome to Autolycus</Title>
           <Text size="lg" c="dimmed" maw={600}>
             Your comprehensive toolkit for Politics & War. Access raid targets,
-            city builds, and damage calculations through secure Discord links.
+            city builds, and damage calculations through Discord links.
           </Text>
         </Stack>
 
@@ -119,7 +119,7 @@ export function HomePage() {
           <Stack gap="md">
             <Title order={4}>How to Use</Title>
             <Text size="sm">
-              1. Use the Autolycus Discord bot in your server to generate a secure
+              1. Use the Autolycus Discord bot in your server to generate a
               link.
             </Text>
             <Text size="sm">
@@ -131,8 +131,8 @@ export function HomePage() {
               explore!
             </Text>
             <Text size="sm" c="dimmed">
-              Note: Links expire after 7 days for security. Request a new link
-              anytime from Discord.
+              Note: Links expire after 7 days. Request a new link anytime from
+              Discord.
             </Text>
           </Stack>
         </Card>

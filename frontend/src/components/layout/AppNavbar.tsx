@@ -4,7 +4,8 @@
  * The side navigation with links to different pages.
  */
 
-import { NavLink, Stack, Text, Divider, Badge, Group } from '@mantine/core';
+import { NavLink, Stack, Text, Divider, Badge, Group, ActionIcon } from '@mantine/core';
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   IconHome,
@@ -12,7 +13,11 @@ import {
   IconBuildingFactory2,
   IconBomb,
   IconExternalLink,
+  IconCheck,
+  IconX,
 } from '@tabler/icons-react';
+import { useNationId } from '@/hooks';
+import { NationIdField } from '@/components/common';
 
 interface NavItem {
   label: string;
@@ -35,7 +40,6 @@ const navItems: NavItem[] = [
     path: '/raids',
     icon: <IconSword size={20} stroke={1.5} />,
     description: 'Find profitable targets',
-    badge: 'Secure',
   },
   {
     label: 'City Builds',
@@ -69,6 +73,26 @@ const externalLinks: NavItem[] = [
 export function AppNavbar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { nationId, setNationId, clearNationId, parseNationId } = useNationId();
+  const [inputValue, setInputValue] = useState(nationId);
+  const [error, setError] = useState('');
+
+  const handleSaveNationId = () => {
+    const parsed = parseNationId(inputValue);
+    if (parsed) {
+      setNationId(parsed);
+      setInputValue(parsed);
+      setError('');
+    } else {
+      setError('Invalid nation ID or link');
+    }
+  };
+
+  const handleClearNationId = () => {
+    clearNationId();
+    setInputValue('');
+    setError('');
+  };
 
   const handleNavClick = (item: NavItem) => {
     if (item.external) {
@@ -134,6 +158,47 @@ export function AppNavbar() {
       </Stack>
 
       <div style={{ flexGrow: 1 }} />
+
+      <Divider my="xs" label="Your Nation" labelPosition="center" />
+
+      <Stack gap="xs">
+        <NationIdField
+          placeholder="Nation ID or Link to Nation"
+          size="xs"
+          value={inputValue || ''}
+          onChange={(value) => {
+            setInputValue(value);
+            setError('');
+          }}
+          onSubmit={handleSaveNationId}
+          buttonLabel="Save Nation ID"
+          buttonIcon={<IconCheck size={14} />}
+          buttonDisabled={!inputValue || inputValue === nationId}
+          layout="column"
+          inputProps={{
+            error,
+            rightSection:
+              inputValue && (
+                <ActionIcon
+                  size="xs"
+                  variant="subtle"
+                  color="gray"
+                  onClick={handleClearNationId}
+                >
+                  <IconX size={14} />
+                </ActionIcon>
+              ),
+          }}
+          buttonProps={{ fullWidth: true }}
+        />
+        {nationId && (
+          <Text size="xs" c="dimmed" ta="center">
+            Current: {nationId}
+          </Text>
+        )}
+      </Stack>
+
+      <Divider my="xs" />
 
       <Text size="xs" c="dimmed" ta="center">
         Please report bugs to RandomNoobster

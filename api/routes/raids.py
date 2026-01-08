@@ -85,7 +85,8 @@ def get_raids() -> tuple[Any, int]:
         token_payload = getattr(request, 'token_payload', {}) or {}
         user_id = token_payload.get('user_id')
 
-        # Parse filters
+        # Parse filters and attacker nation ID override
+        attacker_nation_id = request.args.get('attackerNationId', type=int)
         min_cities = request.args.get('minCities', type=int)
         max_cities = request.args.get('maxCities', type=int)
         alliance_filter = request.args.get('alliance')
@@ -118,11 +119,21 @@ def get_raids() -> tuple[Any, int]:
                 user_profile = None
 
         attacker = None
-        if user_profile:
+        nation_warning = None
+        # Priority: URL parameter > user profile > first nation
+        if attacker_nation_id:
+            attacker = next((n for n in nations if int(n.get('id', 0)) == attacker_nation_id), None)
+            if attacker:
+                logger.info(f"Found attacker nation by URL parameter: {attacker_nation_id}")
+            else:
+                logger.warning(f"Nation {attacker_nation_id} not found in database")
+                nation_warning = f"Nation ID {attacker_nation_id} not found in database. Using default nation for calculations."
+        if attacker is None and user_profile:
             attacker_id = str(user_profile.get('id', ''))
             attacker = next((n for n in nations if str(n.get('id')) == attacker_id), None)
         if attacker is None and nations:
             attacker = nations[0]
+            logger.info(f"Falling back to first nation: {attacker.get('id')}")
 
         beige_alerts = user_profile.get('beige_alerts', []) if user_profile else []
 
@@ -214,12 +225,12 @@ def get_raids() -> tuple[Any, int]:
                 air_def = nation.get('aircraft', 0) * 3
                 naval_attack = attacker.get('ships', 0) * 4
                 naval_def = nation.get('ships', 0) * 4
-                ground_win = calculate_win_chance_raw(ground_attack, ground_def)
-                air_win = calculate_win_chance_raw(air_attack, air_def)
-                naval_win = calculate_win_chance_raw(naval_attack, naval_def)
-                total_win = (ground_win + air_win + naval_win) / 3
+                ground_win = round(calculate_win_chance_raw(ground_attack, ground_def) * 100, 1)
+                air_win = round(calculate_win_chance_raw(air_attack, air_def) * 100, 1)
+                naval_win = round(calculate_win_chance_raw(naval_attack, naval_def) * 100, 1)
+                total_win = round((ground_win + air_win + naval_win) / 3, 1)
             else:
-                ground_win = air_win = naval_win = total_win = 0.5
+                ground_win = air_win = naval_win = total_win = 50.0
 
             monetary_net_income = nation.get('monetary_net_num', 0)
             net_cash_income = nation.get('net_cash_num', 0)
@@ -298,11 +309,14 @@ def get_raids() -> tuple[Any, int]:
                 'id': attacker.get('id') if attacker else None,
                 'nation_name': attacker.get('nation_name') if attacker else None,
                 'leader_name': attacker.get('leader_name') if attacker else None,
+                'score': float(attacker.get('score', 0)) if attacker else None,
             },
             'targets': targets,
             'beigeAlerts': [str(x) for x in beige_alerts],
             'showBeige': bool(beige_only),
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
+            'discordLinked': bool(user_id and user_profile),
+                'warning': nation_warning if 'nation_warning' in locals() else None,
         }
 
         return jsonify(response), 200

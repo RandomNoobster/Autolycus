@@ -214,7 +214,7 @@ async def _fetch_historical_prices(call_pnw: GraphQLCaller) -> Optional[dict[str
     Per pnwSchema.graphql: tradeprices only accepts 'first' and 'page' parameters.
     """
     prices_selection = get_query(queries.PRICES)
-    price_query = "{" f'tradeprices(first:30)' "{data" f"{prices_selection}" "}}}"
+    price_query = "{" f'tradeprices(first:30){{data{prices_selection}}}' "}"
     try:
         result = await call_pnw(price_query)
     except Exception:
