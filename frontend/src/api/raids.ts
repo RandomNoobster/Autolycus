@@ -28,6 +28,7 @@ export interface RaidFilterParams {
   performance?: boolean;
   minScore?: number;
   maxScore?: number;
+  vmode?: boolean; // When true: only VM; when false: exclude VM; omitted: backend default
 }
 
 export function fetchRaids(

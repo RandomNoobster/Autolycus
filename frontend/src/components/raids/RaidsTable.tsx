@@ -1,9 +1,13 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import {
   MantineReactTable,
   useMantineReactTable,
   type MRT_ColumnDef,
   type MRT_Row,
+  type MRT_ColumnFiltersState,
+  type MRT_ColumnOrderState,
+  type MRT_DensityState,
+  type MRT_VisibilityState,
 } from 'mantine-react-table';
 import {
   ActionIcon,
@@ -16,26 +20,54 @@ import {
   Alert,
   Stack,
   NumberInput,
+  TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { useDebouncedValue } from '@mantine/hooks';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { IconBell, IconBellOff, IconExternalLink, IconInfoCircle } from '@tabler/icons-react';
 
 import type { RaidTarget } from '@/types';
 import { addReminder, removeReminder } from '@/api';
-import { useTablePersistence } from '@/hooks';
 
 // --- HELPER FUNCTIONS FOR FILTERING ---
 
-// Parse numeric values that might contain $, %, +, or commas
+// Parse numeric values that might contain $, %, +, commas, and k/m/b suffix
 const parseNumericValue = (value: unknown): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
-    const cleaned = value.replace(/[$%+,]/g, '');
-    const parsed = parseFloat(cleaned);
+    const s = value.trim().toLowerCase();
+    // Remove common formatting but keep potential k/m/b suffix
+    const cleaned = s.replace(/[,$%+\s]/g, '');
+    const match = cleaned.match(/^(-?\d*\.?\d+)([kmb])?$/i);
+    if (match) {
+      const base = parseFloat(match[1]);
+      const suf = (match[2] || '').toLowerCase();
+      const mult = suf === 'k' ? 1e3 : suf === 'm' ? 1e6 : suf === 'b' ? 1e9 : 1;
+      const num = base * mult;
+      return isNaN(num) ? 0 : num;
+    }
+    const parsed = parseFloat(cleaned.replace(/[^0-9.-]/g, ''));
     return isNaN(parsed) ? 0 : parsed;
   }
   return 0;
+};
+
+// Parser for Mantine NumberInput: supports k/m/b shorthand (e.g., 1.1m -> 1100000)
+const numberInputParserWithSuffix = (val: string): string => {
+  if (!val) return '';
+  const s = val.trim().toLowerCase();
+  const cleaned = s.replace(/[,$%+\s]/g, '');
+  const match = cleaned.match(/^(-?\d*\.?\d+)([kmb])?$/i);
+  if (match) {
+    const base = parseFloat(match[1]);
+    const suf = (match[2] || '').toLowerCase();
+    const mult = suf === 'k' ? 1e3 : suf === 'm' ? 1e6 : suf === 'b' ? 1e9 : 1;
+    const num = base * mult;
+    return Number.isFinite(num) ? String(num) : '';
+  }
+  // Fallback: strip everything except digits, dot and minus
+  return cleaned.replace(/[^0-9.-]/g, '');
 };
 
 // Custom filter: min only
@@ -63,6 +95,14 @@ const rangeFilter = (row: any, id: string, filterValue: any) => {
   return cellValue >= min && cellValue <= max;
 };
 
+const beigeFilter = (row: any, id: string, filterValue: any) => {
+  if (!filterValue) return true;
+  const turns = parseNumericValue(row.getValue(id));
+  if (filterValue === 'only') return turns > 0;
+  if (filterValue === 'hide') return turns <= 0;
+  return true;
+};
+
 // Custom filter: boolean filter for taxable
 const booleanFilter = (row: any, id: string, filterValue: any) => {
   if (filterValue === undefined || filterValue === null || filterValue === '') return true;
@@ -88,57 +128,134 @@ const wrappedHeader = (text: string) => (
   </Box>
 );
 
+const headerWithTooltip = (text: string, description: string) => (
+  <Tooltip label={description} multiline maw={260} withinPortal>
+    {wrappedHeader(text)}
+  </Tooltip>
+);
+
 // --- CUSTOM FILTER COMPONENTS ---
 
 // Filter component: Min only (for days inactive, income fields, days since war)
 const MinOnlyFilterInput = ({ column }: any) => {
-  const filterValue = column.getFilterValue() || '';
+  const initial = String(column.getFilterValue() ?? '');
+  const [raw, setRaw] = useState<string>(initial);
+  const [debounced] = useDebouncedValue(raw, 500);
+
+  useEffect(() => {
+    column.setFilterValue(debounced ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced]);
+
   return (
-    <NumberInput
-      placeholder="Min"
-      value={filterValue}
-      onChange={(val) => column.setFilterValue(val ?? '')}
+    <TextInput
+      placeholder="Min (e.g. 10k, 2m)"
+      value={raw}
+      onChange={(e) => setRaw(e.currentTarget.value)}
       size="xs"
-      min={0}
     />
   );
 };
 
-// Filter component: Max only (for defensive slots)
-const MaxOnlyFilterInput = ({ column }: any) => {
-  const filterValue = column.getFilterValue() || '';
+// Generic Filter component: Max only (for military units)
+const MaxOnlyFilterInput = ({ column, placeholder }: any) => {
+  const initial = String(column.getFilterValue() ?? '');
+  const [raw, setRaw] = useState<string>(initial);
+  const [debounced] = useDebouncedValue(raw, 500);
+
+  useEffect(() => {
+    column.setFilterValue(debounced ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced]);
+
   return (
-    <NumberInput
-      placeholder="Max"
-      value={filterValue}
-      onChange={(val) => column.setFilterValue(val ?? '')}
+    <TextInput
+      placeholder={placeholder || "Max (e.g. 500k)"}
+      value={raw}
+      onChange={(e) => setRaw(e.currentTarget.value)}
       size="xs"
-      min={0}
-      max={3}
+    />
+  );
+};
+
+// Specialized Filter component: Max only with cap (for defensive slots up to 3)
+const DefSlotsMaxOnlyFilterInput = ({ column }: any) => {
+  const initial = String(column.getFilterValue() ?? '');
+  const [raw, setRaw] = useState<string>(initial);
+  const [debounced] = useDebouncedValue(raw, 400);
+
+  useEffect(() => {
+    const parsed = parseNumericValue(debounced);
+    const clamped = Math.min(Math.max(parsed, 0), 3);
+    column.setFilterValue(String(Number.isFinite(clamped) ? clamped : ''));
+    // reflect clamped value to input to avoid confusion
+    if (parsed !== clamped) setRaw(String(clamped));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced]);
+
+  return (
+    <TextInput
+      placeholder="Max (0-3)"
+      value={raw}
+      onChange={(e) => setRaw(e.currentTarget.value)}
+      size="xs"
     />
   );
 };
 
 // Filter component: Range (for military units and win%)
 const RangeFilterInput = ({ column }: any) => {
-  const filterValue = column.getFilterValue() || { min: '', max: '' };
+  const initial = column.getFilterValue() ?? { min: '', max: '' };
+  const [localRange, setLocalRange] = useState<any>({
+    min: String(initial.min ?? ''),
+    max: String(initial.max ?? ''),
+  });
+  const [debouncedMin] = useDebouncedValue(localRange.min, 400);
+  const [debouncedMax] = useDebouncedValue(localRange.max, 400);
+
+  useEffect(() => {
+    column.setFilterValue({ min: debouncedMin ?? '', max: debouncedMax ?? '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedMin, debouncedMax]);
+
   return (
     <Stack gap={4}>
-      <NumberInput
-        placeholder="Min"
-        value={filterValue.min || ''}
-        onChange={(val) => column.setFilterValue({ ...filterValue, min: val ?? '' })}
+      <TextInput
+        placeholder="Min (e.g. 10k)"
+        value={localRange.min ?? ''}
+        onChange={(e) => setLocalRange((prev: any) => ({ ...prev, min: e.currentTarget.value }))}
         size="xs"
-        min={0}
       />
-      <NumberInput
-        placeholder="Max"
-        value={filterValue.max || ''}
-        onChange={(val) => column.setFilterValue({ ...filterValue, max: val ?? '' })}
+      <TextInput
+        placeholder="Max (e.g. 2m)"
+        value={localRange.max ?? ''}
+        onChange={(e) => setLocalRange((prev: any) => ({ ...prev, max: e.currentTarget.value }))}
         size="xs"
-        min={0}
       />
     </Stack>
+  );
+};
+
+// Numeric-only Min filter (for Days Since War and Win% columns)
+const NumericMinOnlyFilterInput = ({ column, max }: any) => {
+  const initial = column.getFilterValue() ?? '';
+  const [localValue, setLocalValue] = useState<any>(initial);
+  const [debounced] = useDebouncedValue(localValue, 400);
+
+  useEffect(() => {
+    column.setFilterValue(debounced ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced]);
+
+  return (
+    <NumberInput
+      placeholder="Min"
+      value={localValue}
+      onChange={(val) => setLocalValue(val ?? '')}
+      size="xs"
+      min={0}
+      max={typeof max === 'number' ? max : undefined}
+    />
   );
 };
 
@@ -147,8 +264,19 @@ interface RaidsTableProps {
   token: string;
   showBeige: boolean;
   discordLinked: boolean;
-  initialFilters?: { id: string; value: unknown }[];
   initialSorting?: { id: string; desc: boolean }[];
+  columnVisibility: MRT_VisibilityState;
+  columnOrder: MRT_ColumnOrderState;
+  density: MRT_DensityState;
+  columnFilters: MRT_ColumnFiltersState;
+  onColumnVisibilityChange: (
+    updater: MRT_VisibilityState | ((prev: MRT_VisibilityState) => MRT_VisibilityState)
+  ) => void;
+  onColumnOrderChange: (
+    updater: MRT_ColumnOrderState | ((prev: MRT_ColumnOrderState) => MRT_ColumnOrderState)
+  ) => void;
+  onDensityChange: (updater: MRT_DensityState | ((prev: MRT_DensityState) => MRT_DensityState)) => void;
+  onColumnFiltersChange: (updater: MRT_ColumnFiltersState) => void;
 }
 
 export function RaidsTable({
@@ -156,19 +284,17 @@ export function RaidsTable({
   token,
   showBeige,
   discordLinked,
-  initialFilters = [],
   initialSorting = [],
+  columnVisibility,
+  columnOrder,
+  density,
+  columnFilters,
+  onColumnVisibilityChange,
+  onColumnOrderChange,
+  onDensityChange,
+  onColumnFiltersChange,
 }: RaidsTableProps) {
   const queryClient = useQueryClient();
-
-  const {
-    columnVisibility,
-    columnOrder,
-    density,
-    setColumnVisibility,
-    setColumnOrder,
-    setDensity,
-  } = useTablePersistence('raids');
 
   // ... (Keep your mutations same as before) ...
   const addReminderMutation = useMutation({
@@ -201,8 +327,12 @@ export function RaidsTable({
   }, [data]);
 
   const uniquePositions = useMemo(() => {
-    const positions = new Set(data.map(d => d.alliancePosition).filter(p => p && p !== 'NOALLIANCE'));
-    return Array.from(positions).sort();
+    const positions = new Set(data.map(d => d.alliancePosition).filter(p => p));
+    const opts = Array.from(positions).map((p) => ({
+      value: p as string,
+      label: p === 'NOALLIANCE' ? 'None' : (p as string).toLowerCase(),
+    }));
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
   }, [data]);
 
   const uniqueColors = useMemo(() => {
@@ -302,7 +432,16 @@ export function RaidsTable({
               accessorKey: 'beigeTurns',
               header: 'Beige Turns',
               Header: () => wrappedHeader('Beige Turns'), // Use custom wrapper
-              size: 120, 
+              size: 120,
+              filterFn: beigeFilter,
+              filterVariant: 'select',
+              mantineFilterSelectProps: {
+                data: [
+                  { value: 'only', label: 'Only beige' },
+                  { value: 'hide', label: 'Hide beige' },
+                ],
+                clearable: true,
+              },
             } as MRT_ColumnDef<RaidTarget>,
             {
               id: 'reminder',
@@ -335,6 +474,15 @@ export function RaidsTable({
               header: 'Beige Turns',
               Header: () => wrappedHeader('Beige Turns'),
               size: 120,
+              filterFn: beigeFilter,
+              filterVariant: 'select',
+              mantineFilterSelectProps: {
+                data: [
+                  { value: 'only', label: 'Only beige' },
+                  { value: 'hide', label: 'Hide beige' },
+                ],
+                clearable: true,
+              },
             } as MRT_ColumnDef<RaidTarget>,
           ]
         : []),
@@ -344,6 +492,8 @@ export function RaidsTable({
         Header: () => wrappedHeader('Beige Loot'),
         size: 120,
         mantineTableBodyCellProps: { align: 'right' },
+        filterFn: minOnlyFilter,
+        Filter: MinOnlyFilterInput,
       },
       {
         accessorKey: 'daysInactive',
@@ -357,7 +507,7 @@ export function RaidsTable({
       {
         accessorKey: 'monetaryNetIncome',
         header: 'Net Income',
-        Header: () => wrappedHeader('Net Income'),
+        Header: () => headerWithTooltip('Net Income', 'Total resource gain/loss valued at current prices (cash + resources).'),
         size: 130,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
@@ -367,7 +517,7 @@ export function RaidsTable({
       {
         accessorKey: 'netCashIncome',
         header: 'Cash Income',
-        Header: () => wrappedHeader('Cash Income'),
+        Header: () => headerWithTooltip('Cash Income', 'Net cash-only income (excludes the value of produced resources).'),
         size: 130,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
@@ -400,9 +550,9 @@ export function RaidsTable({
         header: 'Used Defensive Slots',
         Header: () => wrappedHeader('Used Defensive Slots'),
         size: 145,
-        Cell: ({ cell }) => `${cell.getValue<number>()}/3`,
+        mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
-        Filter: MaxOnlyFilterInput,
+        Filter: DefSlotsMaxOnlyFilterInput,
       },
       {
         accessorKey: 'timeSinceWar',
@@ -410,7 +560,7 @@ export function RaidsTable({
         Header: () => wrappedHeader('Days Since War'),
         size: 130,
         filterFn: minOnlyFilter,
-        Filter: MinOnlyFilterInput,
+        Filter: NumericMinOnlyFilterInput,
       },
       // Military columns 
       {
@@ -419,8 +569,8 @@ export function RaidsTable({
         size: 130,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: maxOnlyFilter,
+        Filter: MaxOnlyFilterInput,
       },
       {
         accessorKey: 'tanks',
@@ -428,40 +578,40 @@ export function RaidsTable({
         size: 120,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: maxOnlyFilter,
+        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 20k)" />,
       },
       {
         accessorKey: 'aircraft',
         header: 'Aircraft',
         size: 130,
         mantineTableBodyCellProps: { align: 'right' },
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: maxOnlyFilter,
+        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 2k)" />,
       },
       {
         accessorKey: 'ships',
         header: 'Ships',
         size: 120,
         mantineTableBodyCellProps: { align: 'right' },
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: maxOnlyFilter,
+        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 400)" />,
       },
       {
         accessorKey: 'missiles',
         header: 'Missiles',
         size: 130,
         mantineTableBodyCellProps: { align: 'right' },
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: maxOnlyFilter,
+        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 50)" />,
       },
       {
         accessorKey: 'nukes',
         header: 'Nukes',
         size: 120,
         mantineTableBodyCellProps: { align: 'right' },
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: maxOnlyFilter,
+        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 20)" />,
       },
       {
         accessorKey: 'groundWin',
@@ -470,8 +620,8 @@ export function RaidsTable({
         size: 130, // "Ground" needs ~50px + Icon ~20px + Padding
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: minOnlyFilter,
+        Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
       {
         accessorKey: 'airWin',
@@ -480,8 +630,8 @@ export function RaidsTable({
         size: 120,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: minOnlyFilter,
+        Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
       {
         accessorKey: 'navalWin',
@@ -490,8 +640,8 @@ export function RaidsTable({
         size: 130,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: minOnlyFilter,
+        Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
       {
         accessorKey: 'totalWin',
@@ -500,8 +650,8 @@ export function RaidsTable({
         size: 130,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
-        filterFn: rangeFilter,
-        Filter: RangeFilterInput,
+        filterFn: minOnlyFilter,
+        Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
       {
         id: 'actions',
@@ -549,19 +699,21 @@ export function RaidsTable({
     globalFilterFn: 'contains',
 
     initialState: {
-      columnFilters: initialFilters,
+      columnFilters,
       sorting: initialSorting,
       pagination: { pageSize: 50, pageIndex: 0 },
-      density: 'xs', 
+      density,
     },
     state: {
       columnVisibility,
       columnOrder,
       density,
+      columnFilters,
     },
-    onColumnVisibilityChange: setColumnVisibility,
-    onColumnOrderChange: setColumnOrder,
-    onDensityChange: setDensity,
+    onColumnVisibilityChange,
+    onColumnOrderChange,
+    onDensityChange,
+    onColumnFiltersChange,
     
     mantineTableContainerProps: {
       style: { maxHeight: '600px' },
@@ -588,8 +740,8 @@ export function RaidsTable({
     <Stack gap="md">
       <MantineReactTable table={table} />
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
-        You can customize this table by hiding/showing columns, reordering them, and adjusting the density.
-        All your preferences are automatically saved and will be remembered the next time you visit using the same browser.
+        Hide or show columns, reorder them, adjust density, and filter columns directly in the table.
+        When a custom template is active, every tweak is saved with it; built-in templates stay locked.
       </Alert>
     </Stack>
   );

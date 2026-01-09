@@ -7,6 +7,7 @@ target listings and beige reminder functionality.
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -18,9 +19,10 @@ from pymongo import MongoClient
 import queries
 from api.security import require_token
 from logic import api_client, merge_utils
+from logic.common import beige_loot_value
 from logic.military import calculate_win_chance_raw
 from logic.revenue import pre_revenue_calc, revenue_calc
-from utils.db_utils import get_all_nations
+from utils.db_utils import get_all_alliances, get_all_nations
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,151 @@ async_client = None
 async_mongo = None
 sync_client: Optional[MongoClient] = None
 sync_db = None
+
+
+def _parse_war_date(date_str: Optional[str]) -> datetime:
+    """Best-effort parser for war dates to enable ordering."""
+    if not date_str:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+    try:
+        if "T" in date_str:
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except Exception:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def _is_in_vacation_mode(nation: dict[str, Any]) -> bool:
+    """Determine whether a nation is currently in Vacation Mode (VM).
+
+    Supports multiple field shapes that can appear in cached nation rows:
+    - 'vmode': may be bool or numeric (0/1 or turns)
+    - 'vacation_mode_turns': numeric remaining turns in VM
+    Returns True if VM is active, False otherwise.
+    """
+    vmode = nation.get('vmode')
+    if isinstance(vmode, bool):
+        if vmode:
+            return True
+    elif isinstance(vmode, (int, float)):
+        if vmode > 0:
+            return True
+
+    vmt = nation.get('vacation_mode_turns')
+    try:
+        vmt_val = int(vmt) if vmt is not None else 0
+    except (TypeError, ValueError):
+        vmt_val = 0
+    return vmt_val > 0
+
+
+def _compute_beige_loot(nation: dict[str, Any], prices: Optional[dict[str, float]]) -> Optional[int]:
+    """Compute last beige loot value from finished wars using cached war logs.
+
+    Optimized to scan once without sorting (reduces per-request overhead when many wars exist).
+    """
+    t0 = time.perf_counter()
+    if not prices:
+        logger.debug("[beige] skip: prices unavailable nation=%s", nation.get('id'))
+        return None
+
+    wars = nation.get('wars') or []
+    nation_id = str(nation.get('id', ''))
+    if not nation_id or not wars:
+        logger.debug("[beige] skip: no wars nation=%s", nation.get('id'))
+        return None
+
+    best_loot: Optional[int] = None
+    best_date: Optional[datetime] = None
+    best_war_id: Optional[str] = None
+    scanned = 0
+
+    for war in wars:
+        try:
+            scanned += 1
+            turns_left = war.get('turnsleft', 1)
+            try:
+                turns_left_val = float(turns_left)
+            except (TypeError, ValueError):
+                turns_left_val = 1
+            if turns_left_val > 0:
+                logger.debug(
+                    "[beige] skip: unfinished war nation=%s warId=%s turnsleft=%s",
+                    nation.get('id'),
+                    war.get('id'),
+                    turns_left,
+                )
+                continue  # still active
+            if str(war.get('defid')) != nation_id:
+                logger.debug(
+                    "[beige] skip: nation not defender nation=%s warId=%s defid=%s",
+                    nation.get('id'),
+                    war.get('id'),
+                    war.get('defid'),
+                )
+                continue  # only care about wars where this nation was defender/lost beige
+
+            war_dt = _parse_war_date(war.get('date'))
+            attacks = war.get('attacks') or []
+
+            for attack in reversed(attacks):  # reverse to favor latest attack within the war
+                text = attack.get('loot_info')
+                if not text or "won the war and looted" not in text:
+                    continue
+                victor = str(attack.get('victor', ''))
+                if victor == nation_id:
+                    continue  # they won, so no beige loot
+
+                try:
+                    loot_value = float(beige_loot_value(text, prices))
+                except Exception as parse_exc:
+                    logger.debug(
+                        "[beige] parse error nation=%s warId=%s loot_info=%s err=%s",
+                        nation.get('id'),
+                        war.get('id'),
+                        str(text)[:120],
+                        parse_exc,
+                    )
+                    continue
+
+                attacker_info = war.get('attacker') or {}
+                policy = (attacker_info.get('war_policy') or '').upper()
+                # Policy adjustments
+                if policy == "ATTRITION":
+                    loot_value = loot_value / 0.8
+                elif policy == "PIRATE":
+                    loot_value = loot_value / 1.4
+                if attacker_info.get('advanced_pirate_economy'):
+                    loot_value = loot_value / 1.1
+
+                war_type = (war.get('war_type') or '').upper()
+                # War-type multipliers
+                if war_type == "ATTRITION":
+                    loot_value *= 4
+                elif war_type == "ORDINARY":
+                    loot_value *= 2
+
+                logger.debug(
+                    "[beige] candidate nation=%s warId=%s date=%s value=%.2f type=%s policy=%s advPir=%s",
+                    nation.get('id'),
+                    war.get('id'),
+                    war.get('date'),
+                    loot_value,
+                    war_type,
+                    policy,
+                    bool(attacker_info.get('advanced_pirate_economy')),
+                )
+
+                if best_date is None or war_dt > best_date:
+                    best_date = war_dt
+                    best_loot = int(round(loot_value))
+                    best_war_id = str(war.get('id'))
+                    break  # latest attack in this war found; move to next war
+        except Exception as exc:  # pragma: no cover - defensive guard for malformed war data
+            logger.debug(f"Failed to compute beige loot for nation {nation_id}: {exc}")
+            continue
+
+    return best_loot
 
 def get_mongo():
     """Lazy initialize MongoDB connection."""
@@ -82,6 +229,7 @@ def get_raids() -> tuple[Any, int]:
         - generated_at: ISO timestamp of data generation
     """
     try:
+        req_start = time.perf_counter()
         token_payload = getattr(request, 'token_payload', {}) or {}
         user_id = token_payload.get('user_id')
 
@@ -96,18 +244,67 @@ def get_raids() -> tuple[Any, int]:
         scope = request.args.get('scope')  # all | apps_or_none | no_alliance
         min_beige_loot = request.args.get('minBeigeLoot', type=int)
         performance_filter = request.args.get('performance', default=None)
-        min_score = request.args.get('minScore', type=float)
+        # Enforce minimum score threshold for efficiency; clamp to >= 15
+        req_min_score = request.args.get('minScore', type=float)
+        min_score = 15 if req_min_score is None else max(15, float(req_min_score))
+        max_score = request.args.get('maxScore', type=float)
+        # Allow explicit VM filtering via query param; default to excluding VM (vmode=false)
+        vmode_param = request.args.get('vmode', default='false')
+        if isinstance(vmode_param, str):
+            vmode_param = vmode_param.lower() in ('true', '1', 'yes')
+        # When vmode_param is False, we will exclude VM nations; when True, include only VM nations
         max_score = request.args.get('maxScore', type=float)
         if isinstance(beige_only, str):
             beige_only = beige_only.lower() in ('true', '1', 'yes')
         if isinstance(performance_filter, str):
             performance_filter = performance_filter.lower() in ('true', '1', 'yes')
 
+        logger.info(
+            "[raids] request start user=%s params: attackerNationId=%s alliance=%s beige=%s "
+            "maxWars=%s inactiveMinDays=%s scope=%s minBeigeLoot=%s performance=%s "
+            "minScore=%s maxScore=%s",
+            user_id,
+            attacker_nation_id,
+            alliance_filter,
+            beige_only,
+            max_wars,
+            inactive_min_days,
+            scope,
+            min_beige_loot,
+            performance_filter,
+            min_score,
+            max_score,
+        )
+
         # Load nations from SQLite cache
         data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
         nations_data = get_all_nations(data_path)
         nations = nations_data['nations']
         last_fetched = nations_data.get('last_fetched')
+        logger.info(
+            "[raids] loaded nations count=%d lastFetched=%s",
+            len(nations),
+            last_fetched,
+        )
+
+        # Load alliances (for alliance colors/fallback name)
+        alliances_by_id: dict[str, dict[str, Any]] = {}
+        alliances_path = Path(current_app.root_path).parent / 'data' / 'alliances.db'
+        if alliances_path.exists():
+            try:
+                alliances_data = get_all_alliances(alliances_path)
+                alliances_by_id = {
+                    str(a.get('id')): a
+                    for a in alliances_data.get('alliances', [])
+                    if a.get('id') is not None
+                }
+                logger.info(
+                    "[raids] loaded alliances count=%d lastFetched=%s",
+                    len(alliances_by_id),
+                    alliances_data.get('last_fetched'),
+                )
+            except Exception as exc:
+                logger.warning(f"[raids] failed to load alliances db: {exc}")
 
         # Fetch user profile from Mongo (sync) to resolve attacker and reminders
         mongo_db = get_sync_mongo()
@@ -137,8 +334,13 @@ def get_raids() -> tuple[Any, int]:
 
         beige_alerts = user_profile.get('beige_alerts', []) if user_profile else []
 
+        targets: list[dict[str, Any]] = []
+        backfill_attempts = 0
+        backfill_successes = 0
+
         # Attempt to prepare revenue context (prices, treasures, radiation)
         revenue_context: Optional[tuple[Any, dict[str, float], dict[str, float], list[dict[str, Any]], dict[str, float], dict[str, float]]] = None
+        prices: Optional[dict[str, float]] = None
         api_key = os.getenv('api_key')
         if api_key and attacker:
             try:
@@ -153,11 +355,13 @@ def get_raids() -> tuple[Any, int]:
                         queries_module=queries,
                     )
                 )
+                # Keep prices handy for beige loot backfill
+                _, _, prices, _, _, _ = revenue_context
+                logger.info("[raids] revenue context prepared; prices loaded")
             except Exception as e:
                 logger.warning(f"Revenue context unavailable: {e}")
                 revenue_context = None
 
-        targets = []
         for nation in nations:
             # Filters
             if scope == 'apps_or_none':
@@ -166,6 +370,12 @@ def get_raids() -> tuple[Any, int]:
             if scope == 'no_alliance':
                 if str(nation.get('alliance_id', '')) != '0':
                     continue
+            # Vacation mode filtering
+            in_vm = _is_in_vacation_mode(nation)
+            if vmode_param is False and in_vm:
+                continue  # exclude VM nations by default
+            if vmode_param is True and not in_vm:
+                continue  # include only VM nations when requested
             if min_cities is not None and nation.get('num_cities', 0) < min_cities:
                 continue
             if max_cities is not None and nation.get('num_cities', 0) > max_cities:
@@ -179,8 +389,11 @@ def get_raids() -> tuple[Any, int]:
                 continue
             if max_score is not None and score_val is not None and score_val > max_score:
                 continue
+            alliance_id = str(nation.get('alliance_id', ''))
+            alliance_obj = (nation.get('alliance', {}) or {})
+
             if alliance_filter:
-                name = (nation.get('alliance', {}) or {}).get('name', '')
+                name = alliance_obj.get('name') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', '')
                 if alliance_filter.lower() not in name.lower():
                     continue
             if beige_only is True and nation.get('color') != 'beige':
@@ -191,7 +404,7 @@ def get_raids() -> tuple[Any, int]:
             # Defensive slots and war recency
             wars = nation.get('wars') or []
             def_slots = 0
-            time_since_war: Any = "14+"
+            time_since_war: int | str = "14+"
             if wars:
                 sorted_wars = sorted(wars, key=lambda w: w.get('date', ''), reverse=True)
                 for war in wars:
@@ -206,11 +419,12 @@ def get_raids() -> tuple[Any, int]:
                         else:
                             dt = datetime.strptime(war_date, "%Y-%m-%d %H:%M:%S")
                             dt = dt.replace(tzinfo=timezone.utc)
-                        time_since_war = (datetime.now(timezone.utc) - dt).days
+                        days = (datetime.now(timezone.utc) - dt).days
+                        time_since_war = 0 if def_slots > 0 else days 
                     except Exception:
-                        time_since_war = "Ongoing" if def_slots else "Unknown"
+                        time_since_war = "14+"
                 else:
-                    time_since_war = "Ongoing" if def_slots else "14+"
+                    time_since_war = "14+"
 
             # Inactivity
             days_inactive = _calculate_days_inactive(nation.get('last_active'))
@@ -235,33 +449,41 @@ def get_raids() -> tuple[Any, int]:
             monetary_net_income = nation.get('monetary_net_num', 0)
             net_cash_income = nation.get('net_cash_num', 0)
 
-            # Compute revenue if context is available
-            if revenue_context:
-                try:
-                    _, colors, prices, treasures, radiation, seasonal_mod = revenue_context
-
-                    async def _compute():
-                        await revenue_calc(
-                            message=None,
-                            nation=nation,
-                            radiation=radiation,
-                            treasures=treasures,
-                            prices=prices,
-                            colors=colors,
-                            seasonal_mod=seasonal_mod,
-                            include_spies=False,
-                        )
-
-                    asyncio.run(_compute())
-                    monetary_net_income = nation.get('monetary_net_num', monetary_net_income)
-                    net_cash_income = nation.get('net_cash_num', net_cash_income)
-                except Exception as e:
-                    logger.debug(f"Revenue calc failed for nation {nation.get('id')}: {e}")
             nation_loot_value = 0
             try:
                 nation_loot_value = int(nation.get('nation_loot_value', 0) or 0)
             except (TypeError, ValueError):
                 nation_loot_value = 0
+
+            # Backfill missing beige loot from cached war logs when possible
+            if nation_loot_value <= 0:
+                backfill_attempts += 1
+                computed_loot = _compute_beige_loot(nation, prices)
+                if computed_loot is not None:
+                    nation_loot_value = computed_loot
+                    backfill_successes += 1
+            # Compute revenue if context is available
+            if revenue_context:
+                try:
+                    _, colors, prices_ctx, treasures, radiation, seasonal_mod = revenue_context
+
+                    async def _compute():
+                        return await revenue_calc(
+                            message=None,
+                            nation=nation,
+                            radiation=radiation,
+                            treasures=treasures,
+                            prices=prices_ctx,
+                            colors=colors,
+                            seasonal_mod=seasonal_mod,
+                            include_spies=False,
+                        )
+
+                    revenue_result = asyncio.run(_compute()) or {}
+                    monetary_net_income = revenue_result.get('monetary_net_num', monetary_net_income)
+                    net_cash_income = revenue_result.get('net_cash_num', net_cash_income)
+                except Exception as e:
+                    logger.debug(f"Revenue calc failed for nation {nation.get('id')}: {e}")
 
             if min_beige_loot is not None and nation_loot_value < min_beige_loot:
                 continue
@@ -273,21 +495,26 @@ def get_raids() -> tuple[Any, int]:
                 if ground_win < 0.4 or nation_loot_value == 0 or net_cash_income < 10000:
                     continue
 
+            alliance_color = alliance_obj.get('color') or (alliances_by_id.get(alliance_id, {}) or {}).get('color')
+            alliance_name = alliance_obj.get('name', 'None') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', 'None')
+            nation_color = nation.get('color', '')
+            taxable = bool(nation_color and alliance_color and str(nation_color).lower() == str(alliance_color).lower())
+
             targets.append({
                 'id': int(nation.get('id', 0)),
                 'nationName': nation.get('nation_name', 'Unknown'),
                 'leaderName': nation.get('leader_name', 'Unknown'),
-                'allianceId': str(nation.get('alliance_id', '0')),
-                'allianceName': (nation.get('alliance', {}) or {}).get('name', 'None'),
+                'allianceId': alliance_id or '0',
+                'allianceName': alliance_name,
                 'alliancePosition': (nation.get('alliance_position') or 'Unknown'),
                 'numCities': nation.get('num_cities', 0),
-                'color': nation.get('color', ''),
+                'color': nation_color,
                 'beigeTurns': nation.get('beige_turns', 0),
-                'nationLoot': str(nation_loot_value),
+                'nationLoot': f"${nation_loot_value:,}",
                 'daysInactive': days_inactive,
                 'monetaryNetIncome': monetary_net_income,
                 'netCashIncome': net_cash_income,
-                'taxable': bool(nation.get('color') == (nation.get('alliance', {}) or {}).get('color')),
+                'taxable': taxable,
                 'treasures': len(nation.get('treasures') or []),
                 'defSlots': def_slots,
                 'timeSinceWar': time_since_war,
@@ -318,6 +545,16 @@ def get_raids() -> tuple[Any, int]:
             'discordLinked': bool(user_id and user_profile),
                 'warning': nation_warning if 'nation_warning' in locals() else None,
         }
+
+        duration = time.perf_counter() - req_start
+        logger.info(
+            "[raids] request done nations=%d targets=%d backfill=%d/%d duration=%.2fs",
+            len(nations),
+            len(targets),
+            backfill_successes,
+            backfill_attempts,
+            duration,
+        )
 
         return jsonify(response), 200
         
@@ -482,7 +719,7 @@ def search_alliances():
         JSON response with matching alliances.
         
     Note:
-        Queries P&W API directly for real-time alliance data.
+        Uses cached alliance data from alliances.db (populated by scanner.py).
     """
     try:
         query = request.args.get('q', '').strip()
@@ -491,39 +728,19 @@ def search_alliances():
         
         limit = int(request.args.get('limit', 10))
         limit = min(limit, 50)  # Cap at 50 results
-        
-        # Get API key from environment
-        api_key = os.getenv('api_key')
-        if not api_key:
-            logger.error("P&W API key not configured")
-            return jsonify({
-                'error': 'Configuration error',
-                'message': 'API key not configured.',
-                'code': 'CONFIG_ERROR'
-            }), 500
-        
-        # Query the P&W API for alliances
-        # Per pnwSchema.graphql: alliances query supports filtering by name
-        gql_query = """
-        query {
-          alliances(first: 100, orderBy: {column: SCORE, order: DESC}) {
-            data {
-              id
-              name
-              acronym
-              score
-            }
-          }
-        }
-        """
-        
-        response = api_client.query_sync(gql_query, api_key)
-        
-        if not response or 'data' not in response or 'alliances' not in response['data']:
-            logger.warning(f"No alliance data in API response: {response}")
+
+        # Load cached alliances from SQLite
+        alliances_path = Path(current_app.root_path).parent / 'data' / 'alliances.db'
+        if not alliances_path.exists():
+            logger.warning("[alliances/search] alliances.db not found")
+            return jsonify([]), 200
+
+        alliances_data = get_all_alliances(alliances_path)
+        alliances = alliances_data.get('alliances', [])
+        if not alliances:
+            logger.info("[alliances/search] alliances.db loaded but empty")
             return jsonify([]), 200
         
-        alliances = response['data']['alliances']['data']
         query_lower = query.lower()
         
         # Score and filter alliances for fuzzy matching
@@ -574,13 +791,6 @@ def search_alliances():
         
         return jsonify(results), 200
         
-    except ConnectionError as e:
-        logger.error(f"API authentication error: {e}")
-        return jsonify({
-            'error': 'Authentication error',
-            'message': 'Invalid API key.',
-            'code': 'AUTH_ERROR'
-        }), 500
     except Exception as e:
         logger.error(f"Error searching alliances: {e}", exc_info=True)
         return jsonify({

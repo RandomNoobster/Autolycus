@@ -23,18 +23,266 @@ import {
   Anchor,
   Alert,
   Loader,
+  TextInput,
+  Divider,
 } from '@mantine/core';
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { IconQuestionMark, IconSearch, IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
+import { IconPlus, IconCopy, IconTrash, IconPencil } from '@tabler/icons-react';
+import type {
+  MRT_ColumnFiltersState,
+  MRT_ColumnOrderState,
+  MRT_DensityState,
+  MRT_VisibilityState,
+} from 'mantine-react-table';
 
 import { fetchRaids, searchAlliances } from '@/api';
 import { useUrlParams, useNationId } from '@/hooks';
 import { RaidsTable } from '@/components/raids';
 import { TokenError, LoadingState, ErrorState, NationIdField } from '@/components/common';
 import type { ApiError } from '@/types';
+
+type TableTemplateSettings = {
+  columnVisibility: MRT_VisibilityState;
+  columnOrder: MRT_ColumnOrderState;
+  density: MRT_DensityState;
+  columnFilters: MRT_ColumnFiltersState;
+};
+
+type TableTemplate = {
+  id: string;
+  name: string;
+  builtIn: boolean;
+  settings: TableTemplateSettings;
+};
+
+const TEMPLATE_STORAGE_KEY = 'autolycus-raids-templates-v1';
+const ACTIVE_TEMPLATE_STORAGE_KEY = 'autolycus-raids-active-template';
+
+const PROVEN_TARGET_TEMPLATE_SETTINGS: TableTemplateSettings = {
+  columnVisibility: {
+    actions: true,
+    id: false,
+    nationName: true,
+    leaderName: false,
+    allianceName: true,
+    alliancePosition: true,
+    numCities: true,
+    color: true,
+    nationLoot: true,
+    daysInactive: true,
+    monetaryNetIncome: false,
+    netCashIncome: false,
+    taxable: false,
+    treasures: false,
+    defSlots: true,
+    timeSinceWar: true,
+    soldiers: false,
+    tanks: false,
+    aircraft: false,
+    ships: false,
+    missiles: false,
+    nukes: false,
+    groundWin: true,
+    airWin: true,
+    navalWin: true,
+    totalWin: true,
+  },
+  columnOrder: [
+    'id',
+    'nationName',
+    'leaderName',
+    'allianceName',
+    'alliancePosition',
+    'numCities',
+    'color',
+    'nationLoot',
+    'daysInactive',
+    'monetaryNetIncome',
+    'netCashIncome',
+    'taxable',
+    'treasures',
+    'defSlots',
+    'timeSinceWar',
+    'soldiers',
+    'tanks',
+    'aircraft',
+    'ships',
+    'missiles',
+    'nukes',
+    'groundWin',
+    'airWin',
+    'navalWin',
+    'totalWin',
+    'actions',
+    'mrt-row-spacer',
+  ],
+  density: 'xs',
+  columnFilters: [],
+};
+
+const UNREAPED_FRUIT_TEMPLATE_SETTINGS: TableTemplateSettings = {
+  columnVisibility: {
+    actions: true,
+    id: false,
+    nationName: true,
+    leaderName: false,
+    allianceName: true,
+    alliancePosition: true,
+    numCities: true,
+    color: true,
+    nationLoot: true,
+    daysInactive: true,
+    monetaryNetIncome: true,
+    netCashIncome: true,
+    taxable: true,
+    treasures: true,
+    defSlots: true,
+    timeSinceWar: true,
+    soldiers: false,
+    tanks: false,
+    aircraft: false,
+    ships: false,
+    missiles: false,
+    nukes: false,
+    groundWin: true,
+    airWin: true,
+    navalWin: true,
+    totalWin: true,
+  },
+  columnOrder: [
+    'id',
+    'nationName',
+    'leaderName',
+    'allianceName',
+    'alliancePosition',
+    'numCities',
+    'color',
+    'nationLoot',
+    'daysInactive',
+    'monetaryNetIncome',
+    'netCashIncome',
+    'taxable',
+    'treasures',
+    'defSlots',
+    'timeSinceWar',
+    'soldiers',
+    'tanks',
+    'aircraft',
+    'ships',
+    'missiles',
+    'nukes',
+    'groundWin',
+    'airWin',
+    'navalWin',
+    'totalWin',
+    'actions',
+    'mrt-row-spacer',
+  ],
+  density: 'xs',
+  columnFilters: [
+    { id: 'groundWin', value: 70 },
+    { id: 'taxable', value: false },
+    { id: 'monetaryNetIncome', value: 1e6 },
+    { id: 'daysInactive', value: 7 }
+  ],
+};
+
+const BUILT_IN_TEMPLATES: TableTemplate[] = [
+  {
+    id: 'builtin-proven',
+    name: "Already Proven Targets",
+    builtIn: true,
+    settings: cloneSettings(PROVEN_TARGET_TEMPLATE_SETTINGS),
+  },
+  {
+    id: 'builtin-unreaped',
+    name: 'Unreaped Fruits',
+    builtIn: true,
+    settings: {
+      ...cloneSettings(UNREAPED_FRUIT_TEMPLATE_SETTINGS),
+      // You can tweak this template's order/visibility later if desired.
+    },
+  },
+];
+
+const MAPPED_COLUMN_IDS = new Set([
+  'allianceName',
+  'beigeTurns',
+  'defSlots',
+  'daysInactive',
+  'alliancePosition',
+  'nationLoot',
+]);
+
+function cloneSettings(settings: TableTemplateSettings): TableTemplateSettings {
+  return {
+    columnVisibility: { ...settings.columnVisibility },
+    columnOrder: [...settings.columnOrder],
+    density: settings.density,
+    columnFilters: JSON.parse(JSON.stringify(settings.columnFilters || [])),
+  };
+}
+
+function loadCustomTemplates(): TableTemplate[] {
+  try {
+    const raw = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as TableTemplate[];
+    return parsed
+      .filter((t) => !t.builtIn)
+      .map((t) => ({ ...t, settings: cloneSettings(t.settings) }));
+  } catch (error) {
+    console.warn('Failed to load raid table templates', error);
+    return [];
+  }
+}
+
+function persistCustomTemplates(customTemplates: TableTemplate[]): void {
+  try {
+    localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplates));
+  } catch (error) {
+    console.warn('Failed to save raid table templates', error);
+  }
+}
+
+function loadActiveTemplateId(fallbackId: string): string {
+  try {
+    const stored = localStorage.getItem(ACTIVE_TEMPLATE_STORAGE_KEY);
+    if (stored) return stored;
+  } catch (error) {
+    console.warn('Failed to read active template id', error);
+  }
+  return fallbackId;
+}
+
+function mergeColumnFilters(
+  base: MRT_ColumnFiltersState,
+  overrides: MRT_ColumnFiltersState
+): MRT_ColumnFiltersState {
+  const map = new Map<string, any>();
+  base.forEach((f) => map.set(f.id, f.value));
+  overrides.forEach((f) => map.set(f.id, f.value));
+  return Array.from(map.entries()).map(([id, value]) => ({ id, value }));
+}
+
+function areSettingsEqual(a: TableTemplateSettings, b: TableTemplateSettings): boolean {
+  return (
+    JSON.stringify(a.columnVisibility) === JSON.stringify(b.columnVisibility) &&
+    JSON.stringify(a.columnOrder) === JSON.stringify(b.columnOrder) &&
+    a.density === b.density &&
+    JSON.stringify(a.columnFilters) === JSON.stringify(b.columnFilters)
+  );
+}
+
+function buildInitialTemplates(): TableTemplate[] {
+  const builtIns = BUILT_IN_TEMPLATES.map((t) => ({ ...t, settings: cloneSettings(t.settings) }));
+  const custom = loadCustomTemplates();
+  return [...builtIns, ...custom];
+}
 
 export function RaidsPage() {
   const { token, initialColumnFilters, initialSorting } = useUrlParams();
@@ -86,6 +334,40 @@ export function RaidsPage() {
     maxScore: activeFilters.maxScore?.toString() || '',
   });
 
+  const [templates, setTemplates] = useState<TableTemplate[]>(() => buildInitialTemplates());
+  const [activeTemplateId, setActiveTemplateId] = useState<string>(() => {
+    const initial = buildInitialTemplates();
+    const fallback = initial[0]?.id || 'builtin-proven';
+    const saved = loadActiveTemplateId(fallback);
+    return initial.find((t) => t.id === saved)?.id || fallback;
+  });
+
+  const activeTemplate = useMemo(
+    () => templates.find((t) => t.id === activeTemplateId) || templates[0],
+    [templates, activeTemplateId]
+  );
+
+  const [columnVisibility, setColumnVisibility] = useState<MRT_VisibilityState>(
+    () => activeTemplate?.settings.columnVisibility || {}
+  );
+  const [columnOrder, setColumnOrder] = useState<MRT_ColumnOrderState>(
+    () => activeTemplate?.settings.columnOrder || []
+  );
+  const [density, setDensity] = useState<MRT_DensityState>(
+    () => activeTemplate?.settings.density || 'xs'
+  );
+  const [columnFilters, setColumnFilters] = useState<MRT_ColumnFiltersState>(
+    () => activeTemplate?.settings.columnFilters || []
+  );
+  const prevColumnFiltersRef = useRef<MRT_ColumnFiltersState>(
+    activeTemplate?.settings.columnFilters || []
+  );
+  const syncingFromFiltersRef = useRef(false);
+  const syncingFromTemplateRef = useRef(false);
+  const urlFiltersAppliedRef = useRef(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [renameValue, setRenameValue] = useState(activeTemplate?.name || '');
+
   // Alliance autocomplete
   const [allianceQuery, setAllianceQuery] = useState(activeFilters.alliance || '');
   const [debouncedAllianceQuery] = useDebouncedValue(allianceQuery, 300);
@@ -104,7 +386,7 @@ export function RaidsPage() {
   } = useQuery({
     queryKey: ['raids', token, appliedNationId],
     queryFn: () => {
-      const filters: any = {};
+      const filters: any = { minScore: 15, vmode: false };
       if (appliedNationId) {
         filters.attackerNationId = parseInt(appliedNationId, 10);
       }
@@ -135,6 +417,60 @@ export function RaidsPage() {
       setDraftNationId(savedNationId);
     }
   }, [savedNationId, appliedNationId]);
+
+  useEffect(() => {
+    if (!activeTemplate) return;
+    const cloned = cloneSettings(activeTemplate.settings);
+    syncingFromTemplateRef.current = true;
+    setColumnVisibility(cloned.columnVisibility);
+    setColumnOrder(cloned.columnOrder);
+    setDensity(cloned.density);
+    setColumnFilters(cloned.columnFilters);
+    setRenameValue(activeTemplate.name);
+  }, [activeTemplate]);
+
+  useEffect(() => {
+    persistCustomTemplates(templates.filter((t) => !t.builtIn));
+  }, [templates]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_TEMPLATE_STORAGE_KEY, activeTemplateId);
+    } catch (error) {
+      console.warn('Failed to persist active template id', error);
+    }
+  }, [activeTemplateId]);
+
+  useEffect(() => {
+    if (!activeTemplate || activeTemplate.builtIn) return;
+    setTemplates((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.id !== activeTemplateId) return t;
+        const nextSettings: TableTemplateSettings = {
+          columnVisibility,
+          columnOrder,
+          density,
+          columnFilters,
+        };
+        if (areSettingsEqual(t.settings, nextSettings)) return t;
+        changed = true;
+        return { ...t, settings: cloneSettings(nextSettings) };
+      });
+      return changed ? next : prev;
+    });
+  }, [columnVisibility, columnOrder, density, columnFilters, activeTemplate, activeTemplateId]);
+
+  useEffect(() => {
+    if (urlFiltersAppliedRef.current || !initialColumnFilters.length) return;
+    urlFiltersAppliedRef.current = true;
+    syncingFromFiltersRef.current = true;
+    setColumnFilters((prev) => mergeColumnFilters(prev, initialColumnFilters));
+  }, [initialColumnFilters]);
+
+  useEffect(() => {
+    prevColumnFiltersRef.current = columnFilters;
+  }, [columnFilters]);
 
   // Apply filters locally in the browser - must be before conditional returns
   const filteredTargets = useMemo(() => {
@@ -209,6 +545,40 @@ export function RaidsPage() {
     return filtered;
   }, [data?.targets, activeFilters]);
 
+  const mappedColumnFiltersFromDraft = useCallback((): MRT_ColumnFiltersState => {
+    const filters: MRT_ColumnFiltersState = [];
+    if (draftFilters.alliance) {
+      filters.push({ id: 'allianceName', value: [draftFilters.alliance] });
+    }
+    if (data?.showBeige && (draftFilters.beige === 'only' || draftFilters.beige === 'hide')) {
+      filters.push({ id: 'beigeTurns', value: draftFilters.beige });
+    }
+    if (draftFilters.maxWars !== 'all') {
+      filters.push({ id: 'defSlots', value: draftFilters.maxWars });
+    }
+    if (draftFilters.inactiveMinDays !== 'none') {
+      filters.push({ id: 'daysInactive', value: draftFilters.inactiveMinDays });
+    }
+    if (draftFilters.scope === 'apps_or_none') {
+      filters.push({ id: 'alliancePosition', value: ['APPLICANT', 'NOALLIANCE'] });
+    } else if (draftFilters.scope === 'no_alliance') {
+      filters.push({ id: 'alliancePosition', value: ['NOALLIANCE'] });
+    }
+    if (draftFilters.minBeigeLoot !== '0') {
+      filters.push({ id: 'nationLoot', value: draftFilters.minBeigeLoot });
+    }
+    return filters;
+  }, [draftFilters, data?.showBeige]);
+
+  const syncColumnFiltersFromDraft = useCallback(() => {
+    const mapped = mappedColumnFiltersFromDraft();
+    syncingFromFiltersRef.current = true;
+    setColumnFilters((prev) => {
+      const preserved = prev.filter((f) => !MAPPED_COLUMN_IDS.has(f.id));
+      return [...preserved, ...mapped];
+    });
+  }, [mappedColumnFiltersFromDraft]);
+
   const resetFilters = useCallback(() => {
     setDraftFilters({
       alliance: '',
@@ -224,7 +594,16 @@ export function RaidsPage() {
       maxScore: '',
     });
     setAllianceQuery('');
-  }, []);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      ['alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'minBeigeLoot', 'performance', 'scoreMode', 'yourScore', 'minScore', 'maxScore'].forEach((k) =>
+        next.delete(k)
+      );
+      return next;
+    }, { replace: true });
+    syncingFromFiltersRef.current = true;
+    setColumnFilters((prev) => prev.filter((f) => !MAPPED_COLUMN_IDS.has(f.id)));
+  }, [setSearchParams]);
 
   const applyFilters = () => {
     setSearchParams((prev) => {
@@ -266,7 +645,136 @@ export function RaidsPage() {
       
       return next;
     }, { replace: true });
+    syncColumnFiltersFromDraft();
   };
+
+  type ColumnFiltersUpdater = MRT_ColumnFiltersState | ((prev: MRT_ColumnFiltersState) => MRT_ColumnFiltersState);
+
+  const handleColumnFiltersChange = (updater: ColumnFiltersUpdater) => {
+    setColumnFilters((prevFilters) => {
+      const nextFilters = typeof updater === 'function' ? updater(prevFilters) : updater;
+      const previousFilters = prevFilters;
+      prevColumnFiltersRef.current = nextFilters;
+
+      if (syncingFromFiltersRef.current) {
+        syncingFromFiltersRef.current = false;
+        return nextFilters;
+      }
+
+      if (syncingFromTemplateRef.current) {
+        syncingFromTemplateRef.current = false;
+      }
+
+      const changedIds: string[] = [];
+      const getVal = (filters: MRT_ColumnFiltersState, id: string) =>
+        filters.find((f) => f.id === id)?.value;
+
+      MAPPED_COLUMN_IDS.forEach((id) => {
+        const before = getVal(previousFilters, id);
+        const after = getVal(nextFilters, id);
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          changedIds.push(id);
+        }
+      });
+
+      if (changedIds.length) {
+        const resetDraft: Partial<typeof draftFilters> = {};
+        const paramsToClear: string[] = [];
+
+        changedIds.forEach((id) => {
+          if (id === 'allianceName') {
+            resetDraft.alliance = '';
+            paramsToClear.push('alliance');
+            setAllianceQuery('');
+          }
+          if (id === 'beigeTurns') {
+            resetDraft.beige = 'all';
+            paramsToClear.push('beige');
+          }
+          if (id === 'defSlots') {
+            resetDraft.maxWars = 'all';
+            paramsToClear.push('maxWars');
+          }
+          if (id === 'daysInactive') {
+            resetDraft.inactiveMinDays = 'none';
+            paramsToClear.push('inactiveMinDays');
+          }
+          if (id === 'alliancePosition') {
+            resetDraft.scope = 'all';
+            paramsToClear.push('scope');
+          }
+          if (id === 'nationLoot') {
+            resetDraft.minBeigeLoot = '0';
+            paramsToClear.push('minBeigeLoot');
+          }
+        });
+
+        if (Object.keys(resetDraft).length) {
+          setDraftFilters((prevDraft) => ({ ...prevDraft, ...resetDraft }));
+        }
+
+        if (paramsToClear.length) {
+          setSearchParams((prevParams) => {
+            const nextParams = new URLSearchParams(prevParams);
+            paramsToClear.forEach((key) => nextParams.delete(key));
+            return nextParams;
+          }, { replace: true });
+        }
+      }
+
+      return nextFilters;
+    });
+  };
+
+  const currentSettings = useMemo<TableTemplateSettings>(
+    () => ({ columnVisibility, columnOrder, density, columnFilters }),
+    [columnVisibility, columnOrder, density, columnFilters]
+  );
+
+  const addCustomTemplate = useCallback(
+    (name: string, settings: TableTemplateSettings) => {
+      const id = `custom-${Date.now()}`;
+      const newTemplate: TableTemplate = {
+        id,
+        name: name.trim() || 'Custom Template',
+        builtIn: false,
+        settings: cloneSettings(settings),
+      };
+      setTemplates((prev) => {
+        const withoutDuplicate = prev.filter((t) => t.id !== newTemplate.id);
+        return [...withoutDuplicate, newTemplate];
+      });
+      setActiveTemplateId(id);
+    },
+    []
+  );
+
+  const handleSaveTemplate = useCallback(() => {
+    addCustomTemplate(newTemplateName || 'Custom Template', currentSettings);
+    setNewTemplateName('');
+  }, [addCustomTemplate, currentSettings, newTemplateName]);
+
+  const handleDuplicateActive = useCallback(() => {
+    if (!activeTemplate) return;
+    addCustomTemplate(`${activeTemplate.name} Copy`, currentSettings);
+  }, [activeTemplate, addCustomTemplate, currentSettings]);
+
+  const handleRenameActive = useCallback(() => {
+    if (!activeTemplate || activeTemplate.builtIn) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    setTemplates((prev) => prev.map((t) => (t.id === activeTemplateId ? { ...t, name: trimmed } : t)));
+  }, [activeTemplate, activeTemplateId, renameValue]);
+
+  const handleDeleteActive = useCallback(() => {
+    if (!activeTemplate || activeTemplate.builtIn) return;
+    setTemplates((prev) => {
+      const next = prev.filter((t) => t.id !== activeTemplateId);
+      const fallbackId = next.find((t) => t.builtIn)?.id || next[0]?.id;
+      if (fallbackId) setActiveTemplateId(fallbackId);
+      return next;
+    });
+  }, [activeTemplate, activeTemplateId]);
 
   // Conditional returns AFTER all hooks
   if (!token) {
@@ -677,6 +1185,117 @@ export function RaidsPage() {
           </Alert>
         )}
 
+        <Paper withBorder radius="md" p="lg">
+          <Stack gap="sm">
+            <Group justify="space-between" align="center">
+              <Group gap="xs" align="center">
+                <Title order={3}>Chef's Suggestions</Title>
+                <Badge color="orange" variant="light">Table templates</Badge>
+              </Group>
+              {activeTemplate && (
+                <Badge color={activeTemplate.builtIn ? 'gray' : 'green'} variant="filled">
+                  Active: {activeTemplate.name}
+                </Badge>
+              )}
+            </Group>
+            <Text size="sm" c="dimmed">
+              Swap curated layouts for the raid table. Built-ins are locked; duplicate one or save your own and changes save instantly.
+            </Text>
+            <Grid gutter={{ base: 'sm', sm: 'md' }}>
+              <Grid.Col span={{ base: 12, md: 6 }}>
+                <Stack gap="xs">
+                  <Select
+                    size="sm"
+                    label="Active template"
+                    data={templates.map((t) => ({
+                      value: t.id,
+                      label: `${t.name}${t.builtIn ? ' (built-in)' : ''}`,
+                    }))}
+                    value={activeTemplateId}
+                    onChange={(val) => val && setActiveTemplateId(val)}
+                  />
+                  <Group gap="xs">
+                    <Button
+                      leftSection={<IconCopy size={16} />}
+                      variant="light"
+                      onClick={handleDuplicateActive}
+                      size="xs"
+                    >
+                      Duplicate active
+                    </Button>
+                    <Button
+                      leftSection={<IconTrash size={16} />}
+                      variant="light"
+                      color="red"
+                      onClick={handleDeleteActive}
+                      disabled={!!activeTemplate?.builtIn}
+                      size="xs"
+                    >
+                      Delete active
+                    </Button>
+                  </Group>
+                </Stack>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, md: 6 }}>
+                <Stack gap="xs">
+                  <Group gap="xs" align="center">
+                    <TextInput
+                      label="New template name"
+                      placeholder="e.g. Ground Sweep"
+                      size="sm"
+                      value={newTemplateName}
+                      onChange={(e) => setNewTemplateName(e.currentTarget.value)}
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      leftSection={<IconPlus size={16} />}
+                      size="xs"
+                      onClick={handleSaveTemplate}
+                    >
+                      Save current as new
+                    </Button>
+                  </Group>
+                  <Group gap="xs" align="center">
+                    <TextInput
+                      label="Rename active"
+                      placeholder="Custom name"
+                      size="sm"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.currentTarget.value)}
+                      disabled={!!activeTemplate?.builtIn}
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      leftSection={<IconPencil size={16} />}
+                      size="xs"
+                      onClick={handleRenameActive}
+                      disabled={!!activeTemplate?.builtIn}
+                    >
+                      Rename
+                    </Button>
+                  </Group>
+                </Stack>
+              </Grid.Col>
+            </Grid>
+            <Group gap="xs" wrap="wrap">
+              {templates.map((t) => (
+                <Badge
+                  key={t.id}
+                  color={t.id === activeTemplateId ? 'green' : 'gray'}
+                  variant={t.id === activeTemplateId ? 'filled' : 'light'}
+                >
+                  {t.name}{t.builtIn ? ' • locked' : ''}
+                </Badge>
+              ))}
+            </Group>
+            <Divider />
+            <Text size="xs" c="dimmed">
+              Custom templates live in your browser storage (keys: {TEMPLATE_STORAGE_KEY} for data, {ACTIVE_TEMPLATE_STORAGE_KEY} for the active choice).
+            </Text>
+          </Stack>
+        </Paper>
+
         {/* Header */}
         <Stack gap="xs">
           <Title order={2}>Raid Targets</Title>
@@ -692,8 +1311,15 @@ export function RaidsPage() {
           token={token}
           showBeige={data.showBeige}
           discordLinked={data.discordLinked}
-          initialFilters={initialColumnFilters.filter(f => !['scoreMode', 'yourScore', 'minScore', 'maxScore'].includes(f.id))}
           initialSorting={initialSorting}
+          columnVisibility={columnVisibility}
+          columnOrder={columnOrder}
+          density={density}
+          columnFilters={columnFilters}
+          onColumnVisibilityChange={setColumnVisibility}
+          onColumnOrderChange={setColumnOrder}
+          onDensityChange={setDensity}
+          onColumnFiltersChange={handleColumnFiltersChange}
         />
       </Stack>
     </Container>

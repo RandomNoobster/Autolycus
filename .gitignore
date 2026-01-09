@@ -133,6 +133,7 @@ dmypy.json
 .vscode/launch.json
 cities*.csv
 /data/nations.db
+/data/alliances.db
 /data/web/*
 *.db-shm
 *.db-wal

@@ -13,6 +13,11 @@ def get_nations_db_path() -> Path:
     return Path.cwd() / 'data' / 'nations.db'
 
 
+def get_alliances_db_path() -> Path:
+    """Return the absolute path to alliances SQLite database."""
+    return Path.cwd() / 'data' / 'alliances.db'
+
+
 def get_builds_db_path() -> Path:
     """Return the absolute path to the builds SQLite database."""
     return Path.cwd() / 'data' / 'city_builds.db'
@@ -140,6 +145,21 @@ def get_metadata(conn: sqlite3.Connection, key: str) -> Any:
     return None
 
 
+def prune_missing_ids(conn: sqlite3.Connection, table: str, keep_ids: List[int]) -> None:
+    """Delete rows whose id is not in keep_ids. No-op if keep_ids is empty.
+
+    Guards against accidental full wipes when a fetch fails by skipping deletion
+    when no ids were collected.
+    """
+    if not keep_ids:
+        return
+    placeholders = ",".join(["?"] * len(keep_ids))
+    sql = f"DELETE FROM {table} WHERE id NOT IN ({placeholders})"
+    cur = conn.cursor()
+    cur.execute(sql, keep_ids)
+    conn.commit()
+
+
 def get_all_nations(db_path: Path) -> Dict[str, Any]:
     """Fetch all nations from the nations database.
     
@@ -180,6 +200,41 @@ def get_all_nations(db_path: Path) -> Dict[str, Any]:
         return {
             'nations': nations,
             'last_fetched': last_fetched
+        }
+
+
+def get_all_alliances(db_path: Path) -> Dict[str, Any]:
+    """Fetch all alliances from the alliances database.
+
+    Returns an object with `alliances` and `last_fetched`. Gracefully handles
+    missing tables so callers can treat empty datasets as no data yet.
+    """
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        # Detect table presence without throwing on fresh DBs
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alliances'")
+        has_table = cur.fetchone() is not None
+
+        alliances: List[Dict[str, Any]] = []
+        if has_table:
+            cur.execute("SELECT * FROM alliances")
+            alliances = [dict(row) for row in cur.fetchall()]
+            for alliance in alliances:
+                for key, val in alliance.items():
+                    if isinstance(val, str):
+                        try:
+                            alliance[key] = json.loads(val)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+        ensure_metadata_table(conn)
+        last_fetched = get_metadata(conn, 'last_fetched')
+
+        return {
+            'alliances': alliances,
+            'last_fetched': last_fetched,
         }
 
 
