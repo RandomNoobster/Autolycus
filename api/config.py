@@ -19,6 +19,7 @@ class Config:
     # Token settings
     TOKEN_MAX_AGE: int = 3600 * 24 * 7  # 7 days in seconds
     TOKEN_SALT: str = "autolycus-ephemeral-link"
+    AUTH_TOKEN_API_KEY: str = os.getenv("AUTH_TOKEN_API_KEY", "")
     
     # CORS settings
     CORS_ORIGINS: list[str] = [
@@ -34,6 +35,23 @@ class Config:
     # Server settings
     HOST: str = "0.0.0.0"
     PORT: int = 5000
+    WAITRESS_THREADS: int = int(os.getenv("WAITRESS_THREADS", 8))
+    WAITRESS_CONNECTION_LIMIT: int = int(os.getenv("WAITRESS_CONNECTION_LIMIT", 200))
+    WAITRESS_CHANNEL_TIMEOUT: int = int(os.getenv("WAITRESS_CHANNEL_TIMEOUT", 30))
+
+    # Request limits (DoS protection)
+    MAX_CONTENT_LENGTH: int = 1 * 1024 * 1024  # 1 MB max request body
+
+
+    # Security headers
+    SECURITY_HEADERS_ENABLED: bool = True
+    # Trust proxy headers (X-Forwarded-For/Proto) when behind a reverse proxy
+    TRUST_PROXY_HEADERS: bool = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
+
+    # Session cookie hardening (even if not used)
+    SESSION_COOKIE_HTTPONLY: bool = True
+    SESSION_COOKIE_SECURE: bool = True
+    SESSION_COOKIE_SAMESITE: str = "Lax"
 
 
 class DevelopmentConfig(Config):
@@ -47,6 +65,8 @@ class ProductionConfig(Config):
     DEBUG = False
     # In production, ensure SECRET_KEY is set via environment variable
     SECRET_KEY = os.getenv("SECRET_KEY", "")
+    # Require secure cookies in production; if behind HTTPS proxy, set TRUST_PROXY_HEADERS=true
+    SESSION_COOKIE_SECURE = True
     
     @classmethod
     def validate(cls) -> None:

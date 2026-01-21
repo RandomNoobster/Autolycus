@@ -17,6 +17,8 @@ import type {
  */
 export interface RaidFilterParams {
   attackerNationId?: number;
+  targetNationIds?: number[] | string;
+  useSavedTargets?: boolean;
   minCities?: number;
   maxCities?: number;
   alliance?: string;
@@ -38,6 +40,10 @@ export function fetchRaids(
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      params.set(key, value.join(','));
+      return;
+    }
     if (typeof value === 'boolean') {
       params.set(key, value ? 'true' : 'false');
     } else {

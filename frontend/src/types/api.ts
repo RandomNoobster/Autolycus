@@ -276,19 +276,26 @@ export interface AttackStats {
   munConsumed: number;
   steelConsumed: number;
   alumConsumed: number;
+  uraniumConsumed: number;
+  foodConsumed: number;
   moneyUsed: number;
   infraDestroyed: number;
 }
 
-export interface NationAttacks {
+export interface AttackStatsSet {
+  perAttack: AttackStats[];
   perResistance: AttackStats[];
   perMap: AttackStats[];
-  totalStats: AttackStats[];
 }
 
-export interface NationDamageData {
+export interface DamageScenarioSide {
   info: NationInfo;
-  attacks: NationAttacks;
+  stats: AttackStatsSet;
+}
+
+export interface DamageScenario {
+  attacker: DamageScenarioSide;
+  defender: DamageScenarioSide;
 }
 
 export interface ChartDataSeries {
@@ -316,12 +323,66 @@ export interface AttackTypeConfig {
   label: string;
 }
 
+export type DamageWarType = 'RAID' | 'ORDINARY' | 'ATTRITION';
+
+export interface DamageNationInput {
+  id: number;
+  soldiers: number;
+  tanks: number;
+  aircraft: number;
+  ships: number;
+  missiles: number;
+  nukes: number;
+  warpolicy: string;
+  vds: boolean;
+  irond: boolean;
+  falloutShelter: boolean;
+  militarySalvage: boolean;
+  advancedPirateEconomy: boolean;
+  soldiersUseMunitions: boolean;
+  cityInfrastructure: number;
+  cityLand: number;
+}
+
+export interface DamageWarInput {
+  attackerId: number;
+  defenderId: number;
+  warType: DamageWarType;
+  groundControlId?: number | null;
+  airSuperiorityId?: number | null;
+  navalBlockadeId?: number | null;
+  attackerFortified: boolean;
+  defenderFortified: boolean;
+  attackerPeace: boolean;
+  defenderPeace: boolean;
+}
+
+export interface DamageCalculationInput {
+  nation1Id: number;
+  nation2Id: number;
+  nation1: DamageNationInput;
+  nation2: DamageNationInput;
+  war: DamageWarInput;
+}
+
 export interface DamageResponse {
-  nation1: NationDamageData;
-  nation2: NationDamageData;
+  nations: {
+    nation1: NationInfo;
+    nation2: NationInfo;
+  };
+  scenarios: {
+    nation1Attacks: DamageScenario;
+    nation2Attacks: DamageScenario;
+  };
   chartData: DamageChartData;
   attackTypes: AttackTypeConfig[];
+  inputs: DamageCalculationInput;
   generatedAt: string;
+  warStatus?: {
+    nation1Modifiers: string;
+    nation2Modifiers: string;
+    groundControl: string | null;
+  };
 }
 
 // ============================================================================

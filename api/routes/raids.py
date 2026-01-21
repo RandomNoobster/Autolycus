@@ -238,6 +238,20 @@ def get_raids() -> tuple[Any, int]:
         min_cities = request.args.get('minCities', type=int)
         max_cities = request.args.get('maxCities', type=int)
         alliance_filter = request.args.get('alliance')
+        target_nation_ids_raw = request.args.get('targetNationIds')
+        use_saved_targets = request.args.get('useSavedTargets', default=None)
+        target_nation_ids: Optional[set[str]] = None
+        if isinstance(use_saved_targets, str):
+            use_saved_targets = use_saved_targets.lower() in ('true', '1', 'yes')
+
+        if target_nation_ids_raw:
+            parsed_ids = []
+            for part in target_nation_ids_raw.split(','):
+                part = part.strip()
+                if part.isdigit():
+                    parsed_ids.append(part)
+            if parsed_ids:
+                target_nation_ids = set(parsed_ids)
         beige_only = request.args.get('beige', default=None)
         max_wars = request.args.get('maxWars', type=int)
         inactive_min_days = request.args.get('inactiveMinDays', type=int)
@@ -262,7 +276,7 @@ def get_raids() -> tuple[Any, int]:
         logger.info(
             "[raids] request start user=%s params: attackerNationId=%s alliance=%s beige=%s "
             "maxWars=%s inactiveMinDays=%s scope=%s minBeigeLoot=%s performance=%s "
-            "minScore=%s maxScore=%s",
+            "minScore=%s maxScore=%s targetNationIds=%s useSavedTargets=%s",
             user_id,
             attacker_nation_id,
             alliance_filter,
@@ -274,6 +288,8 @@ def get_raids() -> tuple[Any, int]:
             performance_filter,
             min_score,
             max_score,
+            len(target_nation_ids or []),
+            use_saved_targets,
         )
 
         # Load nations from SQLite cache
@@ -314,6 +330,11 @@ def get_raids() -> tuple[Any, int]:
                 user_profile = mongo_db.global_users.find_one({'user': int(user_id)})
             except Exception:
                 user_profile = None
+
+        if use_saved_targets and user_profile and not target_nation_ids:
+            stored_ids = user_profile.get('raids_target_ids', [])
+            if stored_ids:
+                target_nation_ids = set([str(x) for x in stored_ids if str(x).isdigit()])
 
         attacker = None
         nation_warning = None
@@ -362,44 +383,50 @@ def get_raids() -> tuple[Any, int]:
                 logger.warning(f"Revenue context unavailable: {e}")
                 revenue_context = None
 
+        apply_filters = target_nation_ids is None
+
         for nation in nations:
+            if target_nation_ids and str(nation.get('id', '')) not in target_nation_ids:
+                continue
             # Filters
-            if scope == 'apps_or_none':
-                if nation.get('alliance_position') not in ['NOALLIANCE', 'APPLICANT']:
+            if apply_filters:
+                if scope == 'apps_or_none':
+                    if nation.get('alliance_position') not in ['NOALLIANCE', 'APPLICANT']:
+                        continue
+                if scope == 'no_alliance':
+                    if str(nation.get('alliance_id', '')) != '0':
+                        continue
+                # Vacation mode filtering
+                in_vm = _is_in_vacation_mode(nation)
+                if vmode_param is False and in_vm:
+                    continue  # exclude VM nations by default
+                if vmode_param is True and not in_vm:
+                    continue  # include only VM nations when requested
+                if min_cities is not None and nation.get('num_cities', 0) < min_cities:
                     continue
-            if scope == 'no_alliance':
-                if str(nation.get('alliance_id', '')) != '0':
+                if max_cities is not None and nation.get('num_cities', 0) > max_cities:
                     continue
-            # Vacation mode filtering
-            in_vm = _is_in_vacation_mode(nation)
-            if vmode_param is False and in_vm:
-                continue  # exclude VM nations by default
-            if vmode_param is True and not in_vm:
-                continue  # include only VM nations when requested
-            if min_cities is not None and nation.get('num_cities', 0) < min_cities:
-                continue
-            if max_cities is not None and nation.get('num_cities', 0) > max_cities:
-                continue
-            score_val = None
-            try:
-                score_val = float(nation.get('score', 0))
-            except (TypeError, ValueError):
                 score_val = None
-            if min_score is not None and score_val is not None and score_val < min_score:
-                continue
-            if max_score is not None and score_val is not None and score_val > max_score:
-                continue
+                try:
+                    score_val = float(nation.get('score', 0))
+                except (TypeError, ValueError):
+                    score_val = None
+                if min_score is not None and score_val is not None and score_val < min_score:
+                    continue
+                if max_score is not None and score_val is not None and score_val > max_score:
+                    continue
             alliance_id = str(nation.get('alliance_id', ''))
             alliance_obj = (nation.get('alliance', {}) or {})
 
-            if alliance_filter:
-                name = alliance_obj.get('name') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', '')
-                if alliance_filter.lower() not in name.lower():
+            if apply_filters:
+                if alliance_filter:
+                    name = alliance_obj.get('name') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', '')
+                    if alliance_filter.lower() not in name.lower():
+                        continue
+                if beige_only is True and nation.get('color') != 'beige':
                     continue
-            if beige_only is True and nation.get('color') != 'beige':
-                continue
-            if beige_only is False and nation.get('color') == 'beige':
-                continue
+                if beige_only is False and nation.get('color') == 'beige':
+                    continue
 
             # Defensive slots and war recency
             wars = nation.get('wars') or []
@@ -428,7 +455,7 @@ def get_raids() -> tuple[Any, int]:
 
             # Inactivity
             days_inactive = _calculate_days_inactive(nation.get('last_active'))
-            if inactive_min_days is not None and days_inactive < inactive_min_days:
+            if apply_filters and inactive_min_days is not None and days_inactive < inactive_min_days:
                 continue
 
             # Win chances
@@ -485,15 +512,16 @@ def get_raids() -> tuple[Any, int]:
                 except Exception as e:
                     logger.debug(f"Revenue calc failed for nation {nation.get('id')}: {e}")
 
-            if min_beige_loot is not None and nation_loot_value < min_beige_loot:
-                continue
-
-            if max_wars is not None and def_slots > max_wars:
-                continue
-
-            if performance_filter:
-                if ground_win < 0.4 or nation_loot_value == 0 or net_cash_income < 10000:
+            if apply_filters:
+                if min_beige_loot is not None and nation_loot_value < min_beige_loot:
                     continue
+
+                if max_wars is not None and def_slots > max_wars:
+                    continue
+
+                if performance_filter:
+                    if ground_win < 0.4 or nation_loot_value == 0 or net_cash_income < 10000:
+                        continue
 
             alliance_color = alliance_obj.get('color') or (alliances_by_id.get(alliance_id, {}) or {}).get('color')
             alliance_name = alliance_obj.get('name', 'None') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', 'None')
@@ -540,9 +568,9 @@ def get_raids() -> tuple[Any, int]:
             },
             'targets': targets,
             'beigeAlerts': [str(x) for x in beige_alerts],
-            'showBeige': bool(beige_only),
+            'showBeige': beige_only is not False,
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
-            'discordLinked': bool(user_id and user_profile),
+            'discordLinked': bool(user_id),
                 'warning': nation_warning if 'nation_warning' in locals() else None,
         }
 

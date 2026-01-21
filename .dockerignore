@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+__pycache__/
+**/__pycache__/
+**/*.pyc
+.env/
+.env/
+*.log
+logs/
+data/
+frontend/node_modules/
+frontend/dist/
+.env
+.env.local

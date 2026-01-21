@@ -31,6 +31,7 @@ export function TokenRequestPage() {
 
   const dataType = (searchParams.get('type') || 'raids') as DataType;
   const redirectPath = searchParams.get('redirect') || `/${dataType}`;
+  const userId = searchParams.get('userId') || searchParams.get('user_id') || undefined;
 
   const dataTypeLabels: Record<DataType, string> = {
     raids: 'Raid Targets',
@@ -44,12 +45,14 @@ export function TokenRequestPage() {
 
     try {
       const response = await generateToken({
+        ...(userId ? { user_id: userId } : {}),
         data_type: dataType,
         expires_in: 3600, // 1 hour
       });
 
       // Redirect to the target page with the token
-      navigate(`${redirectPath}?token=${response.token}`);
+      const separator = redirectPath.includes('?') ? '&' : '?';
+      navigate(`${redirectPath}${separator}token=${response.token}`);
     } catch (err: any) {
       setError(err.message || 'Failed to generate token. Please try again.');
       setLoading(false);

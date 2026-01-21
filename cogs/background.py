@@ -14,10 +14,10 @@ from typing import Optional
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-from main import logger, kit
 
-from logic import api_client, common
 from database import mongo as db_mongo
+from logic import api_client, common
+from main import kit, logger
 
 load_dotenv()
 
@@ -134,9 +134,9 @@ class General(commands.Cog):
         Returns:
             Sorted list of unique nation IDs.
         """
-        nation_ids = []
+        nation_ids: list[str] = []
         for user in alerts:
-            nation_ids.extend(user.get("beige_alerts", []))
+            nation_ids.extend([str(nid) for nid in user.get("beige_alerts", [])])
         return sorted(list(set(nation_ids)))
 
     async def _fetch_nation_data(self, nation_ids: list[str]) -> list[dict]:
@@ -173,8 +173,9 @@ class General(commands.Cog):
             times_to_send = sorted(times_to_send, reverse=True)
 
             for nation_id in user.get("beige_alerts", []):
+                nation_id_str = str(nation_id)
                 nation = next(
-                    (n for n in nations_data if n["id"] == nation_id),
+                    (n for n in nations_data if str(n.get("id")) == nation_id_str),
                     None,
                 )
                 if not nation:
@@ -185,7 +186,7 @@ class General(commands.Cog):
 
                 await self._process_nation_alert(
                     user,
-                    nation_id,
+                    nation_id_str,
                     beige_turns,
                     vm_turns,
                     times_to_send,

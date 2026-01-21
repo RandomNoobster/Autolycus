@@ -36,9 +36,9 @@ import {
   IconCalculator,
   IconArrowDownRight,
   IconArrowUpRight,
-  IconAlertTriangle,
 } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { fetchNationData, fetchBuilds, fetchGameData } from '@/api/builds';
 import { BuildsGrid } from '@/components/builds';
@@ -50,7 +50,8 @@ import { formatNumber } from '@/utils';
 import { useNationId } from '@/hooks';
 
 export function BuildsPage() {
-  const { nationId: savedNationId } = useNationId();
+  const { nationId: savedNationId, setNationId, parseNationId } = useNationId();
+  const [searchParams] = useSearchParams();
   const [showResults, setShowResults] = useState(false);
   const [buildsData, setBuildsData] = useState<BuildsResponse | null>(null);
   const [isLoadingNation, setIsLoadingNation] = useState(false);
@@ -59,6 +60,7 @@ export function BuildsPage() {
   const [nationError, setNationError] = useState<string | null>(null);
   const [nationSuccess, setNationSuccess] = useState<string | null>(null);
   const [gameData, setGameData] = useState<GameDataResponse | null>(null);
+  const [autoLoadNation, setAutoLoadNation] = useState(false);
 
   // Load projects and policies on mount
   useEffect(() => {
@@ -93,6 +95,20 @@ export function BuildsPage() {
       militaryUpkeepMode: 'peace',
     },
   });
+
+  // Auto-load nation data from URL
+  useEffect(() => {
+    const urlNationId = searchParams.get('nationId') || searchParams.get('nation_id');
+    if (!urlNationId) return;
+    const parsed = parseNationId(urlNationId);
+    if (!parsed) return;
+    const parsedNum = Number(parsed);
+    if (!Number.isFinite(parsedNum) || parsedNum <= 0) return;
+    form.setFieldValue('nationId', parsedNum);
+    setNationId(parsed);
+    setAutoLoadNation(true);
+  }, [searchParams, parseNationId, setNationId]);
+
 
   const projectOptions = gameData
     ? Object.entries(gameData.projects).map(([key, project]) => ({
@@ -181,6 +197,13 @@ export function BuildsPage() {
       setIsLoadingNation(false);
     }
   };
+
+  useEffect(() => {
+    if (!autoLoadNation) return;
+    if (!form.values.nationId || isLoadingNation) return;
+    handleLoadNation();
+    setAutoLoadNation(false);
+  }, [autoLoadNation, form.values.nationId, isLoadingNation]);
 
   // Calculate builds
   const handleCalculate = async () => {

@@ -30,6 +30,7 @@ export function DamageChart({ data, title = 'Net Damage Comparison' }: DamageCha
         withLegend
         legendProps={{ verticalAlign: 'bottom', height: 50 }}
         valueFormatter={(value) => `$${value.toLocaleString()}`}
+        style={{ paddingLeft: '16px' }}
       />
     </Paper>
   );

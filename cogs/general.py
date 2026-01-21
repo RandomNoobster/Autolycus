@@ -4,6 +4,7 @@ This module contains general-purpose commands including nation info,
 revenue calculations, builds optimizer, and user management.
 """
 
+import inspect
 import json
 import os
 import pathlib
@@ -24,6 +25,7 @@ from discord_utils import helpers
 from discord_utils.embeds import nation_overview_embed
 from logic.api_client import call, paginate_call
 from logic.builds import calculate_builds as calculate_builds_logic
+from logic.builds import generate_build_template
 from logic.common import str_to_int
 from logic.merge_utils import get_query
 from logic.military import militarization_checker
@@ -183,8 +185,7 @@ class Background(commands.Cog):
 
             # Build URL parameters for the frontend builds page
             # The frontend will call the live API with these parameters
-            url_params = f"nation_id={db_nation['id']}&infra={infra_level}&land={land_amount}&mmr={mmr_display}"
-            builds_url = f"http://132.145.71.195:3000/builds?{url_params}"
+            builds_url = f"http://132.145.71.195:3000/builds?nationId={db_nation['id']}"
 
             embed = discord.Embed(
                 title=f"Optimal City Builds for {infra_level} Infrastructure",
@@ -200,6 +201,7 @@ class Background(commands.Cog):
             )
             embed.add_field(name="Build Criteria", value=criteria_text, inline=False)
 
+            best_build = None
             if unique_builds:
                 best_build = unique_builds[0]
                 revenue_text = f"> Net Income: `${best_build.get('net income', 0):,.2f}` per day"
@@ -210,7 +212,16 @@ class Background(commands.Cog):
 
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
 
-            await ctx.edit(content="", embed=embed)
+            content = ""
+            if best_build:
+                net_income = best_build.get("net income", 0)
+                build_template = generate_build_template(best_build)
+                content = (
+                    f"Top build (net income: ${net_income:,.2f}/day)\n"
+                    f"```json\n{build_template}\n```"
+                )
+
+            await ctx.edit(content=content, embed=embed)
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
@@ -477,17 +488,36 @@ class Background(commands.Cog):
             ctx: Discord application context.
         """
         try:
-            help_text = ""
             cmds = sorted(self.bot.application_commands, key=lambda x: f"{x}")
+            embed = discord.Embed(title="Command list", color=0xff5100)
+
+            seen = set()
             for command in cmds:
-                command_str = f"`{command}`"
-                if command_str not in help_text:
-                    help_text += f"{command_str} - {command.description}\n"
-            help_text += (
-                "\nHere you can find the [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/) "
+                command_name = getattr(command, "qualified_name", str(command))
+                if command_name in seen:
+                    continue
+                seen.add(command_name)
+
+                short_help = getattr(command, "description", None) or "No short description provided."
+                long_help = inspect.getdoc(command.callback) if hasattr(command, "callback") else None
+                if long_help:
+                    long_help = long_help.split("Args:")[0].strip()
+                else:
+                    long_help = short_help
+
+                if len(long_help) > 900:
+                    long_help = f"{long_help[:897]}..."
+
+                embed.add_field(
+                    name=f"/{command_name}",
+                    value=f"**Short:** {short_help}\n**Long:** {long_help}",
+                    inline=False,
+                )
+
+            embed.description = (
+                "Here you can find the [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/) "
                 "and [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)"
             )
-            embed = discord.Embed(title="Command list", description=help_text, color=0xff5100)
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
             await ctx.respond(embed=embed)
         except Exception as e:

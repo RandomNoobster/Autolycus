@@ -21,6 +21,7 @@ import {
   Stack,
   NumberInput,
   TextInput,
+  Menu,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useDebouncedValue } from '@mantine/hooks';
@@ -53,22 +54,6 @@ const parseNumericValue = (value: unknown): number => {
   return 0;
 };
 
-// Parser for Mantine NumberInput: supports k/m/b shorthand (e.g., 1.1m -> 1100000)
-const numberInputParserWithSuffix = (val: string): string => {
-  if (!val) return '';
-  const s = val.trim().toLowerCase();
-  const cleaned = s.replace(/[,$%+\s]/g, '');
-  const match = cleaned.match(/^(-?\d*\.?\d+)([kmb])?$/i);
-  if (match) {
-    const base = parseFloat(match[1]);
-    const suf = (match[2] || '').toLowerCase();
-    const mult = suf === 'k' ? 1e3 : suf === 'm' ? 1e6 : suf === 'b' ? 1e9 : 1;
-    const num = base * mult;
-    return Number.isFinite(num) ? String(num) : '';
-  }
-  // Fallback: strip everything except digits, dot and minus
-  return cleaned.replace(/[^0-9.-]/g, '');
-};
 
 // Custom filter: min only
 const minOnlyFilter = (row: any, id: string, filterValue: any) => {
@@ -203,38 +188,6 @@ const DefSlotsMaxOnlyFilterInput = ({ column }: any) => {
   );
 };
 
-// Filter component: Range (for military units and win%)
-const RangeFilterInput = ({ column }: any) => {
-  const initial = column.getFilterValue() ?? { min: '', max: '' };
-  const [localRange, setLocalRange] = useState<any>({
-    min: String(initial.min ?? ''),
-    max: String(initial.max ?? ''),
-  });
-  const [debouncedMin] = useDebouncedValue(localRange.min, 400);
-  const [debouncedMax] = useDebouncedValue(localRange.max, 400);
-
-  useEffect(() => {
-    column.setFilterValue({ min: debouncedMin ?? '', max: debouncedMax ?? '' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedMin, debouncedMax]);
-
-  return (
-    <Stack gap={4}>
-      <TextInput
-        placeholder="Min (e.g. 10k)"
-        value={localRange.min ?? ''}
-        onChange={(e) => setLocalRange((prev: any) => ({ ...prev, min: e.currentTarget.value }))}
-        size="xs"
-      />
-      <TextInput
-        placeholder="Max (e.g. 2m)"
-        value={localRange.max ?? ''}
-        onChange={(e) => setLocalRange((prev: any) => ({ ...prev, max: e.currentTarget.value }))}
-        size="xs"
-      />
-    </Stack>
-  );
-};
 
 // Numeric-only Min filter (for Days Since War and Win% columns)
 const NumericMinOnlyFilterInput = ({ column, max }: any) => {
@@ -295,6 +248,11 @@ export function RaidsTable({
   onColumnFiltersChange,
 }: RaidsTableProps) {
   const queryClient = useQueryClient();
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    nation: RaidTarget;
+  } | null>(null);
 
   // ... (Keep your mutations same as before) ...
   const addReminderMutation = useMutation({
@@ -315,10 +273,26 @@ export function RaidsTable({
     onError: (error: Error) => notifications.show({ title: 'Error', message: error.message, color: 'red' }),
   });
 
-  const handleReminderToggle = useCallback((row: MRT_Row<RaidTarget>) => {
-    const nation = row.original;
+  const toggleReminderForNation = useCallback((nation: RaidTarget) => {
     nation.hasReminderActive ? removeReminderMutation.mutate(nation.id) : addReminderMutation.mutate(nation.id);
   }, [addReminderMutation, removeReminderMutation]);
+
+  const handleReminderToggle = useCallback((row: MRT_Row<RaidTarget>) => {
+    toggleReminderForNation(row.original);
+  }, [toggleReminderForNation]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [contextMenu]);
 
   // Get unique values for filters
   const uniqueAlliances = useMemo(() => {
@@ -446,8 +420,8 @@ export function RaidsTable({
             } as MRT_ColumnDef<RaidTarget>,
             {
               id: 'reminder',
-              header: 'Remind', // Shortened text
-              size: 70,
+              header: 'Reminder', // Shortened text
+              size: 120,
               enableSorting: false,
               enableColumnFilter: false,
               Cell: ({ row }: { row: MRT_Row<RaidTarget> }) => {
@@ -714,7 +688,11 @@ export function RaidsTable({
     onColumnVisibilityChange,
     onColumnOrderChange,
     onDensityChange,
-    onColumnFiltersChange,
+    onColumnFiltersChange: (updater) => {
+      const nextFilters =
+        typeof updater === 'function' ? updater(columnFilters) : updater;
+      onColumnFiltersChange(nextFilters);
+    },
     
     mantineTableContainerProps: {
       style: { maxHeight: '600px' },
@@ -730,6 +708,16 @@ export function RaidsTable({
         verticalAlign: 'bottom',
       },
     },
+    mantineTableBodyRowProps: ({ row }) => ({
+      onContextMenu: (event) => {
+        event.preventDefault();
+        setContextMenu({
+          x: event.clientX,
+          y: event.clientY,
+          nation: row.original,
+        });
+      },
+    }),
     mantinePaperProps: {
       shadow: 'sm',
       radius: 'md',
@@ -739,6 +727,69 @@ export function RaidsTable({
 
   return (
     <Stack gap="md">
+      <Menu
+        opened={!!contextMenu}
+        onClose={() => setContextMenu(null)}
+        withinPortal
+        position="bottom-start"
+        shadow="md"
+      >
+        <Menu.Target>
+          <Box
+            style={{
+              position: 'fixed',
+              top: contextMenu?.y ?? -1000,
+              left: contextMenu?.x ?? -1000,
+              width: 1,
+              height: 1,
+            }}
+          />
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item
+            leftSection={<IconExternalLink size={16} />}
+            component="a"
+            href={contextMenu ? `https://politicsandwar.com/nation/id=${contextMenu.nation.id}` : '#'}
+            target="_blank"
+          >
+            Open nation page
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconExternalLink size={16} />}
+            component="a"
+            href={
+              contextMenu && contextMenu.nation.allianceId !== '0'
+                ? `https://politicsandwar.com/alliance/id=${contextMenu.nation.allianceId}`
+                : '#'
+            }
+            target="_blank"
+            disabled={!contextMenu || contextMenu.nation.allianceId === '0'}
+          >
+            Open alliance page
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconExternalLink size={16} />}
+            component="a"
+            href={contextMenu ? `https://politicsandwar.com/nation/war/declare/id=${contextMenu.nation.id}` : '#'}
+            target="_blank"
+          >
+            Declare war
+          </Menu.Item>
+          <Menu.Divider />
+          <Menu.Item
+            leftSection={
+              contextMenu?.nation.hasReminderActive ? <IconBell size={16} /> : <IconBellOff size={16} />
+            }
+            disabled={!contextMenu || !discordLinked || contextMenu.nation.beigeTurns <= 0}
+            onClick={() => {
+              if (!contextMenu) return;
+              toggleReminderForNation(contextMenu.nation);
+            }}
+          >
+            {contextMenu?.nation.hasReminderActive ? 'Remove beige reminder' : 'Add beige reminder'}
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
       <MantineReactTable table={table} />
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
         Hide or show columns, reorder them, adjust density, and filter columns directly in the table.

@@ -4,6 +4,7 @@
 
 import type { BuildsResponse, NationData, BuildConfiguration } from '@/types';
 import type { GameDataResponse } from '@/types/gameData';
+import { apiGet } from './client';
 
 /**
  * Fetch city builds data.
@@ -42,14 +43,7 @@ export async function fetchBuilds(config: BuildConfiguration): Promise<BuildsRes
   const mmr = `${config.military.barracks}/${config.military.factory}/${config.military.airforcebase}/${config.military.drydock}`;
   params.set('mmr', mmr);
   
-  const response = await fetch(`http://localhost:5000/api/builds/?${params}`);
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to fetch builds');
-  }
-  
-  return response.json();
+  return apiGet<BuildsResponse>(`/api/builds/?${params.toString()}`);
 }
 
 /**
@@ -59,14 +53,7 @@ export async function fetchBuilds(config: BuildConfiguration): Promise<BuildsRes
  * @returns NationData with infrastructure, continent, projects, etc.
  */
 export async function fetchNationData(nationId: number): Promise<NationData> {
-  const response = await fetch(`http://localhost:5000/api/builds/nation/${nationId}`);
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to fetch nation data');
-  }
-  
-  return response.json();
+  return apiGet<NationData>(`/api/builds/nation/${nationId}`);
 }
 
 /**
@@ -75,12 +62,5 @@ export async function fetchNationData(nationId: number): Promise<NationData> {
  * @returns GameDataResponse with projects, war policies, and domestic policies
  */
 export async function fetchGameData(): Promise<GameDataResponse> {
-  const response = await fetch('http://localhost:5000/api/builds/game-data');
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to fetch game data');
-  }
-  
-  return response.json();
+  return apiGet<GameDataResponse>('/api/builds/game-data');
 }

@@ -8,13 +8,46 @@ import logging
 import time
 from typing import Any
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from api.security import generate_token
 
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+
+def _normalize_api_key(value: Any) -> str:
+    """Normalize API key values for comparison.
+
+    Strips whitespace and optional surrounding quotes to avoid mismatches
+    when env files include quoted values.
+    """
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        return text[1:-1].strip()
+    return text
+
+
+def _is_local_request() -> bool:
+    """Return True if the request appears to originate from localhost."""
+    host = (request.host or "").split(":", 1)[0].lower()
+    origin = (request.headers.get("Origin") or "").lower()
+    referer = (request.headers.get("Referer") or "").lower()
+
+    localhost_hosts = {"localhost", "127.0.0.1"}
+    if host in localhost_hosts:
+        return True
+
+    for header_value in (origin, referer):
+        if header_value.startswith("http://localhost") or header_value.startswith(
+            "http://127.0.0.1"
+        ):
+            return True
+
+    return False
 
 
 @auth_bp.route('/token/generate', methods=['POST'])
@@ -58,6 +91,23 @@ def generate_access_token() -> tuple[Any, int]:
         user_id = data.get('user_id', 'web_user')
         data_type = data.get('data_type', 'raids')
         expires_in = data.get('expires_in', 3600)  # 1 hour default
+
+        # Optional shared secret for token generation (protects unauthenticated use)
+        auth_key = _normalize_api_key(current_app.config.get("AUTH_TOKEN_API_KEY"))
+        if auth_key:
+            provided = _normalize_api_key(
+                request.headers.get("X-Auth-Token") or request.headers.get("X-Api-Key")
+            )
+            if not provided and current_app.config.get("DEBUG") and _is_local_request():
+                logger.info("Allowing localhost token generation without API key in DEBUG")
+            elif provided != auth_key:
+                return jsonify({
+                    'error': 'Unauthorized',
+                    'message': 'Invalid or missing API key.',
+                    'code': 'UNAUTHORIZED'
+                }), 401
+        else:
+            logger.warning("AUTH_TOKEN_API_KEY not set; /token/generate is publicly accessible")
         
         # Validate data_type
         valid_types = ['raids', 'builds', 'damage']
@@ -68,6 +118,24 @@ def generate_access_token() -> tuple[Any, int]:
                 'code': 'INVALID_DATA_TYPE'
             }), 400
         
+        # Validate expiration window
+        try:
+            expires_in = int(expires_in)
+        except (TypeError, ValueError):
+            return jsonify({
+                'error': 'Invalid parameter',
+                'message': 'expires_in must be an integer (seconds)',
+                'code': 'INVALID_PARAMETER'
+            }), 400
+
+        max_age = int(current_app.config.get('TOKEN_MAX_AGE', 3600 * 24 * 7))
+        if expires_in < 60 or expires_in > max_age:
+            return jsonify({
+                'error': 'Invalid parameter',
+                'message': f'expires_in must be between 60 and {max_age} seconds',
+                'code': 'INVALID_PARAMETER'
+            }), 400
+
         # Generate timestamp
         timestamp = int(time.time())
         

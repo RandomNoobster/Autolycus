@@ -39,7 +39,7 @@ interface UseUrlParamsReturn {
 }
 
 // Reserved parameter names that shouldn't be treated as column filters
-const RESERVED_PARAMS = ['token', 'sort', 'sortDir'];
+const RESERVED_PARAMS = ['token', 'sort', 'sortDir', 'attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId'];
 
 /**
  * Parse column filters from URL search params.
@@ -143,6 +143,14 @@ export function useUrlParams(): UseUrlParamsReturn {
         if (existingToken) {
           newParams.set('token', existingToken);
         }
+
+        // Preserve deep link params
+        ['attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId'].forEach((key) => {
+          const value = prev.get(key);
+          if (value) {
+            newParams.set(key, value);
+          }
+        });
 
         // Preserve sorting
         const sort = prev.get('sort');

@@ -2,7 +2,7 @@
  * Auth API Functions
  */
 
-import { apiPost } from './client';
+import { apiPost, apiRequest } from './client';
 
 interface TokenGenerateRequest {
   user_id?: string | number;
@@ -38,10 +38,19 @@ interface TokenVerifyResponse {
 export function generateToken(
   data: TokenGenerateRequest
 ): Promise<TokenGenerateResponse> {
-  return apiPost<TokenGenerateResponse, TokenGenerateRequest>(
-    '/api/auth/token/generate',
-    data
-  );
+  const authKey = import.meta.env.VITE_AUTH_TOKEN_API_KEY as string | undefined;
+
+  if (authKey) {
+    return apiRequest<TokenGenerateResponse>('/api/auth/token/generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      headers: {
+        'X-Auth-Token': authKey,
+      },
+    });
+  }
+
+  return apiPost<TokenGenerateResponse, TokenGenerateRequest>('/api/auth/token/generate', data);
 }
 
 /**

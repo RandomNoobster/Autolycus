@@ -4,8 +4,7 @@
  * Full dashboard layout with chart and tables for damage analysis.
  */
 
-import { Stack, Grid, Alert, Text, Anchor, Group, Title, Paper } from '@mantine/core';
-import { IconInfoCircle } from '@tabler/icons-react';
+import { Stack, Text, Anchor, Group, Title, Paper, Tabs } from '@mantine/core';
 
 import type { DamageResponse } from '@/types';
 import { DamageChart } from './DamageChart';
@@ -16,131 +15,110 @@ interface DamageDashboardProps {
 }
 
 export function DamageDashboard({ data }: DamageDashboardProps) {
-  const { nation1, nation2, chartData } = data;
+  const { scenarios, chartData } = data;
+  const scenarioModes = [
+    {
+      value: 'attack',
+      label: 'Per Attack (Default)',
+      description:
+        'Compare direct damage per attack. Best for quick baseline comparisons.',
+    },
+    {
+      value: 'resistance',
+      label: 'Per Resistance (Avg)',
+      description:
+        'Damage per resistance reduced (expected). Useful for maximizing damage without beiging.',
+    },
+    {
+      value: 'map',
+      label: 'Per MAP',
+      description:
+        'Damage per MAP spent. Useful when optimizing time and action-point efficiency.',
+    },
+  ] as const;
+
+  const getStatsForMode = (
+    stats: typeof scenarios.nation1Attacks.attacker.stats,
+    mode: (typeof scenarioModes)[number]['value']
+  ) => {
+    if (mode === 'resistance') return stats.perResistance;
+    if (mode === 'map') return stats.perMap;
+    return stats.perAttack;
+  };
+
+  const buildChartData = (mode: (typeof scenarioModes)[number]['value']) => {
+    const nation1Name = scenarios.nation1Attacks.attacker.info.nationName;
+    const nation2Name = scenarios.nation2Attacks.attacker.info.nationName;
+    const nation1Stats = getStatsForMode(scenarios.nation1Attacks.attacker.stats, mode);
+    const nation2Stats = getStatsForMode(scenarios.nation2Attacks.attacker.stats, mode);
+    const nation2Lookup = new Map(nation2Stats.map((row) => [row.attackType, row]));
+
+    const data = nation1Stats.map((row) => ({
+      attackType: row.label,
+      [nation1Name]: row.netDamage,
+      [nation2Name]: nation2Lookup.get(row.attackType)?.netDamage ?? 0,
+    }));
+
+    return {
+      data,
+      series: chartData.netDamageComparison?.series ?? [
+        { name: nation1Name, color: 'blue.6' },
+        { name: nation2Name, color: 'red.6' },
+      ],
+    };
+  };
 
   return (
     <Stack gap="lg">
-      {/* Info Alert */}
-      <Alert
-        variant="light"
-        color="red"
-        title="Disclaimer"
-        icon={<IconInfoCircle />}
-        radius="md"
-      >
-        <Text size="sm">
-          <strong>Disclaimer</strong> - This tool is designed to help you decide
-          what attack to perform in order to burn as many enemy pixels as
-          possible. Please note that you should not blindly do the attacks with
-          the highest net damage, and that targeting enemy military forces is
-          usually a better move.
-        </Text>
-        <Text size="sm" mt="xs">
-          <strong>How to use</strong> - There are two sections, one for each
-          nation. Click on column headers to sort by that metric. Use the tabs
-          to switch between "Per Resistance" (when winning), "Per MAP" (when
-          losing), and "Total" (reference values).
-        </Text>
-        <Text size="sm" mt="xs">
-          The resources listed are consumed by the attacking nation. For net
-          damage, higher (positive) is better. Negative net damage means the
-          opponent would do more damage.
-        </Text>
-      </Alert>
+      <Text size="sm" c="dimmed">
+        Use the tabs to switch between per-attack (default), per-resistance, and per-MAP
+        views. Positive net damage is better; negative means the opponent would do more.
+      </Text>
 
-      {/* Chart Section */}
-      <DamageChart
-        data={chartData.netDamageComparison}
-        title="Net Damage Comparison by Attack Type"
-      />
+      <Tabs defaultValue="attack">
+        <Tabs.List>
+          {scenarioModes.map((mode) => (
+            <Tabs.Tab key={mode.value} value={mode.value}>
+              {mode.label}
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
 
-      {/* Nation 1 Section */}
-      <Paper shadow="sm" p="lg" radius="md" withBorder>
-        <Group mb="md">
-          <Title order={3}>
-            <Anchor
-              href={`https://politicsandwar.com/nation/id=${nation1.info.id}`}
-              target="_blank"
-            >
-              If {nation1.info.nationName} attacks:
-            </Anchor>
-          </Title>
-        </Group>
+        {scenarioModes.map((mode) => (
+          <Tabs.Panel key={mode.value} value={mode.value}>
+            <Stack gap="lg" mt="md">
+              <Text size="sm" c="dimmed">
+                {mode.description}
+              </Text>
+              <DamageChart
+                data={buildChartData(mode.value)}
+                title={`Net Damage Comparison (${mode.label})`}
+              />
 
-        <Grid gutter="lg">
-          <Grid.Col span={{ base: 12, xl: 6 }}>
-            <DamageTable
-              nationName={nation1.info.nationName}
-              role="attacker"
-              perResistance={nation1.attacks.perResistance}
-              perMap={nation1.attacks.perMap}
-              totalStats={nation1.attacks.totalStats}
-            />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, xl: 6 }}>
-            <DamageTable
-              nationName={nation2.info.nationName}
-              role="defender"
-              perResistance={nation2.attacks.perResistance.map((stat) => ({
-                ...stat,
-                netDamage: -stat.netDamage, // Invert for defender perspective
-              }))}
-              perMap={nation2.attacks.perMap.map((stat) => ({
-                ...stat,
-                netDamage: -stat.netDamage,
-              }))}
-              totalStats={nation2.attacks.totalStats.map((stat) => ({
-                ...stat,
-                netDamage: -stat.netDamage,
-              }))}
-            />
-          </Grid.Col>
-        </Grid>
-      </Paper>
-
-      {/* Nation 2 Section */}
-      <Paper shadow="sm" p="lg" radius="md" withBorder>
-        <Group mb="md">
-          <Title order={3}>
-            <Anchor
-              href={`https://politicsandwar.com/nation/id=${nation2.info.id}`}
-              target="_blank"
-            >
-              If {nation2.info.nationName} attacks:
-            </Anchor>
-          </Title>
-        </Group>
-
-        <Grid gutter="lg">
-          <Grid.Col span={{ base: 12, xl: 6 }}>
-            <DamageTable
-              nationName={nation2.info.nationName}
-              role="attacker"
-              perResistance={nation2.attacks.perResistance}
-              perMap={nation2.attacks.perMap}
-              totalStats={nation2.attacks.totalStats}
-            />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, xl: 6 }}>
-            <DamageTable
-              nationName={nation1.info.nationName}
-              role="defender"
-              perResistance={nation1.attacks.perResistance.map((stat) => ({
-                ...stat,
-                netDamage: -stat.netDamage,
-              }))}
-              perMap={nation1.attacks.perMap.map((stat) => ({
-                ...stat,
-                netDamage: -stat.netDamage,
-              }))}
-              totalStats={nation1.attacks.totalStats.map((stat) => ({
-                ...stat,
-                netDamage: -stat.netDamage,
-              }))}
-            />
-          </Grid.Col>
-        </Grid>
-      </Paper>
+              {[scenarios.nation1Attacks, scenarios.nation2Attacks].map((scenario) => (
+                <Paper key={scenario.attacker.info.id} shadow="sm" p="lg" radius="md" withBorder>
+                  <Group mb="md">
+                    <Title order={3}>
+                      <Anchor
+                        href={`https://politicsandwar.com/nation/id=${scenario.attacker.info.id}`}
+                        target="_blank"
+                      >
+                        If {scenario.attacker.info.nationName} attacks:
+                      </Anchor>
+                    </Title>
+                  </Group>
+                  <DamageTable
+                    attackerName={scenario.attacker.info.nationName}
+                    defenderName={scenario.defender.info.nationName}
+                    attackerData={getStatsForMode(scenario.attacker.stats, mode.value)}
+                    defenderData={getStatsForMode(scenario.defender.stats, mode.value)}
+                  />
+                </Paper>
+              ))}
+            </Stack>
+          </Tabs.Panel>
+        ))}
+      </Tabs>
     </Stack>
   );
 }

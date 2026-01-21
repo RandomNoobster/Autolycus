@@ -94,6 +94,11 @@ async def calculate_damage(
     results["nation1_war_infra_mod"] = results["nation2_war_infra_mod"] = 0.5
     results["nation1_war_loot_mod"] = results["nation2_war_loot_mod"] = 0.5
 
+    for nation_key in ("nation1", "nation2"):
+        use_munitions = results[nation_key].get("soldiers_use_munitions", True)
+        results[f"{nation_key}_soldiers_use_munitions"] = bool(use_munitions)
+        results[f"{nation_key}_soldier_munition_mod"] = 1.75 if use_munitions else 1.0
+
     nation1_id = str(results["nation1"]["id"])
     nation2_id = str(results["nation2"]["id"])
 
@@ -173,11 +178,16 @@ def _apply_war_state(results: Dict[str, Any], war: Dict[str, Any], *, attacker: 
 
 def _calculate_win_rates(results: Dict[str, Any], attacker: str, defender: str) -> None:
     defender_tanks_value = (results[defender]["tanks"] * 40 * results[f"{defender}_tanks"]) ** (3 / 4)
-    defender_soldiers_value = (results[defender]["soldiers"] * 1.75 + results[defender]["population"] * 0.0025) ** (3 / 4)
+    defender_soldiers_value = (
+        results[defender]["soldiers"] * results.get(f"{defender}_soldier_munition_mod", 1.75)
+        + results[defender]["population"] * 0.0025
+    ) ** (3 / 4)
     defender_army_value = (defender_soldiers_value + defender_tanks_value) ** (3 / 4)
 
     attacker_tanks_value = (results[attacker]["tanks"] * 40 * results[f"{attacker}_tanks"]) ** (3 / 4)
-    attacker_soldiers_value = (results[attacker]["soldiers"] * 1.75) ** (3 / 4)
+    attacker_soldiers_value = (
+        results[attacker]["soldiers"] * results.get(f"{attacker}_soldier_munition_mod", 1.75)
+    ) ** (3 / 4)
     attacker_army_value = (attacker_soldiers_value + attacker_tanks_value) ** (3 / 4)
 
     results[f"{attacker}_ground_win_rate"] = calculate_win_chance_raw(attacker_army_value, defender_army_value)
@@ -202,8 +212,13 @@ def _calculate_win_rates(results: Dict[str, Any], attacker: str, defender: str) 
 
 
 def _calculate_casualties(results: Dict[str, Any], attacker: str, defender: str) -> None:
-    attacker_soldiers_value = (results[attacker]["soldiers"] * 1.75) ** (3 / 4)
-    defender_soldiers_value = (results[defender]["soldiers"] * 1.75 + results[defender]["population"] * 0.0025) ** (3 / 4)
+    attacker_soldiers_value = (
+        results[attacker]["soldiers"] * results.get(f"{attacker}_soldier_munition_mod", 1.75)
+    ) ** (3 / 4)
+    defender_soldiers_value = (
+        results[defender]["soldiers"] * results.get(f"{defender}_soldier_munition_mod", 1.75)
+        + results[defender]["population"] * 0.0025
+    ) ** (3 / 4)
     attacker_tanks_value = (results[attacker]["tanks"] * 40 * results[f"{attacker}_tanks"]) ** (3 / 4)
     defender_tanks_value = (results[defender]["tanks"] * 40 * results[f"{defender}_tanks"]) ** (3 / 4)
     attacker_aircraft_value = (results[attacker]["aircraft"] * 3) ** (3 / 4)
@@ -606,7 +621,13 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
     )
 
     # Ground resource consumption
-    results[f"{attacker}_ground_{attacker}_mun"] = results[attacker]["soldiers"] * 0.0002 + results[attacker]["tanks"] * 0.01
+    attacker_munition_factor = 1 if results.get(f"{attacker}_soldiers_use_munitions", True) else 0
+    defender_munition_factor = 1 if results.get(f"{defender}_soldiers_use_munitions", True) else 0
+
+    results[f"{attacker}_ground_{attacker}_mun"] = (
+        results[attacker]["soldiers"] * 0.0002 * attacker_munition_factor
+        + results[attacker]["tanks"] * 0.01
+    )
     results[f"{attacker}_ground_{attacker}_gas"] = results[attacker]["tanks"] * 0.01
     results[f"{attacker}_ground_{attacker}_alum"] = 0
     results[f"{attacker}_ground_{attacker}_steel"] = (
@@ -628,7 +649,7 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
     )
 
     base_mun = (
-        results[defender]["soldiers"] * 0.0002
+        results[defender]["soldiers"] * 0.0002 * defender_munition_factor
         + results[defender]["population"] / 2_000_000
         + results[defender]["tanks"] * 0.01
     ) * def_rss

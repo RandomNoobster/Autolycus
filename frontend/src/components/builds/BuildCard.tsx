@@ -46,7 +46,6 @@ import { formatCurrency, formatNumber, formatPercentage, getProfitColor } from '
 interface BuildCardProps {
   resourceType: string;
   build: BuildData;
-  land: number;
   allBuilds?: BuildData[];
   isValid?: boolean;
 }
@@ -54,7 +53,6 @@ interface BuildCardProps {
 export function BuildCard({
   resourceType,
   build,
-  land,
   allBuilds = [],
   isValid = true,
 }: BuildCardProps) {

@@ -20,8 +20,9 @@ import os
 from typing import Optional
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Load environment variables FIRST
 load_dotenv()
@@ -49,29 +50,60 @@ def create_app(config_object: Optional[object] = None) -> Flask:
     app = Flask(__name__)
     
     # Load configuration
+    config_name = None
     if config_object:
         app.config.from_object(config_object)
+        config_name = getattr(config_object, "__name__", config_object.__class__.__name__)
     else:
         config = get_config()
         app.config.from_object(config)
+        config_name = config.__class__.__name__
+
     
     # Ensure required config values are set
     if not app.config.get('SECRET_KEY'):
         app.config['SECRET_KEY'] = os.urandom(32).hex()
         logger.warning("No SECRET_KEY configured, using random key. "
                       "Tokens will be invalidated on restart.")
-    
+
     # Configure CORS
     cors_origins = app.config.get('CORS_ORIGINS', ['*'])
-    CORS(app, origins=cors_origins, supports_credentials=True, 
+    supports_credentials = '*' not in cors_origins
+    CORS(app, origins=cors_origins, supports_credentials=supports_credentials,
          allow_headers=['Content-Type', 'Authorization'],
          methods=['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'])
-    
+
+    # Proxy handling (for correct client IPs behind reverse proxy)
+    if app.config.get("TRUST_PROXY_HEADERS"):
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(raids_bp)
     app.register_blueprint(builds_bp)
     app.register_blueprint(damage_bp)
+
+    # Security headers
+    @app.after_request
+    def add_security_headers(response):
+        if app.config.get("SECURITY_HEADERS_ENABLED", True):
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            response.headers.setdefault("Referrer-Policy", "no-referrer")
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+            )
+            # Enable HSTS if request is over HTTPS
+            if request.is_secure:
+                response.headers.setdefault(
+                    "Strict-Transport-Security",
+                    "max-age=31536000; includeSubDomains"
+                )
+        if request.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+            response.headers.setdefault("Pragma", "no-cache")
+        return response
     
     # Health check endpoint
     @app.route('/api/health')
@@ -121,6 +153,24 @@ def create_app(config_object: Optional[object] = None) -> Flask:
             'message': 'This HTTP method is not supported for this endpoint.',
             'code': 'METHOD_NOT_ALLOWED'
         }), 405
+
+    @app.errorhandler(413)
+    def request_entity_too_large(error):
+        """Handle oversized request bodies."""
+        return jsonify({
+            'error': 'Payload too large',
+            'message': 'Request body exceeds the maximum allowed size.',
+            'code': 'PAYLOAD_TOO_LARGE'
+        }), 413
+
+    @app.errorhandler(429)
+    def rate_limit_exceeded(error):
+        """Handle rate limit violations."""
+        return jsonify({
+            'error': 'Too many requests',
+            'message': 'Rate limit exceeded. Please slow down your requests.',
+            'code': 'RATE_LIMITED'
+        }), 429
     
     logger.info(f"Autolycus API initialized with CORS origins: {cors_origins}")
     
@@ -156,7 +206,15 @@ def run_api():
             print(f"  {rule.rule} -> {rule.endpoint} ({','.join(rule.methods - {'HEAD', 'OPTIONS'})})")
         print()
         
-        serve(app, host=host, port=port)
+        # Waitress settings (DoS resilience)
+        serve(
+            app,
+            host=host,
+            port=port,
+            threads=app.config.get('WAITRESS_THREADS', 8),
+            connection_limit=app.config.get('WAITRESS_CONNECTION_LIMIT', 200),
+            channel_timeout=app.config.get('WAITRESS_CHANNEL_TIMEOUT', 30),
+        )
     except Exception as e:
         print(f"ERROR: {e}", flush=True)
         logger.error(f"Error starting API: {e}", exc_info=True)

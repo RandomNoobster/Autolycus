@@ -2,76 +2,158 @@
 
 Autolycus is an open source bot for finding raid targets in PnW. It was initially developed for in-house usage, but I decided to make it public. As far as I am aware, no other public bots have extensive raid finding functionality. The lack of such functionality is what motivated me to make this public. Nonetheless, the fact that it was originally meant for in-house usage means multiple things. Firstly, it means that the code isn't pretty. Secondly, it means that it's not designed to be easy to self-host. 
 
-## Self hosting
+## Production Docker deployment (Oracle Linux)
 
-This particular branch is designed to be run on an Oracle-Linux system as can be found on their [cloud hosting service](https://cloud.oracle.com/).
+This project ships with a production-ready Docker setup that runs:
 
-In `/home/opc/Autolycus`, you need a .env file with the following environment variables:
-- `api_key` (your pnw api key)
-- `bot_token` (your discord bot key)
-- `pymongolink` (the [connection string](https://docs.mongodb.com/manual/reference/connection-string/) to your mongoDB)
-- `version` (the name of the database in your mongoDB collection)
-- `ip` (the ip you want the flask server to run on. Use 127.0.0.1 for localhost, or 0.0.0.0 if you are on replit)
-- `debug_channel` (the id of the channel you want the bot to send error messages in)
+- Flask API (Waitress)
+- Discord bot
+- Scanner worker
+- Frontend (Nginx + Vite build)
 
-When running for the first time a database file called `nations.db` will be created in `/data`. After running for ~30 minutes the bot should have updated the database with nation details for every nation. Until this happens, some functions may not work properly.
+It also includes a systemd timer that regularly pulls the repo, rebuilds images,
+and restarts services, so the stack stays up-to-date and resilient on crashes.
 
+### 1) Prerequisites (Oracle Linux)
 
-You also need to create this file: `/etc/systemd/system/autolycus.service`
+Install Docker Engine and the Compose plugin. Example for Oracle Linux 8/9:
+
 ```
-[Unit]
-Description=run bootup script
-
-[Service]
-Type=simple
-User=opc
-WorkingDirectory=/home/opc/Autolycus
-ExecStart=/usr/local/bin/bootup.sh
-
-[Install]
-WantedBy=multi-user.target
+sudo dnf -y install dnf-utils
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo systemctl enable --now docker
 ```
 
+Ensure your user can run Docker:
 
-And this file: `/usr/local/bin/bootup.sh`
 ```
-#!/bin/bash
-cd /home/opc/Autolycus
-while true; do
-    pkill -9 python
-    sudo git pull origin oracle
-    pip3 install -r requirements.txt --user
-    python3 main.py &
-    python3 scanner.py &
-    sleep 86400
-done
+sudo usermod -aG docker $USER
 ```
 
+Log out and back in to refresh group membership.
 
-You will also need a mongoDB database. A guide on how to set one up, can be found [here](https://docs.atlas.mongodb.com/getting-started/). In addition to the database, you will need to fork this [repl](https://replit.com/@PoliticsAndWar/Autolycus-database-updater). For this one you need the following environment variables:
-- `api_key` (your pnw api key)
-- `pymongolink` (the [connection string](https://docs.mongodb.com/manual/reference/connection-string/) to your mongoDB)
-- `version` (the name of the database in your mongoDB collection)
-- `ip` (the ip you want the flask server to run on. Use 127.0.0.1 for localhost, or 0.0.0.0 if you are on replit)
+### 2) Clone the repository
+
+These systemd files assume the repo lives at `/opt/autolycus`.
+
+```
+sudo mkdir -p /opt/autolycus
+sudo chown $USER:$USER /opt/autolycus
+git clone <your-fork-url> /opt/autolycus
+cd /opt/autolycus
+```
+
+If you choose a different path, update the `WorkingDirectory` and `ExecStart`
+paths in the systemd files under [scripts/ops](scripts/ops).
+
+### 3) Create the .env file
+
+Create `/opt/autolycus/.env` with the following variables:
+
+```
+# Required core settings
+api_key=YOUR_PNW_API_KEY
+bot_token=YOUR_DISCORD_BOT_TOKEN
+debug_channel=YOUR_DISCORD_CHANNEL_ID
+
+# MongoDB
+pymongolink=YOUR_MONGODB_URI
+databaselink=YOUR_MONGODB_URI_FOR_MAIN_DB
+version=YOUR_MONGODB_DB_NAME
+
+# API config
+FLASK_ENV=production
+SECRET_KEY=CHANGE_ME_TO_A_LONG_RANDOM_VALUE
+AUTH_TOKEN_API_KEY=
+
+# Optional tuning
+WAITRESS_THREADS=8
+WAITRESS_CONNECTION_LIMIT=200
+WAITRESS_CHANNEL_TIMEOUT=30
+
+# Frontend (build-time)
+# Leave VITE_API_URL empty to use same-domain /api via Nginx proxy
+VITE_API_URL=
+VITE_AUTH_TOKEN_API_KEY=
+```
+
+Notes:
+
+- `databaselink` and `pymongolink` can be the same MongoDB URI if you use one cluster.
+- `SECRET_KEY` must be set in production, otherwise tokens invalidate on restart.
+
+### 4) Build and start the stack
+
+```
+docker compose build
+docker compose up -d
+```
+
+The frontend is served on port 80. The API is accessible only through the
+frontend reverse proxy at `/api` (not exposed directly on the host).
+
+### 5) Enable auto-update + auto-restart (systemd)
+
+This sets up:
+
+- `autolycus.service` to start the Docker stack on boot.
+- `autolycus-update.timer` to run a periodic update (git pull, rebuild, restart).
+
+```
+chmod +x scripts/ops/*.sh
+sudo scripts/ops/bootstrap.sh
+```
+
+The update timer runs every 6 hours by default. Edit
+[scripts/ops/autolycus-update.timer](scripts/ops/autolycus-update.timer) to change
+the interval.
+
+### 6) Firewall (Oracle Linux)
+
+Allow inbound HTTP access:
+
+```
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --reload
+```
+
+### 7) Verify
 
 
-### Helpful commands:
-- `sudo -i` - get root privileges
-- `exit` - exit root privileges
-- `systemctl daemon-reload` - reload daemons
-- `systemctl start autolycus` - start autolycus service
-- `systemctl status autolycus` - get status of autolycus service
-- `systemctl enable autolycus` - enable autolycus service to run at bootup
-- `cat << EOF > PATH/file` - write to file
-- `chmod u+x PATH/file.sh` - make bash file runnable
-- `sudo chown opc:root PATH` - modify ownership of directory
-- `sudo firewall-cmd --permanent --zone=public --add-service=http` - create firewall rules to allow access to the ports on which the HTTP server listens
-- `firewall-cmd --zone=public --add-port=5000/tcp --permanent` - create firewall rule to allow access to port 5000
-- `sudo firewall-cmd --reload` - reload firewall
+When running for the first time a database file called `nations.db` will be created in `./data`. After running for ~30 minutes the bot should have updated the database with nation details for every nation. Until this happens, some functions may not work properly.
 
+Docker uses the host `./data` folder as a bind mount. Ensure `./data/city_builds.db` exists on the host if you want builds to work immediately.
 
-### Helpful links:
-- https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6
+Common tasks:
+
+```
+docker compose ps
+docker compose logs -f api
+docker compose logs -f bot
+docker compose logs -f scanner
+docker compose logs -f frontend
+```
+
+Manual update (equivalent to the timer):
+
+```
+scripts/ops/update.sh
+```
+
+### MongoDB note
+
+You still need a MongoDB database. A guide on how to set one up can be found
+[here](https://docs.atlas.mongodb.com/getting-started/).
+
+If you use the optional database updater repl, it still requires:
+
+- `api_key`
+- `pymongolink`
+- `version`
+- `ip`
+
+### Helpful links
+
 - https://docs.oracle.com/en/learn/use_systemd/index.html#work-with-systemd-timer-units
-- https://docs.oracle.com/en/learn/lab_compute_instance/index.html 
-- https://www.youtube.com/watch?v=Jj9SscHb5ZQ
+- https://docs.oracle.com/en/learn/lab_compute_instance/index.html

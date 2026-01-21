@@ -3,6 +3,7 @@ import math
 import os
 import pathlib
 import random
+import urllib.parse
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Any, Dict, List, Optional
@@ -446,6 +447,73 @@ class TargetFinding(commands.Cog):
             
             view = None
 
+            if webpage:
+                scope_param = None
+                if who == " alliance_position:[0,1]":
+                    scope_param = "apps_or_none"
+                elif who == " alliance_id:0":
+                    scope_param = "no_alliance"
+
+                params = {
+                    "attackerNationId": atck_ntn.get("id", ""),
+                    "maxWars": max_wars if max_wars != 3 else None,
+                    "inactiveMinDays": inactive_limit if inactive_limit else None,
+                    "scope": scope_param,
+                    "minBeigeLoot": minimum_beige_loot if minimum_beige_loot else None,
+                    "performance": True if performace_filter else None,
+                    "minScore": int(minscore) if minscore is not None else None,
+                    "maxScore": int(maxscore) if maxscore is not None else None,
+                }
+                if beige is False:
+                    params["beige"] = "false"
+
+                clean_params = {k: v for k, v in params.items() if v is not None and v != ""}
+                raids_query = urllib.parse.urlencode(clean_params)
+                raids_redirect = f"/raids?{raids_query}"
+                raids_url = f"http://132.145.71.195:3000{raids_redirect}"
+                token_url = (
+                    "http://132.145.71.195:3000/token-request?type=raids"
+                    f"&redirect={urllib.parse.quote(raids_redirect)}"
+                    "&auto=true"
+                    f"&userId={ctx.author.id}"
+                )
+
+                webpage_embed = discord.Embed(
+                    title="Targets ready",
+                    description=(
+                        "Your configuration has been sent to the raids page. "
+                        "Open the web view to compute and filter targets."
+                    ),
+                    color=0xff5100,
+                )
+
+                class webpage_view(discord.ui.View):
+                    def __init__(self):
+                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+                        self.add_item(
+                            discord.ui.Button(
+                                label="See your targets",
+                                style=discord.ButtonStyle.link,
+                                url=token_url,
+                            )
+                        )
+
+                    async def interaction_check(self, interaction) -> bool:
+                        if interaction.user != ctx.author:
+                            await interaction.response.send_message(
+                                "These buttons are reserved for someone else!",
+                                ephemeral=True,
+                            )
+                            return False
+                        return True
+
+                    async def on_timeout(self):
+                        await views.run_timeout(ctx, view)
+
+                view = webpage_view()
+                await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
+                return
+
             await ctx.edit(content="Getting targets...", view=view, embed=None)
             done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
 
@@ -704,16 +772,41 @@ class TargetFinding(commands.Cog):
             if webpage:
                 # Build URL for the frontend raids page using live API
                 # The frontend will call the API with the user's token
-                raids_url = f"http://132.145.71.195:3000/raids?attackerNationId={atck_ntn.get('id', '')}"
+                target_ids = [
+                    int(target.get('id'))
+                    for target in best_targets
+                    if str(target.get('id', '')).isdigit()
+                ]
+                await db.global_users.find_one_and_update(
+                    {"user": ctx.author.id},
+                    {"$set": {
+                        "raids_target_ids": target_ids,
+                        "raids_target_generated": round(datetime.utcnow().timestamp()),
+                    }},
+                    upsert=True,
+                )
+
+                raids_query = f"attackerNationId={atck_ntn.get('id', '')}&useSavedTargets=true"
+                raids_redirect = f"/raids?{raids_query}"
+                raids_url = f"http://132.145.71.195:3000{raids_redirect}"
+                token_url = (
+                    "http://132.145.71.195:3000/token-request?type=raids"
+                    f"&redirect={urllib.parse.quote(raids_redirect)}"
+                    "&auto=true"
+                    f"&userId={ctx.author.id}"
+                )
                 
                 webpage_embed = discord.Embed(title=f"Targets successfully gathered", description=f"{filters}\n\nYou can view your targets by pressing the button below.", color=0xff5100)
                 class webpage_view(discord.ui.View):
                     def __init__(self):
                         super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                    @discord.ui.button(label=f"See your targets", style=discord.ButtonStyle.primary)
-                    async def targets_callback(self, b: discord.Button, i: discord.Interaction):
-                        await i.response.send_message(ephemeral=True, content=f"Go to {raids_url} to see your targets!")
+                        self.add_item(
+                            discord.ui.Button(
+                                label="See your targets",
+                                style=discord.ButtonStyle.link,
+                                url=token_url,
+                            )
+                        )
                     
                     async def interaction_check(self, interaction) -> bool:
                         if interaction.user != ctx.author:

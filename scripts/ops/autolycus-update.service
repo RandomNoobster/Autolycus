@@ -1,0 +1,9 @@
+[Unit]
+Description=Autolycus update (git pull, rebuild, restart)
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/autolycus
+ExecStart=/opt/autolycus/scripts/ops/update.sh

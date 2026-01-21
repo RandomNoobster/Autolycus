@@ -287,10 +287,28 @@ function buildInitialTemplates(): TableTemplate[] {
 
 export function RaidsPage() {
   const { token, initialColumnFilters, initialSorting } = useUrlParams();
-  const { nationId: savedNationId, parseNationId } = useNationId();
+  const { nationId: savedNationId, parseNationId, setNationId } = useNationId();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [appliedNationId, setAppliedNationId] = useState(savedNationId);
-  const [draftNationId, setDraftNationId] = useState(savedNationId);
+  const targetNationIds = searchParams.get('targetNationIds') || undefined;
+  const attackerNationIdParam = searchParams.get('attackerNationId') || undefined;
+  const useSavedTargets = searchParams.get('useSavedTargets') === 'true';
+  const resolvedNationId = attackerNationIdParam || savedNationId;
+  const [appliedNationId, setAppliedNationId] = useState(resolvedNationId);
+  const [draftNationId, setDraftNationId] = useState(resolvedNationId);
+
+  useEffect(() => {
+    const nextNationId = attackerNationIdParam || savedNationId;
+    if (nextNationId && nextNationId !== appliedNationId) {
+      setAppliedNationId(nextNationId);
+      setDraftNationId(nextNationId);
+    }
+    if (attackerNationIdParam) {
+      const parsed = parseNationId(attackerNationIdParam);
+      if (parsed) {
+        setNationId(parsed);
+      }
+    }
+  }, [attackerNationIdParam, savedNationId, appliedNationId, parseNationId, setNationId]);
 
   const parseNumber = (key: string): number | undefined => {
     const val = searchParams.get(key);
@@ -366,8 +384,23 @@ export function RaidsPage() {
   const syncingFromFiltersRef = useRef(false);
   const syncingFromTemplateRef = useRef(false);
   const urlFiltersAppliedRef = useRef(false);
+  const filtersRestoredRef = useRef(false);
   const [newTemplateName, setNewTemplateName] = useState('');
   const [renameValue, setRenameValue] = useState(activeTemplate?.name || '');
+  const FILTER_STORAGE_KEY = 'autolycus-raids-filters-v1';
+  const FILTER_QUERY_KEYS = [
+    'alliance',
+    'beige',
+    'maxWars',
+    'inactiveMinDays',
+    'scope',
+    'minBeigeLoot',
+    'performance',
+    'scoreMode',
+    'yourScore',
+    'minScore',
+    'maxScore',
+  ];
 
   // Alliance autocomplete
   const [allianceQuery, setAllianceQuery] = useState(activeFilters.alliance || '');
@@ -385,17 +418,67 @@ export function RaidsPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['raids', token, appliedNationId],
+    queryKey: ['raids', token, appliedNationId, targetNationIds, useSavedTargets],
     queryFn: () => {
       const filters: any = { minScore: 15, vmode: false };
       if (appliedNationId) {
         filters.attackerNationId = parseInt(appliedNationId, 10);
+      }
+      if (targetNationIds) {
+        filters.targetNationIds = targetNationIds;
+      }
+      if (useSavedTargets) {
+        filters.useSavedTargets = true;
       }
       return fetchRaids(token || '', filters);
     },
     retry: false,
     enabled: !!token,
   });
+
+  useEffect(() => {
+    if (filtersRestoredRef.current) return;
+    const hasUrlFilters = FILTER_QUERY_KEYS.some((key) => searchParams.get(key) !== null);
+    if (hasUrlFilters) {
+      filtersRestoredRef.current = true;
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+      if (!raw) {
+        filtersRestoredRef.current = true;
+        return;
+      }
+      const stored = JSON.parse(raw) as Partial<typeof draftFilters>;
+      setDraftFilters((prev) => ({ ...prev, ...stored }));
+      if (stored.alliance !== undefined) {
+        setAllianceQuery(stored.alliance || '');
+      }
+
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        FILTER_QUERY_KEYS.forEach((key) => next.delete(key));
+        if (stored.alliance) next.set('alliance', stored.alliance);
+        if (stored.beige === 'only') next.set('beige', 'true');
+        else if (stored.beige === 'hide') next.set('beige', 'false');
+        if (stored.maxWars && stored.maxWars !== 'all') next.set('maxWars', stored.maxWars);
+        if (stored.inactiveMinDays && stored.inactiveMinDays !== 'none') next.set('inactiveMinDays', stored.inactiveMinDays);
+        if (stored.scope && stored.scope !== 'all') next.set('scope', stored.scope);
+        if (stored.minBeigeLoot && stored.minBeigeLoot !== '0') next.set('minBeigeLoot', stored.minBeigeLoot);
+        if (stored.performance) next.set('performance', 'true');
+        if (stored.scoreMode) next.set('scoreMode', stored.scoreMode);
+        if (stored.yourScore) next.set('yourScore', stored.yourScore);
+        if (stored.minScore) next.set('minScore', stored.minScore);
+        if (stored.maxScore) next.set('maxScore', stored.maxScore);
+        return next;
+      }, { replace: true });
+    } catch (error) {
+      console.warn('Failed to restore raids filters', error);
+    } finally {
+      filtersRestoredRef.current = true;
+    }
+  }, [searchParams, setSearchParams]);
 
   // Auto-fill score when attacker data loads and we have a nation ID
   useEffect(() => {
@@ -604,6 +687,11 @@ export function RaidsPage() {
     }, { replace: true });
     syncingFromFiltersRef.current = true;
     setColumnFilters((prev) => prev.filter((f) => !MAPPED_COLUMN_IDS.has(f.id)));
+    try {
+      localStorage.removeItem(FILTER_STORAGE_KEY);
+    } catch (error) {
+      console.warn('Failed to clear raids filter storage', error);
+    }
   }, [setSearchParams]);
 
   const applyFilters = () => {
@@ -647,6 +735,11 @@ export function RaidsPage() {
       return next;
     }, { replace: true });
     syncColumnFiltersFromDraft();
+    try {
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(draftFilters));
+    } catch (error) {
+      console.warn('Failed to persist raids filters', error);
+    }
   };
 
   type ColumnFiltersUpdater = MRT_ColumnFiltersState | ((prev: MRT_ColumnFiltersState) => MRT_ColumnFiltersState);
@@ -779,17 +872,17 @@ export function RaidsPage() {
 
   // Conditional returns AFTER all hooks
   if (!token) {
-    return <TokenError type="missing" />;
+    return <TokenError type="missing" dataType="raids" />;
   }
 
   if (error) {
     const apiError = error as unknown as ApiError;
     
     if (apiError.code === 'TOKEN_EXPIRED') {
-      return <TokenError type="expired" message={apiError.message} />;
+      return <TokenError type="expired" message={apiError.message} dataType="raids" />;
     }
     if (apiError.code === 'TOKEN_INVALID') {
-      return <TokenError type="invalid" message={apiError.message} />;
+      return <TokenError type="invalid" message={apiError.message} dataType="raids" />;
     }
     
     return (

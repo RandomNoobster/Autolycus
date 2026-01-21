@@ -5,7 +5,7 @@ import { AppNavbar } from '@/components/layout/AppNavbar';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { RaidsPage } from '@/pages/RaidsPage';
 import { BuildsPage } from '@/pages/BuildsPage';
-import { DamagePage } from '@/pages/DamagePage';
+import { DamagePage } from '@/pages/DamagePageView';
 import { HomePage } from '@/pages/HomePage';
 import { TokenRequestPage } from '@/pages/TokenRequestPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';

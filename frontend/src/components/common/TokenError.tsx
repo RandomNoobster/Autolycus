@@ -6,15 +6,18 @@
 
 import { Container, Title, Text, Stack, Alert, Button } from '@mantine/core';
 import { IconAlertTriangle, IconLock, IconShield } from '@tabler/icons-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 interface TokenErrorProps {
   type: 'missing' | 'expired' | 'invalid';
   message?: string;
+  dataType?: 'raids' | 'builds' | 'damage';
+  redirectPath?: string;
 }
 
-export function TokenError({ type, message }: TokenErrorProps) {
+export function TokenError({ type, message, dataType = 'raids', redirectPath }: TokenErrorProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   
   const config = {
     missing: {
@@ -40,7 +43,9 @@ export function TokenError({ type, message }: TokenErrorProps) {
   const { title, description, icon } = config[type];
 
   const handleGenerateToken = () => {
-    navigate('/token-request?type=raids&redirect=/raids&auto=true');
+    const fallbackRedirect = `${location.pathname}${location.search}` || `/${dataType}`;
+    const nextRedirect = redirectPath || fallbackRedirect;
+    navigate(`/token-request?type=${dataType}&redirect=${encodeURIComponent(nextRedirect)}&auto=true`);
   };
 
   return (

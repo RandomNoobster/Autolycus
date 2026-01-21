@@ -42,13 +42,30 @@ export async function apiRequest<T>(
     },
   });
 
-  const data = await response.json();
+  const rawText = await response.text();
+  let data: any = null;
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = rawText;
+    }
+  }
 
   if (!response.ok) {
     const error: ApiError = {
-      error: data.error || 'Request failed',
-      message: data.message || 'An unexpected error occurred',
-      code: data.code || 'UNKNOWN_ERROR',
+      error: data?.error || 'Request failed',
+      message: data?.message || (typeof data === 'string' ? data : 'An unexpected error occurred'),
+      code: data?.code || 'UNKNOWN_ERROR',
+    };
+    throw error;
+  }
+
+  if (data === null || data === undefined || typeof data === 'string') {
+    const error: ApiError = {
+      error: 'Invalid response',
+      message: typeof data === 'string' ? data : 'Response body was not JSON',
+      code: 'INVALID_RESPONSE',
     };
     throw error;
   }

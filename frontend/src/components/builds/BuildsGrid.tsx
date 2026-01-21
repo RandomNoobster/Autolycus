@@ -48,7 +48,6 @@ export function BuildsGrid({
             key={netIncomeKey}
             resourceType="net income"
             build={netIncomeBuild}
-            land={land}
             allBuilds={[]}
             isValid={true}
           />
