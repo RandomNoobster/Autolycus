@@ -55,6 +55,16 @@ export function getContinentResources(continent: Continent): ContinentResources 
 }
 
 /**
+ * Get raw resources available for a continent.
+ *
+ * @param continent - The continent code
+ * @returns Array of raw resource names
+ */
+export function getContinentRawResources(continent: Continent): string[] {
+  return CONTINENT_RESOURCE_MAP[continent] || [];
+}
+
+/**
  * Check if a resource is valid for a continent.
  *
  * @param resource - The resource name

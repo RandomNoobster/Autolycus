@@ -5,6 +5,7 @@
  */
 
 import {
+  Box,
   Container,
   Title,
   Text,
@@ -17,19 +18,19 @@ import {
   Select,
   Switch,
   Button,
-  Tooltip,
-  ActionIcon,
   Autocomplete,
   Anchor,
   Alert,
   Loader,
+  LoadingOverlay,
+  Skeleton,
   TextInput,
   Divider,
 } from '@mantine/core';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { IconQuestionMark, IconSearch, IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
+import { IconSearch, IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { IconPlus, IconCopy, IconTrash, IconPencil } from '@tabler/icons-react';
 import type {
@@ -42,7 +43,7 @@ import type {
 import { fetchRaids, searchAlliances } from '@/api';
 import { useUrlParams, useNationId } from '@/hooks';
 import { RaidsTable } from '@/components/raids';
-import { TokenError, LoadingState, ErrorState, NationIdField } from '@/components/common';
+import { TokenError, ErrorState, NationIdField } from '@/components/common';
 import type { ApiError } from '@/types';
 
 type TableTemplateSettings = {
@@ -781,10 +782,6 @@ export function RaidsPage() {
     return <TokenError type="missing" />;
   }
 
-  if (isLoading) {
-    return <LoadingState message="Loading raid targets..." />;
-  }
-
   if (error) {
     const apiError = error as unknown as ApiError;
     
@@ -804,9 +801,14 @@ export function RaidsPage() {
     );
   }
 
-  if (!data) {
+  if (!data && !isLoading) {
     return <ErrorState title="No data" message="No raid data available" />;
   }
+
+  const isInitialLoading = isLoading && !data;
+  const showTableOverlay = isLoading && !!data;
+  const discordLinked = data?.discordLinked ?? false;
+  const showBeige = data?.showBeige ?? false;
 
   return (
     <Container size="xl" py="md">
@@ -1161,7 +1163,7 @@ export function RaidsPage() {
         </Paper>
 
         {/* Discord Linking Alert */}
-        {!data.discordLinked && (
+        {!isLoading && !discordLinked && (
           <Alert
             icon={<IconAlertCircle size={16} />}
             title="Discord Integration Required for Reminders"
@@ -1306,21 +1308,36 @@ export function RaidsPage() {
         </Stack>
 
         {/* Table */}
-        <RaidsTable
-          data={filteredTargets}
-          token={token}
-          showBeige={data.showBeige}
-          discordLinked={data.discordLinked}
-          initialSorting={initialSorting}
-          columnVisibility={columnVisibility}
-          columnOrder={columnOrder}
-          density={density}
-          columnFilters={columnFilters}
-          onColumnVisibilityChange={setColumnVisibility}
-          onColumnOrderChange={setColumnOrder}
-          onDensityChange={setDensity}
-          onColumnFiltersChange={handleColumnFiltersChange}
-        />
+        <Box pos="relative">
+          <LoadingOverlay visible={showTableOverlay} zIndex={2} overlayProps={{ blur: 1 }} />
+          {isInitialLoading ? (
+            <Paper withBorder radius="md" p="md">
+              <Stack gap="xs">
+                <Skeleton height={28} radius="sm" />
+                <Skeleton height={18} radius="sm" />
+                {Array.from({ length: 10 }).map((_, idx) => (
+                  <Skeleton key={`raid-table-skeleton-${idx}`} height={26} radius="sm" />
+                ))}
+              </Stack>
+            </Paper>
+          ) : (
+            <RaidsTable
+              data={filteredTargets}
+              token={token}
+              showBeige={showBeige}
+              discordLinked={discordLinked}
+              initialSorting={initialSorting}
+              columnVisibility={columnVisibility}
+              columnOrder={columnOrder}
+              density={density}
+              columnFilters={columnFilters}
+              onColumnVisibilityChange={setColumnVisibility}
+              onColumnOrderChange={setColumnOrder}
+              onDensityChange={setDensity}
+              onColumnFiltersChange={handleColumnFiltersChange}
+            />
+          )}
+        </Box>
       </Stack>
     </Container>
   );

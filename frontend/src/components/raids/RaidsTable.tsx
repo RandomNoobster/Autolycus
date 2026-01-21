@@ -342,6 +342,7 @@ export function RaidsTable({
 
   const cityRange = useMemo(() => {
     const cities = data.map(d => d.numCities);
+    if (!cities.length) return [0, 0];
     return [Math.min(...cities), Math.max(...cities)];
   }, [data]);
 

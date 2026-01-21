@@ -1,7 +1,8 @@
 import { Button, Group, Loader, Stack, TextInput, Alert } from '@mantine/core';
-import { IconAlertCircle } from '@tabler/icons-react';
+import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
 import type { ButtonProps, GroupProps, MantineSize, TextInputProps } from '@mantine/core';
 import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 
 interface NationIdFieldProps {
   value: string;
@@ -21,6 +22,7 @@ interface NationIdFieldProps {
   groupProps?: Omit<GroupProps, 'children'>;
   errorMessage?: string | null;
   warningMessage?: string | null;
+  successMessage?: string | null;
 }
 
 export function NationIdField({
@@ -41,13 +43,28 @@ export function NationIdField({
   groupProps,
   errorMessage,
   warningMessage,
+  successMessage,
 }: NationIdFieldProps) {
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // Show success state briefly when successMessage changes to a truthy value
+  useEffect(() => {
+    if (successMessage) {
+      setShowSuccess(true);
+      const timer = setTimeout(() => setShowSuccess(false), 2500);
+      return () => clearTimeout(timer);
+    }
+    setShowSuccess(false);
+  }, [successMessage]);
+
   const inputStyle = layout === 'row'
     ? { flex: 1, minWidth: 200, ...(inputProps?.style ?? {}) }
     : inputProps?.style;
 
   const buttonDisabledState = loading || buttonDisabled || buttonProps?.disabled;
   const buttonSize = buttonProps?.size ?? size;
+
+  const isSuccess = showSuccess && !loading && !errorMessage;
 
   const textInput = (
     <TextInput
@@ -66,12 +83,14 @@ export function NationIdField({
   const button = (
     <Button
       size={buttonSize}
-      leftSection={loading ? <Loader size="xs" /> : buttonIcon}
+      leftSection={loading ? <Loader size="xs" /> : isSuccess ? <IconCheck size={16} /> : buttonIcon}
       onClick={onSubmit}
+      color={isSuccess ? 'green' : undefined}
+      variant={isSuccess ? 'filled' : buttonProps?.variant}
       {...buttonProps}
       disabled={buttonDisabledState}
     >
-      {loading ? 'Loading...' : buttonLabel}
+      {loading ? 'Loading...' : isSuccess ? 'Loaded!' : buttonLabel}
     </Button>
   );
 

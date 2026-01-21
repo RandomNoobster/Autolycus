@@ -184,7 +184,8 @@ export function BuildCard({
               value={currentBuild.diseaseRate ?? 0}
               realValue={currentBuild.realDiseaseRate}
               formatter={(val) => formatPercentage(val as number, 1)}
-              tooltip="Disease rate affects population growth. Lower is better. Ceiled at 0% minimum."
+              tooltip="Disease rate affects population growth. Lower is better."
+              capType="floor"
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
@@ -194,7 +195,8 @@ export function BuildCard({
               value={currentBuild.pollution ?? 0}
               realValue={currentBuild.realPollution}
               formatter={(val) => `${formatNumber(val as number)} pts`}
-              tooltip="Pollution feeds into disease. Lower is better. Ceiled at 0 points minimum."
+              tooltip="Pollution feeds into disease. Lower is better."
+              capType="floor"
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
@@ -204,7 +206,8 @@ export function BuildCard({
               value={currentBuild.crimeRate ?? 0}
               realValue={currentBuild.realCrimeRate}
               formatter={(val) => formatPercentage(val as number, 1)}
-              tooltip="Crime reduces commerce. Lower is better. Ceiled at 0% minimum."
+              tooltip="Crime reduces commerce. Lower is better."
+              capType="floor"
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
@@ -214,7 +217,8 @@ export function BuildCard({
               value={currentBuild.commerce ?? 0}
               realValue={currentBuild.realCommerce}
               formatter={(val) => formatPercentage(val as number, 1)}
-              tooltip="Commerce boosts revenue. Floored at the commerce limit from projects and improvements."
+              tooltip="Commerce boosts revenue. Higher is better."
+              capType="ceiling"
             />
           </Grid.Col>
           <Grid.Col span={12}>
@@ -354,15 +358,36 @@ interface StatItemProps {
   realValue?: number;
   formatter?: (value: number | string) => string;
   tooltip?: string;
+  capType?: 'floor' | 'ceiling' | 'both';
 }
 
-function StatItem({ label, icon, value, realValue, formatter, tooltip }: StatItemProps) {
+function StatItem({ label, icon, value, realValue, formatter, tooltip, capType = 'both' }: StatItemProps) {
   const formattedValue = formatter ? formatter(value) : String(value);
   const numericValue = typeof value === 'number' ? value : undefined;
-  const hasCap =
-    numericValue !== undefined &&
-    realValue !== undefined &&
-    Math.abs(realValue - numericValue) > 0.01;
+  
+  // Determine if value was clamped to a boundary
+  // For disease/crime/pollution: clamped means raw < 0 but displayed as 0 (floor)
+  // For commerce: clamped means raw > max but displayed at max (ceiling)
+  const hasCap = (() => {
+    if (numericValue === undefined || realValue === undefined) return false;
+    const epsilon = 0.01;
+    const formattedRaw = formatter ? formatter(realValue) : String(realValue);
+    const formattedShown = formatter ? formatter(numericValue) : String(numericValue);
+
+    const canFloor = capType === 'floor' || capType === 'both';
+    const canCeil = capType === 'ceiling' || capType === 'both';
+
+    // Floor case: displayed value is 0, raw value is negative
+    if (canFloor && numericValue === 0 && realValue < 0) return true;
+
+    // Ceiling case: raw value exceeds displayed value AND rounding doesn't explain it
+    if (canCeil && realValue > numericValue + epsilon && formattedRaw !== formattedShown) {
+      return true;
+    }
+
+    return false;
+  })();
+  
   const capDirection = hasCap && realValue !== undefined && numericValue !== undefined
     ? (realValue > numericValue ? 'ceiling' : 'floor')
     : null;
@@ -370,9 +395,15 @@ function StatItem({ label, icon, value, realValue, formatter, tooltip }: StatIte
     ? formatter?.(realValue) ?? String(realValue)
     : null;
 
+  const capNote = hasCap
+    ? capDirection === 'ceiling'
+      ? ` Raw calculation ${formattedRaw} but capped at the maximum allowed.`
+      : ` Raw calculation ${formattedRaw} but capped at 0.`
+    : '';
+
   const badge = hasCap ? (
     <Tooltip
-      label={`Raw calculation ${formattedRaw} but ${capDirection === 'ceiling' ? 'capped at the maximum allowed' : 'floored at the minimum allowed'}.`}
+      label={capNote.trim()}
       withArrow
     >
       <Badge
@@ -416,8 +447,9 @@ function StatItem({ label, icon, value, realValue, formatter, tooltip }: StatIte
   );
 
   if (tooltip) {
+    const tooltipLabel = hasCap ? `${tooltip}${capNote}` : tooltip;
     return (
-      <Tooltip label={tooltip} multiline w={240}>
+      <Tooltip label={tooltipLabel} multiline w={240}>
         <div>{content}</div>
       </Tooltip>
     );

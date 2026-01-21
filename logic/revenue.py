@@ -703,12 +703,25 @@ async def revenue_calc(
         
         city['real_pollution'] = total_pollution
         city['pollution'] = max(total_pollution, 0)
-        city['real_commerce'] = civil_result.get('raw_commerce', civil_result['commerce'])
+        raw_commerce = civil_result.get('raw_commerce', civil_result['commerce'])
+        city['real_commerce'] = raw_commerce
         city['commerce'] = commerce
-        
-        pop_result = calculate_population_effects(city, modifiers, base_pop, commerce, police_stations, hospitals, city['pollution'])
-        city['real_crime_rate'] = pop_result.get('crime_rate_raw', pop_result['crime_rate'])
-        city['crime_rate'] = pop_result['crime_rate']
+
+        pop_result = calculate_population_effects(
+            city,
+            modifiers,
+            base_pop,
+            raw_commerce,
+            police_stations,
+            hospitals,
+            city['pollution'],
+        )
+        crime_rate_raw = (
+            (math.pow(103 - raw_commerce, 2) + base_pop) / 111111
+            - police_stations * modifiers['pol_cri_red']
+        )
+        city['real_crime_rate'] = crime_rate_raw
+        city['crime_rate'] = max(crime_rate_raw, 0)
         city['real_disease_rate'] = pop_result.get('disease_rate_raw', pop_result['disease_rate'])
         city['disease_rate'] = pop_result['disease_rate']
         nationpop += pop_result['population']
