@@ -4,6 +4,7 @@ import logging
 import os
 
 import queries
+from api.cache import cache_prices
 
 from .api_client import call
 from .common import RSS
@@ -14,12 +15,16 @@ _API_KEY = os.getenv("api_key")
 _BOT_KEY = os.getenv("bot_key")
 
 
+@cache_prices(ttl=300)  # Cache for 5 minutes - prices update ~hourly
 async def get_prices() -> dict[str, float]:
     """Fetch current trade prices for all resources.
 
     Mirrors legacy pw_utils.get_prices behaviour while using the shared
     api_client module for GraphQL access.
+    
+    Note: This function is cached to reduce P&W API calls. Cache TTL is 5 minutes.
     """
+    logger.debug("Fetching fresh prices from P&W API (cache miss or expired)")
     response = await call(
         f"{{tradeprices(page:1 first:1){{data{get_query(queries.PRICES)}}}}}",
         _API_KEY,

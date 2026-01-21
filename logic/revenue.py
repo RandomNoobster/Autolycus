@@ -10,56 +10,42 @@ Reference: pwpedia_data.jsonl for all game mechanics and formulas.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import discord
 
+from api.cache import cache_game_context
+
 from .common import weird_division
 
+logger = logging.getLogger(__name__)
 
-async def pre_revenue_calc(
-    message: Optional[discord.Message],
-    query_for_nation: bool = False,
-    nationid: Optional[int | str] = None,
-    parsed_nation: Optional[dict[str, Any]] = None,
-    call_func=None,
-    get_query_func=None,
-    queries_module=None,
-):
-    """Fetch game data needed for revenue calculations.
+
+@cache_game_context(ttl=600)  # Cache for 10 minutes - game context changes slowly
+async def get_cached_game_context(
+    call_func,
+    get_query_func,
+    queries_module,
+) -> Tuple[dict[str, float], dict[str, float], list[dict[str, Any]], dict[str, float], dict[str, float]]:
+    """Fetch and cache shared game context data.
     
-    Retrieves color bonuses, radiation, trade prices, treasures, and game date
-    to support comprehensive nation revenue analysis.
+    This function caches the expensive P&W API call that fetches:
+    - Color turn bonuses
+    - Trade prices  
+    - Treasures list
+    - Radiation levels
+    - Seasonal modifiers
     
-    Args:
-        message: Discord message to edit with status updates
-        query_for_nation: If True, fetch nation from P&W API by ID
-        nationid: Nation ID to query (used if query_for_nation=True)
-        parsed_nation: Pre-fetched nation data (alternative to query_for_nation)
-        call_func: Function to call P&W GraphQL API (from api_client)
-        get_query_func: Function to build GraphQL queries (from merge_utils)
-        queries_module: Queries module with query definitions
-        
     Returns:
-        Tuple of (nation, colors, prices, treasures, radiation, seasonal_mod)
+        Tuple of (colors, prices, treasures, radiation, seasonal_mod)
+        
+    Note: Cache TTL is 10 minutes. This data changes slowly so caching
+    significantly reduces P&W API load across multiple requests.
     """
-    if call_func is None or get_query_func is None or queries_module is None:
-        raise ValueError("call_func, get_query_func, and queries_module are required")
-    
-    if query_for_nation:
-        nation = (await call_func(
-            f"{{nations(first:1 id:{nationid}){{data{get_query_func(queries_module.REVENUE)}}}}}"
-        ))['data']['nations']['data']
-        if len(nation) == 0:
-            raise ValueError("Nation not found in API")
-        nation = nation[0]
-    else:
-        nation = parsed_nation
-
-    if message is not None:
-        await message.edit(content="Getting income modifiers...")
+    logger.debug("Fetching fresh game context from P&W API (cache miss or expired)")
     
     # Build the GraphQL query
     prices_query = get_query_func(queries_module.PRICES)
@@ -98,6 +84,59 @@ async def pre_revenue_calc(
         seasonal_mod.update({'na': 1.2, 'as': 1.2, 'eu': 1.2, 'sa': 0.8, 'af': 0.8, 'au': 0.8})
     elif month in (12, 1, 2):
         seasonal_mod.update({'na': 0.8, 'as': 0.8, 'eu': 0.8, 'sa': 1.2, 'af': 1.2, 'au': 1.2})
+    
+    return colors, prices, treasures, radiation, seasonal_mod
+
+
+async def pre_revenue_calc(
+    message: Optional[discord.Message],
+    query_for_nation: bool = False,
+    nationid: Optional[int | str] = None,
+    parsed_nation: Optional[dict[str, Any]] = None,
+    call_func=None,
+    get_query_func=None,
+    queries_module=None,
+):
+    """Fetch game data needed for revenue calculations.
+    
+    Retrieves color bonuses, radiation, trade prices, treasures, and game date
+    to support comprehensive nation revenue analysis.
+    
+    Args:
+        message: Discord message to edit with status updates
+        query_for_nation: If True, fetch nation from P&W API by ID
+        nationid: Nation ID to query (used if query_for_nation=True)
+        parsed_nation: Pre-fetched nation data (alternative to query_for_nation)
+        call_func: Function to call P&W GraphQL API (from api_client)
+        get_query_func: Function to build GraphQL queries (from merge_utils)
+        queries_module: Queries module with query definitions
+        
+    Returns:
+        Tuple of (nation, colors, prices, treasures, radiation, seasonal_mod)
+        
+    Note: Game context (colors, prices, treasures, radiation, seasonal_mod) is
+    cached for 10 minutes via get_cached_game_context() to reduce API calls.
+    """
+    if call_func is None or get_query_func is None or queries_module is None:
+        raise ValueError("call_func, get_query_func, and queries_module are required")
+    
+    if query_for_nation:
+        nation = (await call_func(
+            f"{{nations(first:1 id:{nationid}){{data{get_query_func(queries_module.REVENUE)}}}}}"
+        ))['data']['nations']['data']
+        if len(nation) == 0:
+            raise ValueError("Nation not found in API")
+        nation = nation[0]
+    else:
+        nation = parsed_nation
+
+    if message is not None:
+        await message.edit(content="Getting income modifiers...")
+    
+    # Use cached game context to reduce P&W API calls
+    colors, prices, treasures, radiation, seasonal_mod = await get_cached_game_context(
+        call_func, get_query_func, queries_module
+    )
     
     return nation, colors, prices, treasures, radiation, seasonal_mod
 

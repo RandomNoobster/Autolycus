@@ -3,7 +3,6 @@ import datetime
 import logging
 import os
 import pathlib
-import shutil
 from logging.handlers import RotatingFileHandler
 
 import discord
@@ -74,22 +73,12 @@ kit = pnwkit.QueryKit(api_key)
 # discord bot
 bot = commands.Bot(intents=intents, command_prefix="!")
 
-# creating files if they do not exist and reseting them
+# creating files if they do not exist
 cwd = pathlib.Path.cwd()
 
-if os.path.exists(f"{cwd}/data/web"):
-    # On Windows, files may be locked by other processes (VS Code, browser, etc.)
-    # Try to remove, but continue if it fails
-    try:
-        shutil.rmtree(f"{cwd}/data/web")
-    except PermissionError as e:
-        print(f"Warning: Could not delete data/web directory: {e}")
-        print("Close any programs using these files and try again, or manually delete the directory.")
-
+# Ensure data directory exists (no longer using data/web for file-based caching)
 for make_directory in [
     "data",
-    "data/web",
-    "data/web/builds", "data/web/damage", "data/web/raids", "data/web/attacksheet",
     ]:
     pathlib.Path(f"{cwd}/{make_directory}").mkdir(exist_ok=True)
 

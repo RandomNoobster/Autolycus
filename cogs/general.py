@@ -17,7 +17,7 @@ from discord.commands import Option, SlashCommandGroup, slash_command
 from discord.ext import commands
 
 import queries
-from database.mongo import get_db, get_global_user_by_any, listify, find_nation
+from database.mongo import find_nation, get_db, get_global_user_by_any, listify
 from database.users import (delete_verification, get_verification,
                             set_verification)
 from discord_utils import helpers
@@ -30,7 +30,6 @@ from logic.military import militarization_checker
 from logic.revenue import pre_revenue_calc, revenue_calc
 from main import logger
 from utils import db_utils
-from utils.db_utils import write_web
 
 api_key = os.getenv("api_key")
 call_api = partial(call, api_key=api_key)
@@ -182,26 +181,14 @@ class Background(commands.Cog):
                     mmr_values.get("drydock", 0),
                 )
 
-            timestamp = round(datetime.utcnow().timestamp())
-
-            payload = {
-                "builds": builds,
-                "rss": resources,
-                "resources": resources,
-                "land": results.get("land", land_amount),
-                "infrastructure": results.get("infrastructure", infra_level),
-                "top_unique_builds": top_unique_builds,
-                "topUniqueBuilds": top_unique_builds,
-                "unique_builds": unique_builds,
-                "uniqueBuilds": unique_builds,
-                "nation": results.get("nation"),
-                "mmr": mmr_values,
-            }
-            await write_web("builds", ctx.author.id, payload, timestamp)
+            # Build URL parameters for the frontend builds page
+            # The frontend will call the live API with these parameters
+            url_params = f"nation_id={db_nation['id']}&infra={infra_level}&land={land_amount}&mmr={mmr_display}"
+            builds_url = f"http://132.145.71.195:3000/builds?{url_params}"
 
             embed = discord.Embed(
                 title=f"Optimal City Builds for {infra_level} Infrastructure",
-                url=f"http://132.145.71.195:5000/builds/{ctx.author.id}/{timestamp}",
+                url=builds_url,
                 description=f"Found **{len(unique_builds):,}** unique build configurations.",
                 color=0xff5100,
             )
@@ -218,7 +205,7 @@ class Background(commands.Cog):
                 revenue_text = f"> Net Income: `${best_build.get('net income', 0):,.2f}` per day"
                 embed.add_field(name="Best Overall Build", value=revenue_text, inline=False)
 
-            link_text = f"[Click here to see all builds](http://132.145.71.195:5000/builds/{ctx.author.id}/{timestamp})"
+            link_text = f"[Click here to see all builds]({builds_url})"
             embed.add_field(name="View Detailed Results", value=link_text, inline=False)
 
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import queries
+from api.cache import cache_historical_prices
 from logic.merge_utils import get_query
 from logic.revenue import (calculate_nation_modifiers, pre_revenue_calc,
                            revenue_calc)
@@ -212,7 +213,16 @@ async def _fetch_historical_prices(call_pnw: GraphQLCaller) -> Optional[dict[str
     Note: The API tradeprices endpoint doesn't support date filtering.
     We fetch the most recent 30 records which should correspond to ~30 days.
     Per pnwSchema.graphql: tradeprices only accepts 'first' and 'page' parameters.
+    
+    Note: This function is cached via _fetch_historical_prices_cached for 30 minutes.
     """
+    return await _fetch_historical_prices_cached(call_pnw)
+
+
+@cache_historical_prices(ttl=1800)  # Cache for 30 minutes - historical prices change slowly
+async def _fetch_historical_prices_cached(call_pnw: GraphQLCaller) -> Optional[dict[str, float]]:  
+    """Cached implementation of historical price fetching."""
+    logger.debug("Fetching fresh historical prices from P&W API (cache miss or expired)")
     prices_selection = get_query(queries.PRICES)
     price_query = "{" f'tradeprices(first:30){{data{prices_selection}}}' "}"
     try:

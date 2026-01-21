@@ -23,8 +23,7 @@ from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
 from logic.revenue import pre_revenue_calc, revenue_calc
 from main import logger
-from utils.db_utils import (get_all_nations, get_nations_db_path, read_web,
-                            write_web)
+from utils.db_utils import get_all_nations, get_nations_db_path
 
 api_key = os.getenv("api_key")
 call_api = partial(api_client.call, api_key=api_key)
@@ -703,7 +702,10 @@ class TargetFinding(commands.Cog):
             best_targets = sorted(target_list, key=lambda k: k['monetary_net_num'], reverse=True)
 
             if webpage:
-                timestamp = round(datetime.utcnow().timestamp())
+                # Build URL for the frontend raids page using live API
+                # The frontend will call the API with the user's token
+                raids_url = f"http://132.145.71.195:3000/raids?attackerNationId={atck_ntn.get('id', '')}"
+                
                 webpage_embed = discord.Embed(title=f"Targets successfully gathered", description=f"{filters}\n\nYou can view your targets by pressing the button below.", color=0xff5100)
                 class webpage_view(discord.ui.View):
                     def __init__(self):
@@ -711,7 +713,7 @@ class TargetFinding(commands.Cog):
 
                     @discord.ui.button(label=f"See your targets", style=discord.ButtonStyle.primary)
                     async def targets_callback(self, b: discord.Button, i: discord.Interaction):
-                        await i.response.send_message(ephemeral=True, content=f"Go to http://132.145.71.195:5000/raids/{ctx.author.id}/{timestamp} to see your targets!")
+                        await i.response.send_message(ephemeral=True, content=f"Go to {raids_url} to see your targets!")
                     
                     async def interaction_check(self, interaction) -> bool:
                         if interaction.user != ctx.author:
@@ -722,8 +724,6 @@ class TargetFinding(commands.Cog):
                     
                     async def on_timeout(self):
                         await views.run_timeout(ctx, view)
-                
-                await write_web("raids", ctx.author.id, {"atck_ntn": atck_ntn, "best_targets": best_targets, "beige": beige, "user_id": ctx.author.id}, timestamp)
 
                 view = webpage_view()
                 await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
@@ -1126,9 +1126,10 @@ class TargetFinding(commands.Cog):
 
             cur_page = 1
 
-            timestamp = round(datetime.utcnow().timestamp())
-            await write_web("damage", ctx.author.id, {"results": results}, timestamp)
-            url = f"http://132.145.71.195:5000/damage/{ctx.author.id}/{timestamp}"
+            # Build URL for the frontend damage page using live API
+            nation1_id = results.get('nation1', {}).get('id', '')
+            nation2_id = results.get('nation2', {}).get('id', '')
+            url = f"http://132.145.71.195:3000/damage?nation1={nation1_id}&nation2={nation2_id}"
 
             class switch(discord.ui.View):
                 def __init__(self):
@@ -1535,11 +1536,10 @@ class TargetFinding(commands.Cog):
             
             results = await self.battle_calc(nation1_id, nation2_id)
 
-            timestamp = round(datetime.utcnow().timestamp())
+            # Build URL for the frontend damage page using live API
+            damage_url = f"http://132.145.71.195:3000/damage?nation1={nation1_id}&nation2={nation2_id}"
 
-            await write_web("damage", ctx.author.id, {"results": results}, timestamp)
-
-            await ctx.respond(content=f"Go to http://132.145.71.195:5000/damage/{ctx.author.id}/{timestamp}")
+            await ctx.respond(content=f"Go to {damage_url}")
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e
