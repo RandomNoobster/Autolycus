@@ -337,6 +337,10 @@ class General(commands.Cog):
                                 title = "Airstrike targeting aircraft"
                                 att_casualties = f"{attack['att_aircraft_lost']:,} planes"
                                 def_casualties = f"{attack['def_aircraft_lost']:,} planes"
+                            else:
+                                title = "Unknown attack type"
+                                att_casualties = "Unknown"
+                                def_casualties = "Unknown"
                             try:
                                 aaa_link = f"[{attacker_nation['alliance']['name']}](https://politicsandwar.com/alliance/id={attacker_nation['alliance']['id']})"
                             except:
