@@ -32,17 +32,6 @@ export function BuildsGrid({
   return (
     <Stack gap="xl">
       <div>
-        <Group justify="space-between" align="center" mb="md" wrap="wrap">
-          <div>
-            <Title order={2}>Best Build for Net Income</Title>
-            <Text size="sm" c="dimmed">
-              This build maximizes total net income across all resources at your selected settings.
-            </Text>
-          </div>
-          <Badge variant="outline" color="gray">
-            Land per city: {formatNumber(land)}
-          </Badge>
-        </Group>
         <SimpleGrid cols={{ base: 1 }} spacing="lg">
           <BuildCard
             key={netIncomeKey}

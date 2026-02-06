@@ -16,5 +16,4 @@
 # - uranium.png
 # - credits.png
 
-# For now, the app uses hosted URLs from ibb.co
-# You can download and place local copies here for better reliability
+# These icons are now served from the local public assets folder

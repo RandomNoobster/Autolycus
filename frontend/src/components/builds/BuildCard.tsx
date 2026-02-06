@@ -108,7 +108,7 @@ export function BuildCard({
         <Group justify="space-between" align="flex-start">
           <Group gap="xs" style={{ flex: 1, minWidth: 0 }}>
             <Title order={4} style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-              Best build for {formatResourceLabel(resourceType)}
+              Best Build for {formatResourceLabel(resourceType)}
             </Title>
             {!isValid && (
               <Tooltip label="This resource cannot be produced on your selected continent">

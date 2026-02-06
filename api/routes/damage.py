@@ -487,9 +487,9 @@ def _build_damage_response(
     nation2_info = _extract_nation_data(results, "nation2")
 
     scenario1_attacker = _build_attack_analysis(results, "nation1", "nation2", perspective="attacker")
-    scenario1_defender = _build_attack_analysis(results, "nation1", "nation2", perspective="defender")
+    scenario1_defender = _build_attack_analysis(results, "nation2", "nation1", perspective="attacker")
     scenario2_attacker = _build_attack_analysis(results, "nation2", "nation1", perspective="attacker")
-    scenario2_defender = _build_attack_analysis(results, "nation2", "nation1", perspective="defender")
+    scenario2_defender = _build_attack_analysis(results, "nation1", "nation2", perspective="attacker")
 
     return {
         "nations": {

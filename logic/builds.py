@@ -52,7 +52,12 @@ def _max_units_from_city(city: BuildDict, population: float) -> Dict[str, int]:
     }
 
 
-def _unit_upkeep_for_max(max_units: Dict[str, int], *, at_war: bool, mil_cost_mod: float) -> tuple[float, float, Dict[str, float]]:
+def _unit_upkeep_for_max(
+    max_units: Dict[str, int],
+    *,
+    at_war: bool,
+    mil_cost_mod: float,
+) -> tuple[float, float, Dict[str, float], Dict[str, float]]:
     rates = {
         "soldiers": 1.88 if at_war else 1.25,
         "tanks": 75 if at_war else 50,
@@ -61,14 +66,17 @@ def _unit_upkeep_for_max(max_units: Dict[str, int], *, at_war: bool, mil_cost_mo
     }
     food_rates = {"soldiers": (1 / (500 if at_war else 750)), "tanks": 0, "aircraft": 0, "ships": 0}
     breakdown = {}
+    food_breakdown = {}
     total = 0.0
     food = 0.0
     for unit, count in max_units.items():
         upkeep = count * rates[unit] * mil_cost_mod
         breakdown[unit] = upkeep
         total += upkeep
-        food += count * food_rates.get(unit, 0)
-    return total, food, breakdown
+        unit_food = count * food_rates.get(unit, 0)
+        food_breakdown[unit] = unit_food
+        food += unit_food
+    return total, food, breakdown, food_breakdown
 
 
 def _freeze_value(value: Any) -> Any:
@@ -404,22 +412,22 @@ async def calculate_builds(
         max_units = _max_units_from_city(city, population)
         modifiers = calculate_nation_modifiers(nation)
         mil_cost_mod = modifiers.get("mil_cost", 1)
-        peace_total, peace_food, peace_breakdown = _unit_upkeep_for_max(
+        peace_total, peace_food, peace_breakdown, peace_food_breakdown = _unit_upkeep_for_max(
             max_units,
             at_war=False,
             mil_cost_mod=mil_cost_mod,
         )
-        war_total, war_food, war_breakdown = _unit_upkeep_for_max(
+        war_total, war_food, war_breakdown, war_food_breakdown = _unit_upkeep_for_max(
             max_units,
             at_war=True,
             mil_cost_mod=mil_cost_mod,
         )
 
         resolved_mode = selected_upkeep_mode
-        active_total, active_food, active_breakdown = (
-            (war_total, war_food, war_breakdown)
+        active_total, active_food, active_breakdown, active_food_breakdown = (
+            (war_total, war_food, war_breakdown, war_food_breakdown)
             if resolved_mode == "war"
-            else (peace_total, peace_food, peace_breakdown)
+            else (peace_total, peace_food, peace_breakdown, peace_food_breakdown)
         )
 
         revenue["unit_upkeep"] = {
@@ -429,17 +437,20 @@ async def calculate_builds(
             "total": round(active_total),
             "food": round(active_food, 4),
             "breakdown": {k: round(v) for k, v in active_breakdown.items()},
+            "breakdownFood": {k: round(v, 4) for k, v in active_food_breakdown.items()},
             "counts": max_units,
             "modes": {
                 "peace": {
                     "total": round(peace_total),
                     "food": round(peace_food, 4),
                     "breakdown": {k: round(v) for k, v in peace_breakdown.items()},
+                    "breakdownFood": {k: round(v, 4) for k, v in peace_food_breakdown.items()},
                 },
                 "war": {
                     "total": round(war_total),
                     "food": round(war_food, 4),
                     "breakdown": {k: round(v) for k, v in war_breakdown.items()},
+                    "breakdownFood": {k: round(v, 4) for k, v in war_food_breakdown.items()},
                 },
             },
         }

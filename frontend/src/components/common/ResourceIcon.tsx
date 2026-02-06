@@ -8,21 +8,21 @@ import { Group, Image, Text, Tooltip } from '@mantine/core';
 import type { ResourceType } from '@/types';
 import { formatMetric, formatNumber } from '@/utils';
 
-// Resource icon URLs (hosted externally or locally)
+// Resource icon URLs (served from public assets)
 const RESOURCE_ICONS: Record<ResourceType, string> = {
-  aluminum: 'https://i.ibb.co/Jvc721Q/aluminum.png',
-  bauxite: 'https://i.ibb.co/MCX24BV/bauxite.png',
-  coal: 'https://i.ibb.co/0Q49PQW/coal.png',
-  food: 'https://i.ibb.co/PcbqzMS/steak-meat.png',
-  gasoline: 'https://i.ibb.co/WyGLcnL/gasoline.png',
-  iron: 'https://i.ibb.co/27cjVPf/iron.png',
-  lead: 'https://i.ibb.co/r5KB1rS/lead.png',
-  money: 'https://i.ibb.co/cgd2D7s/money.png',
-  munitions: 'https://i.ibb.co/LJLjL7g/munitions.png',
-  oil: 'https://i.ibb.co/861z21m/oil.png',
-  steel: 'https://i.ibb.co/JHVBnW7/steel.png',
-  uranium: 'https://i.ibb.co/JB3dhNQ/uranium.png',
-  credits: 'https://i.ibb.co/cgd2D7s/money.png', // Fallback
+  aluminum: '/assets/resources/aluminum.png',
+  bauxite: '/assets/resources/bauxite.png',
+  coal: '/assets/resources/coal.png',
+  food: '/assets/resources/food.png',
+  gasoline: '/assets/resources/gasoline.png',
+  iron: '/assets/resources/iron.png',
+  lead: '/assets/resources/lead.png',
+  money: '/assets/resources/money.png',
+  munitions: '/assets/resources/munitions.png',
+  oil: '/assets/resources/oil.png',
+  steel: '/assets/resources/steel.png',
+  uranium: '/assets/resources/uranium.png',
+  credits: '/assets/resources/credits.png',
 };
 
 interface ResourceIconProps {

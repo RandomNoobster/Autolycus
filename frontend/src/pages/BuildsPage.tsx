@@ -456,7 +456,7 @@ export function BuildsPage() {
                             }
                           />
                           <Text size="xs" c="dimmed">
-                            Upkeep is per city. Wartime uses higher P&W upkeep rates; peace uses the lower baseline rates. Default is always peacetime unless you pick wartime.
+                            Unit upkeep is increased when your nation is at war. Select the rates you want the calculator to use.
                           </Text>
                         </Stack>
                       )}
@@ -465,10 +465,10 @@ export function BuildsPage() {
                       <Group gap="xs" align="flex-start">
                         <Switch
                           label="Use Live Market Prices"
-                          description="Switch between live prices and 30d average"
+                          description="Switch between live prices and 30-day average"
                           {...form.getInputProps('useLiveMarket', { type: 'checkbox' })}
                         />
-                        <Tooltip label="Live uses the latest tradeprices tick from the P&W API. 30-day average is the mean of the last 30 tradeprices records (roughly one per day) so spikes are smoothed.">
+                        <Tooltip label="Live uses the latest tradeprices tick from the P&W API. 30-day average is the mean of the last 30 tradeprices records (roughly one per day).">
                           <ActionIcon variant="subtle" size="sm">
                             <IconInfoCircle size={16} />
                           </ActionIcon>
@@ -674,7 +674,7 @@ export function BuildsPage() {
                         </Badge>
                       </Group>
                       <Text size="sm" c="dimmed" mb="sm">
-                        Per-city upkeep for the max units allowed by {form.values.military.barracks}/{form.values.military.factory}/{form.values.military.airforcebase}/{form.values.military.drydock} MMR. Using {activeMode} rates{sampleBuild.unitUpkeep.selectedMode ? ` (${sampleBuild.unitUpkeep.selectedMode} preference)` : ''}.
+                        Per-city upkeep for the max units allowed by {form.values.military.barracks}/{form.values.military.factory}/{form.values.military.airforcebase}/{form.values.military.drydock} MMR.
                       </Text>
                       <Grid gutter="sm" mb="sm">
                         {(['peace', 'war'] as const).map((mode) => {
@@ -700,10 +700,10 @@ export function BuildsPage() {
                                   {isActive && (
                                     <Badge
                                       size="xs"
-                                      color={mode === 'peace' ? 'teal' : 'orange'}
+                                      color="teal"
                                       variant="light"
                                     >
-                                      Active
+                                      Selected
                                     </Badge>
                                   )}
                                 </Group>
@@ -711,10 +711,10 @@ export function BuildsPage() {
                                   Money: ${formatNumber(modeData.total ?? 0)}
                                 </Text>
                                 <Text size="sm" c={isActive ? undefined : 'dimmed'}>
-                                  Food: {formatNumber(modeData.food ?? 0, 2)} /turn
+                                  Food: {formatNumber(modeData.food ?? 0, 2)} /turn (${formatNumber((modeData.food ?? 0) * foodPrice)})
                                 </Text>
                                 <Text size="sm" c="dimmed">
-                                  Money + food @ prices: ${formatNumber(totalWithFood, 2)}
+                                  Money + food: ${formatNumber(totalWithFood, 2)}
                                 </Text>
                               </Paper>
                             </Grid.Col>
@@ -726,28 +726,40 @@ export function BuildsPage() {
                         <Text fw={600} size="sm" mb="xs">
                           Per-unit breakdown ({activeMode === 'peace' ? 'Peacetime' : 'Wartime'})
                         </Text>
-                        <Grid gutter="sm">
+                        <Grid gutter="sm" align="stretch">
                           {unitOrder.map((unit) => {
-                            const value = active.breakdown?.[unit] || 0;
+                            const moneyUpkeep = active.breakdown?.[unit] || 0;
+                            const foodUpkeep =
+                              unit === 'soldiers'
+                                ? active.breakdownFood?.[unit] ?? active.food ?? 0
+                                : 0;
                             const count = sampleBuild.unitUpkeep?.counts[unit] || 0;
+                            const foodValue = unit === 'soldiers' ? foodUpkeep * foodPrice : 0;
                             return (
                               <Grid.Col span={{ base: 6, md: 3 }} key={unit}>
-                                <Paper withBorder p="xs" radius="sm">
+                                <Paper
+                                  withBorder
+                                  p="xs"
+                                  radius="sm"
+                                  style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                                >
                                   <Text fw={600}>{unitLabels[unit]}</Text>
                                   <Text size="sm">{formatNumber(count)} units</Text>
-                                  <Text size="sm" c="dimmed">${formatNumber(value)}</Text>
+                                  <Text size="sm" c="dimmed">
+                                    Money: ${formatNumber(moneyUpkeep)}
+                                  </Text>
+                                  {unit === 'soldiers' && (
+                                    <>
+                                      <Text size="sm" c="dimmed">
+                                        Food: {formatNumber(foodUpkeep, 2)} /turn (${formatNumber(foodValue)})
+                                      </Text>
+                                    </>
+                                  )}
                                 </Paper>
                               </Grid.Col>
                             );
                           })}
                         </Grid>
-                        <Group justify="space-between" mt="sm">
-                          <div>
-                            <Text fw={600}>Money: ${formatNumber(active.total ?? 0)}</Text>
-                            <Text fw={600}>Food: {formatNumber(active.food ?? 0, 2)} /turn</Text>
-                            <Text fw={700} size="lg">Net (including food): ${formatNumber(netUpkeep, 2)}</Text>
-                          </div>
-                        </Group>
                       </Paper>
                     </Paper>
                     </Grid.Col>
@@ -781,14 +793,19 @@ function ContinentRestrictionsPanel({
   const invalidResources = resources.filter((resource) => !isResourceValid(resource, continent));
 
   return (
-    <Paper withBorder radius="md" p="md">
+    <Paper
+      withBorder
+      radius="md"
+      p="md"
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
       <Group gap="xs" mb="xs" align="center" wrap="wrap">
         <Title order={4}>Continent Resource Modifiers</Title>
       </Group>
       {invalidResources.length > 0 ? (
         <>
           <Text size="sm" c="dimmed" mb="sm">
-            These raws cannot be produced on your selected continent. Swap continents to use these templates.
+            These raws cannot be produced on your selected continent. Swap continents to extract these resources.
           </Text>
           <Group gap="sm" wrap="wrap">
             {invalidResources.map((resource) => (
@@ -869,8 +886,8 @@ function PriceTable({ prices }: { prices: PricePayload }) {
             <Table.Tr>
               <Table.Th>Resource</Table.Th>
               <Table.Th>Live</Table.Th>
-              <Table.Th>30 Day Average</Table.Th>
-              <Table.Th>Live Deviation from Average</Table.Th>
+              <Table.Th>30-Day Average</Table.Th>
+              <Table.Th style={{ maxWidth: 120, whiteSpace: 'normal' }}>Live Deviation from Average</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>

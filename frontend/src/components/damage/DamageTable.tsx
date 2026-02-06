@@ -10,10 +10,11 @@ import {
   useMantineReactTable,
   type MRT_ColumnDef,
 } from 'mantine-react-table';
-import { Paper, Title } from '@mantine/core';
+import { Group, Paper, Text, Title } from '@mantine/core';
 
-import type { AttackStats } from '@/types';
+import type { AttackStats, ResourceType } from '@/types';
 import { useTablePersistence } from '@/hooks';
+import { ResourceIcon } from '@/components/common';
 
 interface DamageTableProps {
   attackerName: string;
@@ -41,8 +42,6 @@ interface CombinedAttackRow {
   defenderAlumConsumed: number;
   attackerUraniumConsumed: number;
   defenderUraniumConsumed: number;
-  attackerFoodConsumed: number;
-  defenderFoodConsumed: number;
   attackerMoneyUsed: number;
   defenderMoneyUsed: number;
   attackerInfraDestroyed: number;
@@ -84,8 +83,6 @@ export function DamageTable({
         defenderAlumConsumed: defenderRow?.alumConsumed ?? 0,
         attackerUraniumConsumed: attackerRow.uraniumConsumed,
         defenderUraniumConsumed: defenderRow?.uraniumConsumed ?? 0,
-        attackerFoodConsumed: attackerRow.foodConsumed,
-        defenderFoodConsumed: defenderRow?.foodConsumed ?? 0,
         attackerMoneyUsed: attackerRow.moneyUsed,
         defenderMoneyUsed: defenderRow?.moneyUsed ?? 0,
         attackerInfraDestroyed: attackerRow.infraDestroyed,
@@ -97,24 +94,36 @@ export function DamageTable({
   const attackerCellStyle = { backgroundColor: 'rgba(34, 139, 230, 0.12)' };
   const defenderCellStyle = { backgroundColor: 'rgba(250, 82, 82, 0.12)' };
 
-  const getValueColor = (value: number, invert = false) => {
-    if (value === 0) return undefined;
-    if (invert) {
-      return value < 0 ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-red-6)';
-    }
-    return value > 0 ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-red-6)';
-  };
+  const renderResourceHeader = (label: string, resource: ResourceType, suffix: string) => (
+    <Group gap={6} wrap="nowrap" style={{ whiteSpace: 'nowrap' }}>
+      <Text size="xs" fw={600}>
+        {label}
+      </Text>
+      <ResourceIcon resource={resource} showValue={false} size={16} />
+      <Text size="xs" fw={600}>
+        {suffix}
+      </Text>
+    </Group>
+  );
 
   const columns = useMemo<MRT_ColumnDef<CombinedAttackRow>[]>(
     () => [
       {
         accessorKey: 'label',
-        header: 'Attack Type',
+        header: (
+          <Text size="xs" fw={600} component="div">
+            Attack Type
+          </Text>
+        ),
         size: 130,
       },
       {
         accessorKey: 'attackerNetDamage',
-        header: `${attackerName} Net`,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {attackerName} Net Dealt
+          </Text>
+        ),
         size: 120,
         mantineTableBodyCellProps: ({ cell }) => ({
           style: {
@@ -135,7 +144,11 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderNetDamage',
-        header: `${defenderName} Net`,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {defenderName} Net Dealt
+          </Text>
+        ),
         size: 120,
         mantineTableBodyCellProps: ({ cell }) => ({
           style: {
@@ -156,13 +169,16 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerDamageDealt',
-        header: `${attackerName} Dealt`,
-        size: 120,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {attackerName} Total Dealt
+          </Text>
+        ),
+        size: 140,
         mantineTableBodyCellProps: ({ cell }) => ({
           style: {
             textAlign: 'right',
             ...attackerCellStyle,
-            color: getValueColor(cell.getValue<number>()),
           },
         }),
         mantineTableHeadCellProps: { style: attackerCellStyle },
@@ -170,13 +186,16 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderDamageDealt',
-        header: `${defenderName} Dealt`,
-        size: 120,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {defenderName} Total Dealt
+          </Text>
+        ),
+        size: 140,
         mantineTableBodyCellProps: ({ cell }) => ({
           style: {
             textAlign: 'right',
             ...defenderCellStyle,
-            color: getValueColor(cell.getValue<number>()),
           },
         }),
         mantineTableHeadCellProps: { style: defenderCellStyle },
@@ -184,13 +203,16 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerDamageReceived',
-        header: `${attackerName} Received`,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {attackerName} Total Received
+          </Text>
+        ),
         size: 130,
         mantineTableBodyCellProps: ({ cell }) => ({
           style: {
             textAlign: 'right',
             ...attackerCellStyle,
-            color: getValueColor(cell.getValue<number>(), true),
           },
         }),
         mantineTableHeadCellProps: { style: attackerCellStyle },
@@ -198,13 +220,16 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderDamageReceived',
-        header: `${defenderName} Received`,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {defenderName} Total Received
+          </Text>
+        ),
         size: 130,
         mantineTableBodyCellProps: ({ cell }) => ({
           style: {
             textAlign: 'right',
             ...defenderCellStyle,
-            color: getValueColor(cell.getValue<number>(), true),
           },
         }),
         mantineTableHeadCellProps: { style: defenderCellStyle },
@@ -212,130 +237,122 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerGasConsumed',
-        header: `${attackerName} Gas`,
+        header: renderResourceHeader(attackerName, 'gasoline', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
+        mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'defenderGasConsumed',
-        header: `${defenderName} Gas`,
+        header: renderResourceHeader(defenderName, 'gasoline', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
+        mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'attackerMunConsumed',
-        header: `${attackerName} Mun`,
+        header: renderResourceHeader(attackerName, 'munitions', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
+        mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'defenderMunConsumed',
-        header: `${defenderName} Mun`,
+        header: renderResourceHeader(defenderName, 'munitions', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
+        mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'attackerSteelConsumed',
-        header: `${attackerName} Steel`,
+        header: renderResourceHeader(attackerName, 'steel', 'Consumed'),
         size: 90,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
+        mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'defenderSteelConsumed',
-        header: `${defenderName} Steel`,
+        header: renderResourceHeader(defenderName, 'steel', 'Consumed'),
         size: 90,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
+        mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'attackerAlumConsumed',
-        header: `${attackerName} Alum`,
+        header: renderResourceHeader(attackerName, 'aluminum', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
+        mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'defenderAlumConsumed',
-        header: `${defenderName} Alum`,
+        header: renderResourceHeader(defenderName, 'aluminum', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
+        mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'attackerUraniumConsumed',
-        header: `${attackerName} Uranium`,
+        header: renderResourceHeader(attackerName, 'uranium', 'Consumed'),
         size: 110,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
+        mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'defenderUraniumConsumed',
-        header: `${defenderName} Uranium`,
+        header: renderResourceHeader(defenderName, 'uranium', 'Consumed'),
         size: 110,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
-        Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
-      },
-      {
-        accessorKey: 'attackerFoodConsumed',
-        header: `${attackerName} Food`,
-        size: 90,
-        mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
-        Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
-      },
-      {
-        accessorKey: 'defenderFoodConsumed',
-        header: `${defenderName} Food`,
-        size: 90,
-        mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
+        mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
       },
       {
         accessorKey: 'attackerMoneyUsed',
-        header: `${attackerName} Money`,
+        header: renderResourceHeader(attackerName, 'money', 'Consumed'),
         size: 100,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
+        mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
       },
       {
         accessorKey: 'defenderMoneyUsed',
-        header: `${defenderName} Money`,
+        header: renderResourceHeader(defenderName, 'money', 'Consumed'),
         size: 100,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
+        mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
       },
       {
         accessorKey: 'attackerInfraDestroyed',
-        header: `${attackerName} Infra`,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {attackerName} Infra Damage Dealt
+          </Text>
+        ),
         size: 120,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
-        mantineTableHeadCellProps: { style: attackerCellStyle },
+        mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
       },
       {
         accessorKey: 'defenderInfraDestroyed',
-        header: `${defenderName} Infra`,
+        header: (
+          <Text size="xs" fw={600} component="div">
+            {defenderName} Infra Damage Dealt
+          </Text>
+        ),
         size: 120,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
-        mantineTableHeadCellProps: { style: defenderCellStyle },
+        mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
       },
     ],
@@ -345,6 +362,7 @@ export function DamageTable({
   const table = useMantineReactTable({
     columns,
     data: combinedData,
+    enableColumnPinning: true,
     enablePagination: false,
     enableSorting: true,
     enableColumnFilters: false,
@@ -353,6 +371,9 @@ export function DamageTable({
     state: {
       columnVisibility,
       density,
+    },
+    initialState: {
+      columnPinning: { left: ['label'] },
     },
     onColumnVisibilityChange: setColumnVisibility,
     onDensityChange: setDensity,
@@ -363,15 +384,14 @@ export function DamageTable({
     mantineTableProps: {
       striped: true,
       highlightOnHover: true,
+      style: { tableLayout: 'auto' },
+    },
+    mantineTableHeadCellProps: {
+      style: { whiteSpace: 'normal', lineHeight: 1.2 },
     },
   });
 
   return (
-    <Paper shadow="sm" p="lg" radius="md" withBorder>
-      <Title order={4} mb="md">
-        {attackerName} vs {defenderName} (Combined)
-      </Title>
-      <MantineReactTable table={table} />
-    </Paper>
+    <MantineReactTable table={table} />
   );
 }

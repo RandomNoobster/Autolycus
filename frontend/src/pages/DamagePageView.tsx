@@ -10,7 +10,6 @@ import {
   Text,
   Stack,
   Group,
-  Badge,
   Paper,
   Autocomplete,
   Button,
@@ -22,10 +21,11 @@ import {
   Divider,
   Grid,
   SegmentedControl,
+  Loader,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useQuery } from '@tanstack/react-query';
-import { IconClock, IconSearch } from '@tabler/icons-react';
+import { IconSearch, IconCalculator } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -45,12 +45,12 @@ const WAR_POLICY_OPTIONS = [
   {
     value: 'Attrition',
     label: 'Attrition',
-    description: 'Offensive infra damage +10%; loot -20%.',
+    description: 'Infra damage dealt +10%; loot stolen -20%.',
   },
   {
     value: 'Turtle',
     label: 'Turtle',
-    description: 'Infra damage taken -10%; loot taken +20%.',
+    description: 'Infra damage taken -10%; loot lost +20%.',
   },
   {
     value: 'Moneybags',
@@ -60,32 +60,32 @@ const WAR_POLICY_OPTIONS = [
   {
     value: 'Pirate',
     label: 'Pirate',
-    description: 'Loot stolen +40%; double chance to lose improvements in ground/naval.',
+    description: 'Loot stolen +40%; double chance to lose own improvements in ground/naval attacks.',
   },
   {
     value: 'Tactician',
     label: 'Tactician',
-    description: 'Double chance to destroy enemy improvements (ground/naval); enemy ops +15% success.',
+    description: 'Double chance to destroy enemy improvements (ground/naval).',
   },
   {
     value: 'Guardian',
     label: 'Guardian',
-    description: 'Improvement loss chance halved; loot taken +20% (not vs missiles/nukes).',
+    description: 'Improvement loss chance halved; loot stolen +20%.',
   },
   {
     value: 'Covert',
     label: 'Covert',
-    description: 'Offensive ops +15% success; infra damage taken +5%.',
+    description: 'Infra damage taken +5%.',
   },
   {
     value: 'Arcane',
     label: 'Arcane',
-    description: 'Enemy ops -15% success; infra damage taken +5%.',
+    description: 'Infra damage taken +5%.',
   },
   {
     value: 'Blitzkrieg',
     label: 'Blitzkrieg',
-    description: 'First 12 turns: infra damage +10% and casualties +10%; if declared on, attacker +1 MAP.',
+    description: 'First 12 turns: infra damage dealt +10% and casualties dealt +10%; if declared on, attacker +1 MAP.',
   },
   {
     value: 'Fortress',
@@ -99,17 +99,17 @@ const WAR_TYPE_OPTIONS: { value: DamageWarType; label: string; description: stri
   {
     value: 'RAID',
     label: 'Raid',
-    description: 'Offense: 25% infra, 100% loot. Defense: 50% infra, 100% loot.',
+    description: 'War attacker: 25% infra dealt , 100% loot stolen. War defender: 50% infra dealt, 100% loot stolen.',
   },
   {
     value: 'ORDINARY',
     label: 'Ordinary',
-    description: 'Balanced: 50% infra, 50% loot (offense and defense).',
+    description: 'War attacker & defender: 50% infra dealt, 50% loot stolen.',
   },
   {
     value: 'ATTRITION',
     label: 'Attrition',
-    description: 'Offense: 100% infra, 25% loot. Defense: 100% infra, 50% loot.',
+    description: 'War attacker: 100% infra dealt, 25% loot stolen. War defender: 100% infra dealt, 50% loot stolen.',
   },
 ];
 
@@ -431,7 +431,12 @@ export function DamagePage() {
                     limit={6}
                     onOptionSubmit={(value) => setInputNation2(value)}
                   />
-                  <Button type="submit" disabled={!inputNation1.trim() || !inputNation2.trim()}>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    leftSection={<IconCalculator size={20} />}
+                    disabled={!inputNation1.trim() || !inputNation2.trim()}
+                  >
                     Calculate Damage
                   </Button>
                 </Group>
@@ -443,10 +448,10 @@ export function DamagePage() {
             <Title order={2}>Damage Analysis</Title>
             <Text c="dimmed">Enter nation IDs above to see damage calculations</Text>
 
-            <Skeleton height={300} radius="md" />
+            <Skeleton height={300} radius="md" animate={false} />
             <SimpleGrid cols={2}>
-              <Skeleton height={400} radius="md" />
-              <Skeleton height={400} radius="md" />
+              <Skeleton height={400} radius="md" animate={false} />
+              <Skeleton height={400} radius="md" animate={false} />
             </SimpleGrid>
           </Stack>
         </Stack>
@@ -503,9 +508,6 @@ export function DamagePage() {
               and maximize efficiency.
             </Text>
           </Stack>
-          <Badge leftSection={<IconClock size={12} />} variant="light" color="gray">
-            Generated: {new Date(activeData.generatedAt).toLocaleString()}
-          </Badge>
         </Group>
 
         <Paper p="lg" withBorder radius="md">
@@ -514,7 +516,7 @@ export function DamagePage() {
               <div>
                 <Title order={3}>Damage Inputs</Title>
                 <Text size="sm" c="dimmed">
-                  Adjust the assumptions below to re-run the calculator with custom inputs.
+                  Adjust the assumptions below and re-run the calculator with custom inputs.
                 </Text>
               </div>
 
@@ -554,12 +556,35 @@ export function DamagePage() {
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
-                      <Text size="sm" fw={600}>Nation 1 (Attacker in scenario 1)</Text>
+                      <Text size="sm" fw={600}>{nation1Label}</Text>
                       <NumberInput label="Soldiers" {...form.getInputProps('nation1.soldiers')} min={0} />
                       <NumberInput label="Tanks" {...form.getInputProps('nation1.tanks')} min={0} />
                       <NumberInput label="Aircraft" {...form.getInputProps('nation1.aircraft')} min={0} />
                       <NumberInput label="Ships" {...form.getInputProps('nation1.ships')} min={0} />
-                      <Select label="War Policy" data={WAR_POLICY_OPTIONS} {...form.getInputProps('nation1.warpolicy')} />
+                      <Select
+                        label="War Policy"
+                        data={WAR_POLICY_OPTIONS}
+                        searchable
+                        maxDropdownHeight={320}
+                        renderOption={({ option }) => {
+                          const details = option as { label: string; description?: string };
+                          return (
+                            <div>
+                              <Text fw={600} size="sm">
+                                {details.label}
+                              </Text>
+                              <Text
+                                size="xs"
+                                c="dimmed"
+                                style={{ whiteSpace: 'normal', lineHeight: 1.35 }}
+                              >
+                                {details.description}
+                              </Text>
+                            </div>
+                          );
+                        }}
+                        {...form.getInputProps('nation1.warpolicy')}
+                      />
                       {form.values.nation1.warpolicy && (
                         <Text size="xs" c="dimmed">
                           {warPolicyDescriptions[form.values.nation1.warpolicy]}
@@ -567,37 +592,37 @@ export function DamagePage() {
                       )}
                       <Switch
                         label="Soldiers Use Munitions"
-                        description="Disable to assume soldiers consume no munitions."
+                        description="Apply standard ammo usage for soldier attacks; disable to ignore munition costs."
                         checked={form.values.nation1.soldiersUseMunitions}
                         onChange={(event) => form.setFieldValue('nation1.soldiersUseMunitions', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Vital Defense System"
-                        description="Reduces nuke impact and increases interception chance."
+                        description="Apply VDS modifiers to nuclear strikes (interception + reduced impact)."
                         checked={form.values.nation1.vds}
                         onChange={(event) => form.setFieldValue('nation1.vds', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Iron Dome"
-                        description="Provides missile interception chance."
+                        description="Apply Iron Dome modifiers to incoming missiles (interception chance)."
                         checked={form.values.nation1.irond}
                         onChange={(event) => form.setFieldValue('nation1.irond', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Fallout Shelter"
-                        description="Reduces damage from nuclear attacks."
+                        description="Reduce nuclear strike damage to your city targets in the calc."
                         checked={form.values.nation1.falloutShelter}
                         onChange={(event) => form.setFieldValue('nation1.falloutShelter', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Military Salvage"
-                        description="Recovers part of resources lost to unit casualties."
+                        description="Recover a portion of resources from your unit losses after combat."
                         checked={form.values.nation1.militarySalvage}
                         onChange={(event) => form.setFieldValue('nation1.militarySalvage', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Advanced Pirate Economy"
-                        description="Improves loot and resource gains from piracy."
+                        description="Apply pirate-economy bonuses to raid loot and resources."
                         checked={form.values.nation1.advancedPirateEconomy}
                         onChange={(event) => form.setFieldValue('nation1.advancedPirateEconomy', event.currentTarget.checked)}
                       />
@@ -610,12 +635,35 @@ export function DamagePage() {
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
-                      <Text size="sm" fw={600}>Nation 2 (Attacker in scenario 2)</Text>
+                      <Text size="sm" fw={600}>{nation2Label}</Text>
                       <NumberInput label="Soldiers" {...form.getInputProps('nation2.soldiers')} min={0} />
                       <NumberInput label="Tanks" {...form.getInputProps('nation2.tanks')} min={0} />
                       <NumberInput label="Aircraft" {...form.getInputProps('nation2.aircraft')} min={0} />
                       <NumberInput label="Ships" {...form.getInputProps('nation2.ships')} min={0} />
-                      <Select label="War Policy" data={WAR_POLICY_OPTIONS} {...form.getInputProps('nation2.warpolicy')} />
+                      <Select
+                        label="War Policy"
+                        data={WAR_POLICY_OPTIONS}
+                        searchable
+                        maxDropdownHeight={320}
+                        renderOption={({ option }) => {
+                          const details = option as { label: string; description?: string };
+                          return (
+                            <div>
+                              <Text fw={600} size="sm">
+                                {details.label}
+                              </Text>
+                              <Text
+                                size="xs"
+                                c="dimmed"
+                                style={{ whiteSpace: 'normal', lineHeight: 1.35 }}
+                              >
+                                {details.description}
+                              </Text>
+                            </div>
+                          );
+                        }}
+                        {...form.getInputProps('nation2.warpolicy')}
+                      />
                       {form.values.nation2.warpolicy && (
                         <Text size="xs" c="dimmed">
                           {warPolicyDescriptions[form.values.nation2.warpolicy]}
@@ -623,37 +671,37 @@ export function DamagePage() {
                       )}
                       <Switch
                         label="Soldiers Use Munitions"
-                        description="Disable to assume soldiers consume no munitions."
+                        description="Apply standard ammo usage for soldier attacks; disable to ignore munition costs."
                         checked={form.values.nation2.soldiersUseMunitions}
                         onChange={(event) => form.setFieldValue('nation2.soldiersUseMunitions', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Vital Defense System"
-                        description="Reduces nuke impact and increases interception chance."
+                        description="Apply VDS modifiers to nuclear strikes (interception + reduced impact)."
                         checked={form.values.nation2.vds}
                         onChange={(event) => form.setFieldValue('nation2.vds', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Iron Dome"
-                        description="Provides missile interception chance."
+                        description="Apply Iron Dome modifiers to incoming missiles (interception chance)."
                         checked={form.values.nation2.irond}
                         onChange={(event) => form.setFieldValue('nation2.irond', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Fallout Shelter"
-                        description="Reduces damage from nuclear attacks."
+                        description="Reduce nuclear strike damage to your city targets in the calc."
                         checked={form.values.nation2.falloutShelter}
                         onChange={(event) => form.setFieldValue('nation2.falloutShelter', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Military Salvage"
-                        description="Recovers part of resources lost to unit casualties."
+                        description="Recover a portion of resources from your unit losses after combat."
                         checked={form.values.nation2.militarySalvage}
                         onChange={(event) => form.setFieldValue('nation2.militarySalvage', event.currentTarget.checked)}
                       />
                       <Switch
                         label="Advanced Pirate Economy"
-                        description="Improves loot and resource gains from piracy."
+                        description="Apply pirate-economy bonuses to raid loot and resources."
                         checked={form.values.nation2.advancedPirateEconomy}
                         onChange={(event) => form.setFieldValue('nation2.advancedPirateEconomy', event.currentTarget.checked)}
                       />
@@ -680,9 +728,9 @@ export function DamagePage() {
                   )}
                   <Text size="sm" fw={600}>Attacker Selection</Text>
                   <Text size="xs" c="dimmed">
-                    Choose which nation is attacking in the current war context.
-                    Being the war attacker is separate from performing an attack in the tables;
-                    it controls how war policy and war type modifiers apply.
+                    Choose the war attacker (the nation that declared the war) and the war defender.
+                    This affects war type and war policy modifiers. It is separate from which side is
+                    making a specific attack in the tables below.
                   </Text>
                   <SegmentedControl
                     fullWidth
@@ -744,8 +792,14 @@ export function DamagePage() {
                 </Text>
               )}
 
-              <Group justify="flex-end">
-                <Button type="submit" loading={isCalculating}>
+              <Group justify="center">
+                <Button
+                  type="submit"
+                  size="lg"
+                  leftSection={isCalculating ? <Loader size="xs" /> : <IconCalculator size={20} />}
+                  loading={isCalculating}
+                  fullWidth
+                >
                   Recalculate Damage
                 </Button>
               </Group>

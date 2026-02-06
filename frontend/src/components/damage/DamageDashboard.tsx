@@ -19,21 +19,21 @@ export function DamageDashboard({ data }: DamageDashboardProps) {
   const scenarioModes = [
     {
       value: 'attack',
-      label: 'Per Attack (Default)',
+      label: 'Per Attack',
       description:
         'Compare direct damage per attack. Best for quick baseline comparisons.',
     },
     {
       value: 'resistance',
-      label: 'Per Resistance (Avg)',
+      label: 'Per Resistance',
       description:
-        'Damage per resistance reduced (expected). Useful for maximizing damage without beiging.',
+        'Damage per resistance reduced. Useful for maximizing damage without beiging. This takes into account your chance of winning the attack; if you lose an attack, you still deal damage but you don\'t reduce the opponent\'s resistance.',
     },
     {
       value: 'map',
       label: 'Per MAP',
       description:
-        'Damage per MAP spent. Useful when optimizing time and action-point efficiency.',
+        'Damage per MAP spent. Useful when beiging as quickly as possible.',
     },
   ] as const;
 
@@ -103,7 +103,7 @@ export function DamageDashboard({ data }: DamageDashboardProps) {
                         href={`https://politicsandwar.com/nation/id=${scenario.attacker.info.id}`}
                         target="_blank"
                       >
-                        If {scenario.attacker.info.nationName} attacks:
+                        If {scenario.attacker.info.nationName} performs an attack:
                       </Anchor>
                     </Title>
                   </Group>

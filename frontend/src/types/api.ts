@@ -151,10 +151,14 @@ export interface BuildData {
     total: number;
     food: number;
     breakdown: Record<string, number>;
+    breakdownFood?: Record<string, number>;
     counts: Record<string, number>;
     mode: 'peace' | 'war';
     selectedMode?: 'peace' | 'war';
-    modes?: Record<'peace' | 'war', { total: number; food: number; breakdown: Record<string, number> }>;
+    modes?: Record<
+      'peace' | 'war',
+      { total: number; food: number; breakdown: Record<string, number>; breakdownFood?: Record<string, number> }
+    >;
   };
 
   // Resource production

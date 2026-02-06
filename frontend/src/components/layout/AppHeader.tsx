@@ -18,7 +18,7 @@ export function AppHeader() {
           alt="Autolycus"
           w={36}
           h={36}
-          fallbackSrc="https://i.ibb.co/2dX2WYW/atomism-ICONSSS.png"
+          fallbackSrc="/assets/icon.svg"
         />
         <Title order={3}>Autolycus</Title>
       </Group>

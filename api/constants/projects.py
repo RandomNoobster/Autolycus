@@ -40,7 +40,7 @@ PROJECTS = {
     },
     'green_tech': {
         'name': 'Green Technologies',
-        'description': 'Cuts manufacturing pollution by 25%, farm pollution by 50%, subway cleanup rises to 70, and resource production upkeep drops 10%.'
+        'description': 'Cuts manufacturing pollution by 25%, farm pollution by 50%, subways produce less pollution, and resource production upkeep drops 10%.'
     },
     'clinical_research_center': {
         'name': 'Clinical Research Center',
@@ -56,7 +56,7 @@ PROJECTS = {
     },
     'fallout_shelter': {
         'name': 'Fallout Shelter',
-        'description': 'Reduces infrastructure damage from nukes by 10%, shortens fallout duration by 25%, and caps radiation food penalty at 85% hit.'
+        'description': 'Caps radiation food penalty at 85% hit.'
     },
     'government_support_agency': {
         'name': 'Government Support Agency',
@@ -64,7 +64,7 @@ PROJECTS = {
     },
     'bureau_of_domestic_affairs': {
         'name': 'Bureau of Domestic Affairs',
-        'description': 'Cuts domestic policy swap timer to 1 turn.'
+        'description': 'Boost domestic policy effects by 25% (Open Markets 1.5% → 1.75%; Imperialism 7.5% → 8.75%). Requires Government Support Agency.'
     },
 }
 
