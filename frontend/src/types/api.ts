@@ -263,6 +263,7 @@ export interface ContinentResources {
 export interface NationInfo {
   id: number;
   nationName: string;
+  numCities: number;
   vds: boolean;
   irond: boolean;
   groundWinRate: number;

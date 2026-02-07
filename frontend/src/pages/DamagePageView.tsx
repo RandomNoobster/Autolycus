@@ -27,7 +27,7 @@ import { useForm } from '@mantine/form';
 import { useQuery } from '@tanstack/react-query';
 import { IconSearch, IconCalculator } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import { calculateDamage, fetchDamage, searchNations } from '@/api';
@@ -112,6 +112,416 @@ const WAR_TYPE_OPTIONS: { value: DamageWarType; label: string; description: stri
     description: 'War attacker: 100% infra dealt, 25% loot stolen. War defender: 100% infra dealt, 50% loot stolen.',
   },
 ];
+
+type UnitKey = 'soldiers' | 'tanks' | 'aircraft' | 'ships';
+
+interface UnitConfig {
+  label: string;
+  perDay: number;
+  capacity: number;
+  improvementLabel: string;
+  improvementKey: keyof MmrCounts;
+}
+
+interface MmrCounts {
+  barracks: number;
+  factories: number;
+  hangars: number;
+  drydocks: number;
+}
+
+// Per PWPedia: "Soldiers", "Tanks", "Planes", and "Ships" articles.
+const UNIT_CONFIG: Record<UnitKey, UnitConfig> = {
+  soldiers: {
+    label: 'Soldiers',
+    perDay: 1000,
+    capacity: 3000,
+    improvementLabel: 'Barracks',
+    improvementKey: 'barracks',
+  },
+  tanks: {
+    label: 'Tanks',
+    perDay: 50,
+    capacity: 250,
+    improvementLabel: 'Factories',
+    improvementKey: 'factories',
+  },
+  aircraft: {
+    label: 'Aircraft',
+    perDay: 3,
+    capacity: 15,
+    improvementLabel: 'Hangars',
+    improvementKey: 'hangars',
+  },
+  ships: {
+    label: 'Ships',
+    perDay: 1,
+    capacity: 5,
+    improvementLabel: 'Drydocks',
+    improvementKey: 'drydocks',
+  },
+};
+
+const MAX_MMR_COUNTS: MmrCounts = {
+  barracks: 5,
+  factories: 5,
+  hangars: 5,
+  drydocks: 3,
+};
+
+const normalizeNumberInput = (value: string | number | null): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+interface UnitInputWithRebuyProps {
+  label: string;
+  value: number;
+  max: number;
+  dailyRebuy: number;
+  onChange: (value: number) => void;
+  onReset?: () => void;
+  isDirty?: boolean;
+}
+
+interface ResetLinkProps {
+  isDirty: boolean;
+  onClick?: () => void;
+}
+
+const ResetLink = memo(function ResetLink({ isDirty, onClick }: ResetLinkProps) {
+  return (
+    <Text
+      size="xs"
+      c={isDirty ? 'orange' : 'dimmed'}
+      fw={600}
+      style={{ cursor: isDirty ? 'pointer' : 'default' }}
+      onClick={isDirty ? onClick : undefined}
+    >
+      Reset to current
+    </Text>
+  );
+});
+
+const UnitInputWithRebuy = memo(function UnitInputWithRebuy({
+  label,
+  value,
+  max,
+  dailyRebuy,
+  onChange,
+  onReset,
+  isDirty,
+}: UnitInputWithRebuyProps) {
+  const addUnits = (days: number) => {
+    const increment = dailyRebuy * days;
+    if (increment <= 0) return;
+    onChange(clampNumber(value + increment, 0, max));
+  };
+
+  const removeUnits = (days: number) => {
+    const decrement = dailyRebuy * days;
+    if (decrement <= 0) return;
+    onChange(clampNumber(value - decrement, 0, max));
+  };
+
+  return (
+    <Stack gap={4}>
+      <Group align="flex-end" justify="space-between" wrap="wrap">
+        <NumberInput
+          label={label}
+          value={value}
+          onChange={(nextValue) => onChange(clampNumber(normalizeNumberInput(nextValue), 0, max))}
+          min={0}
+          max={max}
+          allowDecimal={false}
+          step={1}
+          style={{ flex: 1, minWidth: 160 }}
+        />
+        <Group gap="xs">
+          <Button size="xs" variant="light" onClick={() => removeUnits(1)} disabled={dailyRebuy <= 0 || value <= 0}>
+            -1 day
+          </Button>
+          <Button size="xs" variant="light" onClick={() => addUnits(1)} disabled={dailyRebuy <= 0 || value >= max}>
+            +1 day
+          </Button>
+          <Button size="xs" variant="light" onClick={() => addUnits(2)} disabled={dailyRebuy <= 0 || value >= max}>
+            +2 days
+          </Button>
+        </Group>
+      </Group>
+      <Text size="xs" c="dimmed">
+        Daily buy: {dailyRebuy.toLocaleString()} · Double buy: {(dailyRebuy * 2).toLocaleString()} · Max: {max.toLocaleString()}
+      </Text>
+      {onReset && <ResetLink isDirty={Boolean(isDirty)} onClick={onReset} />}
+    </Stack>
+  );
+});
+
+interface NationUnitPlannerProps {
+  form: DamageForm;
+  basePath: 'nation1' | 'nation2';
+  initialCityCount?: number;
+  baselineUnits?: {
+    soldiers: number;
+    tanks: number;
+    aircraft: number;
+    ships: number;
+  };
+}
+
+// Per PWPedia: "Propaganda-Bureau" and "Beige-Buff" articles.
+const NationUnitPlanner = memo(function NationUnitPlanner({
+  form,
+  basePath,
+  initialCityCount,
+  baselineUnits,
+}: NationUnitPlannerProps) {
+  const [cityCount, setCityCount] = useState(0);
+  const [mmrCounts, setMmrCounts] = useState<MmrCounts>({
+    barracks: 5,
+    factories: 5,
+    hangars: 5,
+    drydocks: 3,
+  });
+  const [propagandaBureau, setPropagandaBureau] = useState(false);
+  const baselineRef = useRef({
+    units: {
+      soldiers: form.values[basePath].soldiers,
+      tanks: form.values[basePath].tanks,
+      aircraft: form.values[basePath].aircraft,
+      ships: form.values[basePath].ships,
+    },
+    cityCount: initialCityCount ?? 0,
+    mmrCounts: {
+      barracks: 5,
+      factories: 5,
+      hangars: 5,
+      drydocks: 3,
+    },
+  });
+  const lastNationIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const nationId = form.values[basePath].id;
+    if (!nationId || nationId === lastNationIdRef.current) return;
+    lastNationIdRef.current = nationId;
+    const initialCities = initialCityCount ?? 0;
+    const defaultMmr = {
+      barracks: 5,
+      factories: 5,
+      hangars: 5,
+      drydocks: 3,
+    };
+    setCityCount(initialCities);
+    setMmrCounts(defaultMmr);
+    baselineRef.current = {
+      units: {
+        soldiers: form.values[basePath].soldiers,
+        tanks: form.values[basePath].tanks,
+        aircraft: form.values[basePath].aircraft,
+        ships: form.values[basePath].ships,
+      },
+      cityCount: initialCities,
+      mmrCounts: defaultMmr,
+    };
+  }, [basePath, form.values, form.values[basePath].id, initialCityCount]);
+
+  useEffect(() => {
+    if (!baselineUnits) return;
+    baselineRef.current.units = {
+      soldiers: baselineUnits.soldiers,
+      tanks: baselineUnits.tanks,
+      aircraft: baselineUnits.aircraft,
+      ships: baselineUnits.ships,
+    };
+    if (typeof initialCityCount === 'number') {
+      baselineRef.current.cityCount = initialCityCount;
+    }
+  }, [baselineUnits, initialCityCount]);
+
+  const totalImprovements = useMemo(
+    () => ({
+      barracks: mmrCounts.barracks * cityCount,
+      factories: mmrCounts.factories * cityCount,
+      hangars: mmrCounts.hangars * cityCount,
+      drydocks: mmrCounts.drydocks * cityCount,
+    }),
+    [mmrCounts, cityCount]
+  );
+
+  const dailyMultiplier = 1 + (propagandaBureau ? 0.1 : 0);
+
+  const maxUnits = useMemo(
+    () => ({
+      soldiers: totalImprovements.barracks * UNIT_CONFIG.soldiers.capacity,
+      tanks: totalImprovements.factories * UNIT_CONFIG.tanks.capacity,
+      aircraft: totalImprovements.hangars * UNIT_CONFIG.aircraft.capacity,
+      ships: totalImprovements.drydocks * UNIT_CONFIG.ships.capacity,
+    }),
+    [totalImprovements]
+  );
+
+  const dailyRebuy = useMemo(
+    () => ({
+      soldiers: Math.floor(totalImprovements.barracks * UNIT_CONFIG.soldiers.perDay * dailyMultiplier),
+      tanks: Math.floor(totalImprovements.factories * UNIT_CONFIG.tanks.perDay * dailyMultiplier),
+      aircraft: Math.floor(totalImprovements.hangars * UNIT_CONFIG.aircraft.perDay * dailyMultiplier),
+      ships: Math.floor(totalImprovements.drydocks * UNIT_CONFIG.ships.perDay * dailyMultiplier),
+    }),
+    [totalImprovements, dailyMultiplier]
+  );
+
+  useEffect(() => {
+    (['soldiers', 'tanks', 'aircraft', 'ships'] as UnitKey[]).forEach((unit) => {
+      const current = form.values[basePath][unit];
+      const max = maxUnits[unit];
+      if (current > max) {
+        form.setFieldValue(`${basePath}.${unit}`, max);
+      }
+    });
+  }, [basePath, form, maxUnits]);
+
+  const updateMmrCount = (key: keyof MmrCounts, value: number) => {
+    setMmrCounts((prev) => ({
+      ...prev,
+      [key]: clampNumber(value, 0, MAX_MMR_COUNTS[key]),
+    }));
+  };
+
+  const setUnitValue = (unit: UnitKey, value: number) => {
+    form.setFieldValue(`${basePath}.${unit}`, clampNumber(value, 0, maxUnits[unit]));
+  };
+
+  return (
+    <Stack gap="sm">
+      <Text size="sm" fw={600}>Unit Planner</Text>
+      <Group grow align="flex-end">
+        <Stack gap={4}>
+          <NumberInput
+            label="Cities"
+            value={cityCount}
+            onChange={(value) => setCityCount(Math.max(0, normalizeNumberInput(value)))}
+            min={0}
+            allowDecimal={false}
+          />
+          <ResetLink
+            isDirty={cityCount !== baselineRef.current.cityCount}
+            onClick={() => setCityCount(baselineRef.current.cityCount)}
+          />
+        </Stack>
+        <Switch
+          label="Propaganda Bureau"
+          description="+10% daily recruits for soldiers, tanks, aircraft, and ships."
+          checked={propagandaBureau}
+          onChange={(event) => setPropagandaBureau(event.currentTarget.checked)}
+        />
+      </Group>
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+        <Stack gap={4}>
+          <NumberInput
+            label="Barracks per City"
+            value={mmrCounts.barracks}
+            onChange={(value) => updateMmrCount('barracks', normalizeNumberInput(value))}
+            min={0}
+            max={MAX_MMR_COUNTS.barracks}
+            allowDecimal={false}
+          />
+          <ResetLink
+            isDirty={mmrCounts.barracks !== baselineRef.current.mmrCounts.barracks}
+            onClick={() => updateMmrCount('barracks', baselineRef.current.mmrCounts.barracks)}
+          />
+        </Stack>
+        <Stack gap={4}>
+          <NumberInput
+            label="Factories per City"
+            value={mmrCounts.factories}
+            onChange={(value) => updateMmrCount('factories', normalizeNumberInput(value))}
+            min={0}
+            max={MAX_MMR_COUNTS.factories}
+            allowDecimal={false}
+          />
+          <ResetLink
+            isDirty={mmrCounts.factories !== baselineRef.current.mmrCounts.factories}
+            onClick={() => updateMmrCount('factories', baselineRef.current.mmrCounts.factories)}
+          />
+        </Stack>
+        <Stack gap={4}>
+          <NumberInput
+            label="Hangars per City"
+            value={mmrCounts.hangars}
+            onChange={(value) => updateMmrCount('hangars', normalizeNumberInput(value))}
+            min={0}
+            max={MAX_MMR_COUNTS.hangars}
+            allowDecimal={false}
+          />
+          <ResetLink
+            isDirty={mmrCounts.hangars !== baselineRef.current.mmrCounts.hangars}
+            onClick={() => updateMmrCount('hangars', baselineRef.current.mmrCounts.hangars)}
+          />
+        </Stack>
+        <Stack gap={4}>
+          <NumberInput
+            label="Drydocks per City"
+            value={mmrCounts.drydocks}
+            onChange={(value) => updateMmrCount('drydocks', normalizeNumberInput(value))}
+            min={0}
+            max={MAX_MMR_COUNTS.drydocks}
+            allowDecimal={false}
+          />
+          <ResetLink
+            isDirty={mmrCounts.drydocks !== baselineRef.current.mmrCounts.drydocks}
+            onClick={() => updateMmrCount('drydocks', baselineRef.current.mmrCounts.drydocks)}
+          />
+        </Stack>
+      </SimpleGrid>
+      <Divider my="xs" />
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+        <UnitInputWithRebuy
+          label={UNIT_CONFIG.soldiers.label}
+          value={form.values[basePath].soldiers}
+          max={maxUnits.soldiers}
+          dailyRebuy={dailyRebuy.soldiers}
+          onChange={(value) => setUnitValue('soldiers', value)}
+          onReset={() => setUnitValue('soldiers', baselineRef.current.units.soldiers)}
+          isDirty={form.values[basePath].soldiers !== baselineRef.current.units.soldiers}
+        />
+        <UnitInputWithRebuy
+          label={UNIT_CONFIG.tanks.label}
+          value={form.values[basePath].tanks}
+          max={maxUnits.tanks}
+          dailyRebuy={dailyRebuy.tanks}
+          onChange={(value) => setUnitValue('tanks', value)}
+          onReset={() => setUnitValue('tanks', baselineRef.current.units.tanks)}
+          isDirty={form.values[basePath].tanks !== baselineRef.current.units.tanks}
+        />
+        <UnitInputWithRebuy
+          label={UNIT_CONFIG.aircraft.label}
+          value={form.values[basePath].aircraft}
+          max={maxUnits.aircraft}
+          dailyRebuy={dailyRebuy.aircraft}
+          onChange={(value) => setUnitValue('aircraft', value)}
+          onReset={() => setUnitValue('aircraft', baselineRef.current.units.aircraft)}
+          isDirty={form.values[basePath].aircraft !== baselineRef.current.units.aircraft}
+        />
+        <UnitInputWithRebuy
+          label={UNIT_CONFIG.ships.label}
+          value={form.values[basePath].ships}
+          max={maxUnits.ships}
+          dailyRebuy={dailyRebuy.ships}
+          onChange={(value) => setUnitValue('ships', value)}
+          onReset={() => setUnitValue('ships', baselineRef.current.units.ships)}
+          isDirty={form.values[basePath].ships !== baselineRef.current.units.ships}
+        />
+      </SimpleGrid>
+      <Text size="xs" c="dimmed">
+        Max units = MMR improvements per city × cities. Limits here do not account for population caps or military research.
+      </Text>
+    </Stack>
+  );
+});
 
 const buildNationOptions = (
   nation1Id: number,
@@ -251,6 +661,86 @@ const NationAutocompleteField = memo(function NationAutocompleteField({
         onCommit(selected);
       }}
     />
+  );
+});
+
+type DamageForm = ReturnType<typeof useForm<DamageCalculationInput>>;
+
+interface NationDamageModifiersProps {
+  form: DamageForm;
+  basePath: 'nation1' | 'nation2';
+}
+
+// Per PWPedia: "Soldiers", "Vital-Defense-System", "Iron-Dome",
+// "Fallout-Shelter", "Military-Salvage", and "Advanced-Pirate-Economy" articles.
+const NationDamageModifiers = memo(function NationDamageModifiers({
+  form,
+  basePath,
+}: NationDamageModifiersProps) {
+  const isChecked = (
+    field:
+      | 'soldiersUseMunitions'
+      | 'vds'
+      | 'irond'
+      | 'falloutShelter'
+      | 'militarySalvage'
+      | 'advancedPirateEconomy'
+  ) => Boolean(form.values[basePath][field]);
+
+  const handleToggle = (
+    field:
+      | 'soldiersUseMunitions'
+      | 'vds'
+      | 'irond'
+      | 'falloutShelter'
+      | 'militarySalvage'
+      | 'advancedPirateEconomy',
+    checked: boolean
+  ) => {
+    form.setFieldValue(`${basePath}.${field}`, checked);
+  };
+
+  return (
+    <>
+      <Switch
+        label="Soldiers Use Munitions"
+        description="Soldiers fight at 175% combat value with munitions (1 munition per 5,000 soldiers per ground battle)."
+        checked={isChecked('soldiersUseMunitions')}
+        onChange={(event) => handleToggle('soldiersUseMunitions', event.currentTarget.checked)}
+      />
+      <Switch
+        label="Vital Defense System"
+        description="25% chance to shoot down incoming nukes; reduces non-power-plant, non-military improvements destroyed by a nuke by 1."
+        checked={isChecked('vds')}
+        onChange={(event) => handleToggle('vds', event.currentTarget.checked)}
+      />
+      <Switch
+        label="Iron Dome"
+        description="30% chance to shoot down incoming missiles; reduces improvements destroyed by a missile by 1."
+        checked={isChecked('irond')}
+        onChange={(event) => handleToggle('irond', event.currentTarget.checked)}
+      />
+      <Switch
+        label="Fallout Shelter"
+        description="Nukes: infrastructure damage -10%, fallout length -25%."
+        checked={isChecked('falloutShelter')}
+        onChange={(event) => handleToggle('falloutShelter', event.currentTarget.checked)}
+      />
+      <Switch
+        label="Military Salvage"
+        description="Recover 5% of steel and aluminum costs from units lost in victorious war attacks (based on both sides' losses)."
+        checked={isChecked('militarySalvage')}
+        onChange={(event) => handleToggle('militarySalvage', event.currentTarget.checked)}
+      />
+      <Switch
+        label="Advanced Pirate Economy"
+        description="+5% loot from ground attacks and +10% loot from a defeated nation and its alliance bank."
+        checked={isChecked('advancedPirateEconomy')}
+        onChange={(event) => handleToggle('advancedPirateEconomy', event.currentTarget.checked)}
+      />
+      <Divider my="sm" />
+      <NumberInput label="Target City Infrastructure" {...form.getInputProps(`${basePath}.cityInfrastructure`)} min={0} />
+    </>
   );
 });
 
@@ -415,6 +905,7 @@ export function DamagePage() {
                 <Group grow>
                   <Autocomplete
                     placeholder="Nation 1 ID, name, or leader"
+                    size="lg"
                     value={inputNation1}
                     onChange={setInputNation1}
                     leftSection={<IconSearch size={16} />}
@@ -424,6 +915,7 @@ export function DamagePage() {
                   />
                   <Autocomplete
                     placeholder="Nation 2 ID, name, or leader"
+                    size="lg"
                     value={inputNation2}
                     onChange={setInputNation2}
                     leftSection={<IconSearch size={16} />}
@@ -488,6 +980,10 @@ export function DamagePage() {
 
   const nation1Label = activeData.nations.nation1.nationName || 'Nation 1';
   const nation2Label = activeData.nations.nation2.nationName || 'Nation 2';
+  const nation1CityCount = activeData.nations.nation1.numCities ?? 0;
+  const nation2CityCount = activeData.nations.nation2.numCities ?? 0;
+  const baselineNation1Units = data?.inputs?.nation1;
+  const baselineNation2Units = data?.inputs?.nation2;
   const attackerName = form.values.war.attackerId === form.values.nation2Id
     ? nation2Label
     : nation1Label;
@@ -522,7 +1018,6 @@ export function DamagePage() {
 
               <Paper p="md" withBorder radius="md">
                 <Stack gap="sm">
-                  <Text size="sm" fw={600}>Nation IDs</Text>
                   <Group grow align="flex-end">
                     <NationAutocompleteField
                       label="Nation 1 ID, name, or leader"
@@ -557,10 +1052,12 @@ export function DamagePage() {
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
                       <Text size="sm" fw={600}>{nation1Label}</Text>
-                      <NumberInput label="Soldiers" {...form.getInputProps('nation1.soldiers')} min={0} />
-                      <NumberInput label="Tanks" {...form.getInputProps('nation1.tanks')} min={0} />
-                      <NumberInput label="Aircraft" {...form.getInputProps('nation1.aircraft')} min={0} />
-                      <NumberInput label="Ships" {...form.getInputProps('nation1.ships')} min={0} />
+                      <NationUnitPlanner
+                        form={form}
+                        basePath="nation1"
+                        initialCityCount={nation1CityCount}
+                        baselineUnits={baselineNation1Units}
+                      />
                       <Select
                         label="War Policy"
                         data={WAR_POLICY_OPTIONS}
@@ -590,44 +1087,7 @@ export function DamagePage() {
                           {warPolicyDescriptions[form.values.nation1.warpolicy]}
                         </Text>
                       )}
-                      <Switch
-                        label="Soldiers Use Munitions"
-                        description="Apply standard ammo usage for soldier attacks; disable to ignore munition costs."
-                        checked={form.values.nation1.soldiersUseMunitions}
-                        onChange={(event) => form.setFieldValue('nation1.soldiersUseMunitions', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Vital Defense System"
-                        description="Apply VDS modifiers to nuclear strikes (interception + reduced impact)."
-                        checked={form.values.nation1.vds}
-                        onChange={(event) => form.setFieldValue('nation1.vds', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Iron Dome"
-                        description="Apply Iron Dome modifiers to incoming missiles (interception chance)."
-                        checked={form.values.nation1.irond}
-                        onChange={(event) => form.setFieldValue('nation1.irond', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Fallout Shelter"
-                        description="Reduce nuclear strike damage to your city targets in the calc."
-                        checked={form.values.nation1.falloutShelter}
-                        onChange={(event) => form.setFieldValue('nation1.falloutShelter', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Military Salvage"
-                        description="Recover a portion of resources from your unit losses after combat."
-                        checked={form.values.nation1.militarySalvage}
-                        onChange={(event) => form.setFieldValue('nation1.militarySalvage', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Advanced Pirate Economy"
-                        description="Apply pirate-economy bonuses to raid loot and resources."
-                        checked={form.values.nation1.advancedPirateEconomy}
-                        onChange={(event) => form.setFieldValue('nation1.advancedPirateEconomy', event.currentTarget.checked)}
-                      />
-                      <Divider my="sm" />
-                      <NumberInput label="Target City Infrastructure" {...form.getInputProps('nation1.cityInfrastructure')} min={0} />
+                      <NationDamageModifiers form={form} basePath="nation1" />
                     </Stack>
                   </Paper>
                 </Grid.Col>
@@ -636,10 +1096,12 @@ export function DamagePage() {
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
                       <Text size="sm" fw={600}>{nation2Label}</Text>
-                      <NumberInput label="Soldiers" {...form.getInputProps('nation2.soldiers')} min={0} />
-                      <NumberInput label="Tanks" {...form.getInputProps('nation2.tanks')} min={0} />
-                      <NumberInput label="Aircraft" {...form.getInputProps('nation2.aircraft')} min={0} />
-                      <NumberInput label="Ships" {...form.getInputProps('nation2.ships')} min={0} />
+                      <NationUnitPlanner
+                        form={form}
+                        basePath="nation2"
+                        initialCityCount={nation2CityCount}
+                        baselineUnits={baselineNation2Units}
+                      />
                       <Select
                         label="War Policy"
                         data={WAR_POLICY_OPTIONS}
@@ -669,44 +1131,7 @@ export function DamagePage() {
                           {warPolicyDescriptions[form.values.nation2.warpolicy]}
                         </Text>
                       )}
-                      <Switch
-                        label="Soldiers Use Munitions"
-                        description="Apply standard ammo usage for soldier attacks; disable to ignore munition costs."
-                        checked={form.values.nation2.soldiersUseMunitions}
-                        onChange={(event) => form.setFieldValue('nation2.soldiersUseMunitions', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Vital Defense System"
-                        description="Apply VDS modifiers to nuclear strikes (interception + reduced impact)."
-                        checked={form.values.nation2.vds}
-                        onChange={(event) => form.setFieldValue('nation2.vds', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Iron Dome"
-                        description="Apply Iron Dome modifiers to incoming missiles (interception chance)."
-                        checked={form.values.nation2.irond}
-                        onChange={(event) => form.setFieldValue('nation2.irond', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Fallout Shelter"
-                        description="Reduce nuclear strike damage to your city targets in the calc."
-                        checked={form.values.nation2.falloutShelter}
-                        onChange={(event) => form.setFieldValue('nation2.falloutShelter', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Military Salvage"
-                        description="Recover a portion of resources from your unit losses after combat."
-                        checked={form.values.nation2.militarySalvage}
-                        onChange={(event) => form.setFieldValue('nation2.militarySalvage', event.currentTarget.checked)}
-                      />
-                      <Switch
-                        label="Advanced Pirate Economy"
-                        description="Apply pirate-economy bonuses to raid loot and resources."
-                        checked={form.values.nation2.advancedPirateEconomy}
-                        onChange={(event) => form.setFieldValue('nation2.advancedPirateEconomy', event.currentTarget.checked)}
-                      />
-                      <Divider my="sm" />
-                      <NumberInput label="Target City Infrastructure" {...form.getInputProps('nation2.cityInfrastructure')} min={0} />
+                      <NationDamageModifiers form={form} basePath="nation2" />
                     </Stack>
                   </Paper>
                 </Grid.Col>

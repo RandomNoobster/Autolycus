@@ -303,10 +303,12 @@ def _extract_nation_data(results: dict[str, Any], nation_key: str) -> dict[str, 
         Formatted nation info object.
     """
     nation_info = results.get(nation_key, {})
+    cities = nation_info.get('cities') or []
     
     return {
         'id': nation_info.get('id', 0),
         'nationName': nation_info.get('nation_name', 'Unknown'),
+        'numCities': len(cities),
         'vds': nation_info.get('vds', False),  # Vital Defense System
         'irond': nation_info.get('irond', False),  # Iron Dome
         'groundWinRate': results.get(f'{nation_key}_ground_win_rate', 0.5),
