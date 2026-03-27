@@ -4,9 +4,8 @@
  * Displayed when no token is present or token is invalid.
  */
 
-import { Container, Title, Text, Stack, Alert, Button } from '@mantine/core';
-import { IconAlertTriangle, IconLock, IconShield } from '@tabler/icons-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Container, Title, Text, Stack, Alert } from '@mantine/core';
+import { IconAlertTriangle, IconLock } from '@tabler/icons-react';
 
 interface TokenErrorProps {
   type: 'missing' | 'expired' | 'invalid';
@@ -15,9 +14,7 @@ interface TokenErrorProps {
   redirectPath?: string;
 }
 
-export function TokenError({ type, message, dataType = 'raids', redirectPath }: TokenErrorProps) {
-  const navigate = useNavigate();
-  const location = useLocation();
+export function TokenError({ type, message, dataType = 'raids' }: TokenErrorProps) {
   
   const config = {
     missing: {
@@ -42,12 +39,6 @@ export function TokenError({ type, message, dataType = 'raids', redirectPath }: 
 
   const { title, description, icon } = config[type];
 
-  const handleGenerateToken = () => {
-    const fallbackRedirect = `${location.pathname}${location.search}` || `/${dataType}`;
-    const nextRedirect = redirectPath || fallbackRedirect;
-    navigate(`/token-request?type=${dataType}&redirect=${encodeURIComponent(nextRedirect)}&auto=true`);
-  };
-
   return (
     <Container size="sm" py="xl">
       <Stack align="center" gap="lg">
@@ -66,27 +57,13 @@ export function TokenError({ type, message, dataType = 'raids', redirectPath }: 
                 Error: {message}
               </Text>
             )}
-            <Button
-              leftSection={<IconShield size={16} />}
-              onClick={handleGenerateToken}
-              variant="light"
-              color="green"
-              mt="xs"
-            >
-              Generate Secure Token
-            </Button>
           </Stack>
         </Alert>
 
         <Stack gap="xs" align="center">
           <Title order={4}>How to access this page:</Title>
           <Text size="sm" c="dimmed" ta="center">
-            <strong>Option 1: Generate a Token (Recommended)</strong>
-            <br />
-            Click the button above to generate a secure token instantly.
-            <br />
-            <br />
-            <strong>Option 2: Discord Bot Link</strong>
+            <strong>Access via Discord Bot</strong>
             <br />
             1. Open Discord and go to a server with Autolycus bot
             <br />

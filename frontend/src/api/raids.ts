@@ -34,7 +34,7 @@ export interface RaidFilterParams {
 }
 
 export function fetchRaids(
-  token: string,
+  token?: string,
   filters: RaidFilterParams = {}
 ): Promise<RaidsResponse> {
   const params = new URLSearchParams();
@@ -109,7 +109,7 @@ export interface AllianceSearchResult {
  * @returns Array of matching alliances
  */
 export function searchAlliances(
-  token: string,
+  token: string | undefined,
   query: string,
   limit: number = 10
 ): Promise<AllianceSearchResult[]> {

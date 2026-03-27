@@ -4,7 +4,6 @@ This module contains general-purpose commands including nation info,
 revenue calculations, builds optimizer, and user management.
 """
 
-import inspect
 import json
 import os
 import pathlib
@@ -21,7 +20,7 @@ import queries
 from database.mongo import find_nation, get_db, get_global_user_by_any, listify
 from database.users import (delete_verification, get_verification,
                             set_verification)
-from discord_utils import helpers
+from discord_utils import help_data, helpers
 from discord_utils.embeds import nation_overview_embed
 from logic.api_client import call, paginate_call
 from logic.builds import calculate_builds as calculate_builds_logic
@@ -49,7 +48,7 @@ class Background(commands.Cog):
 
     @slash_command(
         name="who",
-        description="Get more information about someone's nation"
+        description="Look up detailed information about any nation",
     )
     async def who(
         self,
@@ -121,7 +120,7 @@ class Background(commands.Cog):
 
     @slash_command(
         name="builds",
-        description="Shows you the best city builds"
+        description="Find the optimal city builds for a given infra & land level",
     )
     async def build(
         self,
@@ -227,11 +226,11 @@ class Background(commands.Cog):
             raise e
 
 
-    revenue_group = SlashCommandGroup("revenue", "Revenue calculators.")
+    revenue_group = SlashCommandGroup("revenue", "Revenue calculators for nations and alliances")
     
     @revenue_group.command(
         name="nation",
-        description="The revenue of a nation"
+        description="View a nation's full daily revenue breakdown",
     )
     async def nation_revenue(
         self,
@@ -298,7 +297,7 @@ class Background(commands.Cog):
     
     @revenue_group.command(
         name="alliance",
-        description="The revenue of an alliance"
+        description="View an alliance's total daily revenue across all members",
     )
     async def alliance_revenue(
         self,
@@ -386,7 +385,7 @@ class Background(commands.Cog):
 
     @slash_command(
         name="botinfo",
-        description="Information about the bot"
+        description="View bot statistics and useful links",
     )
     async def botinfo(self, ctx: discord.ApplicationContext) -> None:
         """Display bot statistics and useful links.
@@ -416,7 +415,7 @@ class Background(commands.Cog):
 
     @slash_command(
         name="verify",
-        description='Link your nation with your discord account',
+        description="Link your Discord account to your Politics & War nation",
     )
     async def verify(
         self,
@@ -456,7 +455,7 @@ class Background(commands.Cog):
 
     @slash_command(
         name="unverify",
-        description='Unlink your nation from your discord account',
+        description="Unlink your Discord account from your P&W nation",
     )
     async def unverify(
         self,
@@ -477,49 +476,113 @@ class Background(commands.Cog):
             logger.error(e, exc_info=True)
             raise e
 
+    @staticmethod
+    async def _autocomplete_commands(ctx: discord.AutocompleteContext) -> list[str]:
+        """Autocomplete callback for the /help command parameter."""
+        names = help_data.get_all_command_names()
+        value = (ctx.value or "").lower()
+        return [n for n in names if value in n][:25]
+
     @slash_command(
         name="help",
-        description="Returns all commands",
+        description="Show all commands or get detailed help for one",
     )
-    async def help(self, ctx: discord.ApplicationContext) -> None:
-        """Display all available bot commands.
-        
+    async def help(
+        self,
+        ctx: discord.ApplicationContext,
+        command: Option(
+            str,
+            "The command to get detailed help for (e.g. raids, revenue nation)",
+            autocomplete=_autocomplete_commands.__func__,
+            required=False,
+        ) = None,
+    ) -> None:
+        """Display all available bot commands, or detailed help for a specific one.
+
         Args:
             ctx: Discord application context.
+            command: Optional command name to get detailed help for.
         """
         try:
-            cmds = sorted(self.bot.application_commands, key=lambda x: f"{x}")
-            embed = discord.Embed(title="Command list", color=0xff5100)
+            if command:
+                # ── Detailed help for a single command ──
+                cmd_help = help_data.get_help(command.lower())
+                if not cmd_help:
+                    await ctx.respond(
+                        f"Unknown command `{command}`. Use `/help` to see all commands.",
+                        ephemeral=True,
+                    )
+                    return
 
-            seen = set()
-            for command in cmds:
-                command_name = getattr(command, "qualified_name", str(command))
-                if command_name in seen:
-                    continue
-                seen.add(command_name)
-
-                short_help = getattr(command, "description", None) or "No short description provided."
-                long_help = inspect.getdoc(command.callback) if hasattr(command, "callback") else None
-                if long_help:
-                    long_help = long_help.split("Args:")[0].strip()
-                else:
-                    long_help = short_help
-
-                if len(long_help) > 900:
-                    long_help = f"{long_help[:897]}..."
-
-                embed.add_field(
-                    name=f"/{command_name}",
-                    value=f"**Short:** {short_help}\n**Long:** {long_help}",
-                    inline=False,
+                embed = discord.Embed(
+                    title=f"/{command}",
+                    description=cmd_help.get("long", cmd_help.get("short", "")),
+                    color=0xff5100,
                 )
 
-            embed.description = (
-                "Here you can find the [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/) "
-                "and [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)"
-            )
-            embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
-            await ctx.respond(embed=embed)
+                # Parameters
+                params = cmd_help.get("parameters", {})
+                if params:
+                    param_lines = []
+                    for name, desc in params.items():
+                        param_lines.append(f"**`{name}`** — {desc}")
+                    embed.add_field(
+                        name="Parameters",
+                        value="\n".join(param_lines),
+                        inline=False,
+                    )
+
+                # Examples
+                examples = cmd_help.get("examples", [])
+                if examples:
+                    embed.add_field(
+                        name="Examples",
+                        value="\n".join(examples),
+                        inline=False,
+                    )
+
+                # Notes
+                notes = cmd_help.get("notes")
+                if notes:
+                    embed.add_field(
+                        name="💡 Tips",
+                        value=notes,
+                        inline=False,
+                    )
+
+                embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+                await ctx.respond(embed=embed)
+            else:
+                # ── Compact list of all commands ──
+                cmds = sorted(self.bot.application_commands, key=lambda x: f"{x}")
+                embed = discord.Embed(title="📖 Autolycus Command List", color=0xff5100)
+                embed.description = (
+                    "Use `/help <command>` for detailed info, parameters, and examples.\n\n"
+                    "[Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/) · "
+                    "[Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)"
+                )
+
+                seen: set[str] = set()
+                for cmd in cmds:
+                    cmd_name = getattr(cmd, "qualified_name", str(cmd))
+                    if cmd_name in seen:
+                        continue
+                    seen.add(cmd_name)
+
+                    cmd_help = help_data.get_help(cmd_name)
+                    short = (
+                        cmd_help["short"]
+                        if cmd_help
+                        else getattr(cmd, "description", "No description.")
+                    )
+                    embed.add_field(
+                        name=f"/{cmd_name}",
+                        value=short,
+                        inline=False,
+                    )
+
+                embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+                await ctx.respond(embed=embed)
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e

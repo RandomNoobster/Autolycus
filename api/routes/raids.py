@@ -17,12 +17,13 @@ from flask import Blueprint, current_app, jsonify, request
 from pymongo import MongoClient
 
 import queries
-from api.security import require_token
+from api.security import optional_token, require_token
 from logic import api_client, merge_utils
-from logic.common import beige_loot_value
+from logic.common import beige_loot_value, compute_beige_loot, parse_war_date
 from logic.military import calculate_win_chance_raw
-from logic.revenue import pre_revenue_calc, revenue_calc
-from utils.db_utils import get_all_alliances, get_all_nations
+from logic.revenue import pre_revenue_calc, revenue_calc_sync
+from utils.db_utils import (get_all_alliances, get_all_nations_filtered,
+                            get_nation_by_id)
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,7 @@ def get_sync_mongo():
 
 
 @raids_bp.route('/', methods=['GET'])
-@require_token
+@optional_token
 def get_raids() -> tuple[Any, int]:
     """
     Get raid targets for the authenticated user.
@@ -292,11 +293,32 @@ def get_raids() -> tuple[Any, int]:
             use_saved_targets,
         )
 
-        # Load nations from SQLite cache
+        # Load nations from SQLite cache with SQL-level filtering
         data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
-        nations_data = get_all_nations(data_path)
+        # Push score and target-id filters down to SQLite for efficiency.
+        # When specific target IDs are requested we filter by those;
+        # otherwise apply the score floor (always >= 15).
+        sql_min_score = None if target_nation_ids else min_score
+        sql_max_score = None if target_nation_ids else max_score
+        sql_nation_ids = target_nation_ids
+        # Ensure the attacker (if known from URL param) is included in the
+        # SQL filter so that the attacker data is always available for
+        # win-chance calculations and the response header.
+        if sql_nation_ids is not None and attacker_nation_id:
+            sql_nation_ids = set(sql_nation_ids)  # copy to avoid mutating
+            sql_nation_ids.add(str(attacker_nation_id))
+        nations_data = get_all_nations_filtered(
+            data_path,
+            min_score=sql_min_score,
+            max_score=sql_max_score,
+            nation_ids=sql_nation_ids,
+        )
         nations = nations_data['nations']
         last_fetched = nations_data.get('last_fetched')
+        # Build O(1) lookup dict for attacker resolution
+        nations_by_id: dict[str, dict[str, Any]] = {
+            str(n.get('id')): n for n in nations
+        }
         logger.info(
             "[raids] loaded nations count=%d lastFetched=%s",
             len(nations),
@@ -325,11 +347,15 @@ def get_raids() -> tuple[Any, int]:
         # Fetch user profile from Mongo (sync) to resolve attacker and reminders
         mongo_db = get_sync_mongo()
         user_profile = None
-        if mongo_db is not None and user_id:
+        discord_linked = False
+        if mongo_db is not None and user_id is not None:
             try:
-                user_profile = mongo_db.global_users.find_one({'user': int(user_id)})
-            except Exception:
+                uid = int(user_id)
+                user_profile = mongo_db.global_users.find_one({'user': uid})
+                discord_linked = user_profile is not None
+            except (TypeError, ValueError):
                 user_profile = None
+                discord_linked = False
 
         if use_saved_targets and user_profile and not target_nation_ids:
             stored_ids = user_profile.get('raids_target_ids', [])
@@ -340,7 +366,7 @@ def get_raids() -> tuple[Any, int]:
         nation_warning = None
         # Priority: URL parameter > user profile > first nation
         if attacker_nation_id:
-            attacker = next((n for n in nations if int(n.get('id', 0)) == attacker_nation_id), None)
+            attacker = nations_by_id.get(str(attacker_nation_id))
             if attacker:
                 logger.info(f"Found attacker nation by URL parameter: {attacker_nation_id}")
             else:
@@ -348,12 +374,22 @@ def get_raids() -> tuple[Any, int]:
                 nation_warning = f"Nation ID {attacker_nation_id} not found in database. Using default nation for calculations."
         if attacker is None and user_profile:
             attacker_id = str(user_profile.get('id', ''))
-            attacker = next((n for n in nations if str(n.get('id')) == attacker_id), None)
+            attacker = nations_by_id.get(attacker_id)
+            # If the attacker isn't in the filtered set (e.g. target_nation_ids
+            # was provided and didn't include the attacker), do a single lookup.
+            if attacker is None and attacker_id:
+                try:
+                    attacker_data = get_nation_by_id(data_path, attacker_id)
+                    attacker = attacker_data.get('nation')
+                except Exception:
+                    pass
         if attacker is None and nations:
             attacker = nations[0]
             logger.info(f"Falling back to first nation: {attacker.get('id')}")
 
         beige_alerts = user_profile.get('beige_alerts', []) if user_profile else []
+        # Pre-compute set for O(1) membership checks in the loop
+        beige_alert_set: set[str] = {str(x) for x in beige_alerts}
 
         targets: list[dict[str, Any]] = []
         backfill_attempts = 0
@@ -385,6 +421,14 @@ def get_raids() -> tuple[Any, int]:
 
         apply_filters = target_nation_ids is None
 
+        # Pre-compute attacker combat values (constant across all targets)
+        if attacker:
+            _att_ground = attacker.get('soldiers', 0) * 1.75 + attacker.get('tanks', 0) * 40
+            _att_air = attacker.get('aircraft', 0) * 3
+            _att_naval = attacker.get('ships', 0) * 4
+        # Compute current time once for all inactivity calculations
+        now_utc = datetime.now(timezone.utc)
+
         for nation in nations:
             if target_nation_ids and str(nation.get('id', '')) not in target_nation_ids:
                 continue
@@ -406,15 +450,8 @@ def get_raids() -> tuple[Any, int]:
                     continue
                 if max_cities is not None and nation.get('num_cities', 0) > max_cities:
                     continue
-                score_val = None
-                try:
-                    score_val = float(nation.get('score', 0))
-                except (TypeError, ValueError):
-                    score_val = None
-                if min_score is not None and score_val is not None and score_val < min_score:
-                    continue
-                if max_score is not None and score_val is not None and score_val > max_score:
-                    continue
+                # NOTE: score filtering is now handled at the SQL level in
+                # get_all_nations_filtered(), so no Python-side check needed.
             alliance_id = str(nation.get('alliance_id', ''))
             alliance_obj = (nation.get('alliance', {}) or {})
 
@@ -433,11 +470,12 @@ def get_raids() -> tuple[Any, int]:
             def_slots = 0
             time_since_war: int | str = "14+"
             if wars:
-                sorted_wars = sorted(wars, key=lambda w: w.get('date', ''), reverse=True)
+                nation_id_str = str(nation.get('id'))
                 for war in wars:
-                    if war.get('turnsleft', 0) > 0 and str(war.get('defid')) == str(nation.get('id')):
+                    if war.get('turnsleft', 0) > 0 and str(war.get('defid')) == nation_id_str:
                         def_slots += 1
-                most_recent = sorted_wars[0]
+                # O(n) max instead of O(n log n) sort — we only need the most recent
+                most_recent = max(wars, key=lambda w: w.get('date', ''))
                 war_date = most_recent.get('date')
                 if war_date and war_date != '-0001-11-30 00:00:00':
                     try:
@@ -446,7 +484,7 @@ def get_raids() -> tuple[Any, int]:
                         else:
                             dt = datetime.strptime(war_date, "%Y-%m-%d %H:%M:%S")
                             dt = dt.replace(tzinfo=timezone.utc)
-                        days = (datetime.now(timezone.utc) - dt).days
+                        days = (now_utc - dt).days
                         time_since_war = 0 if def_slots > 0 else days 
                     except Exception:
                         time_since_war = "14+"
@@ -454,21 +492,18 @@ def get_raids() -> tuple[Any, int]:
                     time_since_war = "14+"
 
             # Inactivity
-            days_inactive = _calculate_days_inactive(nation.get('last_active'))
+            days_inactive = _calculate_days_inactive(nation.get('last_active'), now_utc)
             if apply_filters and inactive_min_days is not None and days_inactive < inactive_min_days:
                 continue
 
-            # Win chances
+            # Win chances (attacker values pre-computed above the loop)
             if attacker:
-                ground_attack = attacker.get('soldiers', 0) * 1.75 + attacker.get('tanks', 0) * 40
                 ground_def = nation.get('soldiers', 0) * 1.75 + nation.get('tanks', 0) * 40 + nation.get('population', 0) * 0.0025
-                air_attack = attacker.get('aircraft', 0) * 3
                 air_def = nation.get('aircraft', 0) * 3
-                naval_attack = attacker.get('ships', 0) * 4
                 naval_def = nation.get('ships', 0) * 4
-                ground_win = round(calculate_win_chance_raw(ground_attack, ground_def) * 100, 1)
-                air_win = round(calculate_win_chance_raw(air_attack, air_def) * 100, 1)
-                naval_win = round(calculate_win_chance_raw(naval_attack, naval_def) * 100, 1)
+                ground_win = round(calculate_win_chance_raw(_att_ground, ground_def) * 100, 1)
+                air_win = round(calculate_win_chance_raw(_att_air, air_def) * 100, 1)
+                naval_win = round(calculate_win_chance_raw(_att_naval, naval_def) * 100, 1)
                 total_win = round((ground_win + air_win + naval_win) / 3, 1)
             else:
                 ground_win = air_win = naval_win = total_win = 50.0
@@ -483,30 +518,27 @@ def get_raids() -> tuple[Any, int]:
                 nation_loot_value = 0
 
             # Backfill missing beige loot from cached war logs when possible
+            # (Scanner pre-computes this now, so backfill is a rare fallback)
             if nation_loot_value <= 0:
                 backfill_attempts += 1
-                computed_loot = _compute_beige_loot(nation, prices)
+                computed_loot = compute_beige_loot(nation, prices)
                 if computed_loot is not None:
                     nation_loot_value = computed_loot
                     backfill_successes += 1
-            # Compute revenue if context is available
+            # Compute revenue if context is available (sync — no event loop overhead)
             if revenue_context:
                 try:
                     _, colors, prices_ctx, treasures, radiation, seasonal_mod = revenue_context
 
-                    async def _compute():
-                        return await revenue_calc(
-                            message=None,
-                            nation=nation,
-                            radiation=radiation,
-                            treasures=treasures,
-                            prices=prices_ctx,
-                            colors=colors,
-                            seasonal_mod=seasonal_mod,
-                            include_spies=False,
-                        )
-
-                    revenue_result = asyncio.run(_compute()) or {}
+                    revenue_result = revenue_calc_sync(
+                        nation=nation,
+                        radiation=radiation,
+                        treasures=treasures,
+                        prices=prices_ctx,
+                        colors=colors,
+                        seasonal_mod=seasonal_mod,
+                        include_spies=False,
+                    ) or {}
                     monetary_net_income = revenue_result.get('monetary_net_num', monetary_net_income)
                     net_cash_income = revenue_result.get('net_cash_num', net_cash_income)
                 except Exception as e:
@@ -527,6 +559,17 @@ def get_raids() -> tuple[Any, int]:
             alliance_name = alliance_obj.get('name', 'None') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', 'None')
             nation_color = nation.get('color', '')
             taxable = bool(nation_color and alliance_color and str(nation_color).lower() == str(alliance_color).lower())
+
+            updated_at = None
+            try:
+                updated_at = int(nation.get('_created_at')) if nation.get('_created_at') is not None else None
+            except (TypeError, ValueError):
+                updated_at = None
+            if updated_at is None and last_fetched:
+                try:
+                    updated_at = int(last_fetched)
+                except (TypeError, ValueError):
+                    updated_at = None
 
             targets.append({
                 'id': int(nation.get('id', 0)),
@@ -556,7 +599,8 @@ def get_raids() -> tuple[Any, int]:
                 'airWin': air_win,
                 'navalWin': naval_win,
                 'totalWin': total_win,
-                'hasReminderActive': str(nation.get('id')) in [str(x) for x in beige_alerts],
+                'hasReminderActive': str(nation.get('id')) in beige_alert_set,
+                'updatedAt': updated_at,
             })
 
         response = {
@@ -570,7 +614,7 @@ def get_raids() -> tuple[Any, int]:
             'beigeAlerts': [str(x) for x in beige_alerts],
             'showBeige': beige_only is not False,
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
-            'discordLinked': bool(user_id),
+            'discordLinked': discord_linked,
                 'warning': nation_warning if 'nation_warning' in locals() else None,
         }
 
@@ -632,7 +676,7 @@ def add_reminder() -> tuple[Any, int]:
             }), 400
 
         mongo_db = get_sync_mongo()
-        if not mongo_db:
+        if mongo_db is None:
             return jsonify({
                 'error': 'Database unavailable',
                 'message': 'MongoDB is not configured.',
@@ -697,7 +741,7 @@ def remove_reminder(nation_id: str) -> tuple[Any, int]:
             }), 401
 
         mongo_db = get_sync_mongo()
-        if not mongo_db:
+        if mongo_db is None:
             return jsonify({
                 'error': 'Database unavailable',
                 'message': 'MongoDB is not configured.',
@@ -734,7 +778,7 @@ def remove_reminder(nation_id: str) -> tuple[Any, int]:
 
 
 @raids_bp.route('/alliances/search', methods=['GET'])
-@require_token
+@optional_token
 def search_alliances():
     """
     Search for alliances by name, acronym, or ID (fuzzy matching).
@@ -775,8 +819,8 @@ def search_alliances():
         results = []
         for alliance in alliances:
             alliance_id = str(alliance.get('id', ''))
-            name = alliance.get('name', '')
-            acronym = alliance.get('acronym', '')
+            name = str(alliance.get('name', ''))
+            acronym = str(alliance.get('acronym', '') or '')
             
             if not name:  # Skip alliances without names
                 continue
@@ -828,8 +872,14 @@ def search_alliances():
         }), 500
 
 
-def _calculate_days_inactive(last_active: str) -> int:
-    """Calculate days since last activity."""
+def _calculate_days_inactive(last_active: str, now: Optional[datetime] = None) -> int:
+    """Calculate days since last activity.
+
+    Args:
+        last_active: ISO-8601 or ``YYYY-MM-DD HH:MM:SS`` timestamp string.
+        now: Pre-computed current UTC datetime.  When *None*, falls back to
+            ``datetime.now(timezone.utc)``.
+    """
     if not last_active or last_active == '-0001-11-30 00:00:00':
         return 0
     
@@ -841,7 +891,8 @@ def _calculate_days_inactive(last_active: str) -> int:
             last_active_dt = datetime.strptime(last_active, "%Y-%m-%d %H:%M:%S")
             last_active_dt = last_active_dt.replace(tzinfo=timezone.utc)
         
-        now = datetime.now(timezone.utc)
+        if now is None:
+            now = datetime.now(timezone.utc)
         return (now - last_active_dt).days
     except (ValueError, TypeError):
         return 0

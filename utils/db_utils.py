@@ -4,9 +4,15 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 # --- Common DB paths ---
+
+# Fields stored as JSON strings in SQLite (originally dict/list from the API).
+# Only these are parsed with json.loads during reads for performance.
+_JSON_FIELDS: frozenset[str] = frozenset({
+    'wars', 'alliance', 'treasures', 'cities', 'bounties', 'military_research',
+})
 
 def get_nations_db_path() -> Path:
     """Return the absolute path to nations SQLite database."""
@@ -200,6 +206,130 @@ def get_all_nations(db_path: Path) -> Dict[str, Any]:
         return {
             'nations': nations,
             'last_fetched': last_fetched
+        }
+
+
+def get_all_nations_filtered(
+    db_path: Path,
+    min_score: Optional[float] = None,
+    max_score: Optional[float] = None,
+    nation_ids: Optional[Set[str]] = None,
+) -> Dict[str, Any]:
+    """Fetch nations with optional SQL-level filters and optimised JSON parsing.
+
+    Unlike :func:`get_all_nations` which loads every nation and tries
+    ``json.loads`` on every string column, this function:
+
+    1. Pushes ``score`` and ``id`` filters down to the SQL query so fewer
+       rows are materialised in Python.
+    2. Only parses known JSON columns (see ``_JSON_FIELDS``), plus any
+       other string value whose first character is ``{`` or ``[`` as a
+       safety net for future schema additions.
+
+    Args:
+        db_path: Path to nations.db SQLite database.
+        min_score: Exclude nations below this score.  Pass *None* to skip.
+        max_score: Exclude nations above this score.  Pass *None* to skip.
+        nation_ids: When provided, only return nations whose ``id`` is in
+            this set.  Values should be stringified integers.
+
+    Returns:
+        Dictionary with ``nations`` list and ``last_fetched`` timestamp,
+        identical in shape to :func:`get_all_nations`.
+    """
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        where_clauses: List[str] = []
+        params: List[Any] = []
+
+        if min_score is not None:
+            where_clauses.append("score >= ?")
+            params.append(min_score)
+        if max_score is not None:
+            where_clauses.append("score <= ?")
+            params.append(max_score)
+        if nation_ids:
+            placeholders = ",".join("?" * len(nation_ids))
+            where_clauses.append(f"id IN ({placeholders})")
+            params.extend([int(nid) for nid in nation_ids if nid.isdigit()])
+
+        sql = "SELECT * FROM nations"
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        cur.execute(sql, params)
+        nations = [dict(row) for row in cur.fetchall()]
+
+        # --- Selective JSON parsing ---
+        for nation in nations:
+            # 1) Always parse the known JSON-encoded columns
+            for key in _JSON_FIELDS:
+                val = nation.get(key)
+                if isinstance(val, str):
+                    try:
+                        nation[key] = json.loads(val)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            # 2) Safety net: parse any other string that *looks* like JSON
+            for key, val in nation.items():
+                if key in _JSON_FIELDS:
+                    continue  # already handled
+                if isinstance(val, str) and val and val[0] in ('{', '['):
+                    try:
+                        nation[key] = json.loads(val)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+        ensure_metadata_table(conn)
+        last_fetched = get_metadata(conn, 'last_fetched')
+
+        return {
+            'nations': nations,
+            'last_fetched': last_fetched,
+        }
+
+
+def get_nation_by_id(db_path: Path, nation_id: int | str) -> Dict[str, Any]:
+    """Fetch a single nation by ID from the nations database.
+
+    Args:
+        db_path: Path to nations.db SQLite database
+        nation_id: The nation ID to fetch
+
+    Returns:
+        Dictionary with 'nation' (or None) and 'last_fetched' timestamp.
+    """
+    try:
+        nation_id_int = int(str(nation_id))
+    except (TypeError, ValueError):
+        nation_id_int = None
+
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        nation = None
+        if nation_id_int is not None:
+            cur.execute("SELECT * FROM nations WHERE id = ?", (nation_id_int,))
+            row = cur.fetchone()
+            if row:
+                nation = dict(row)
+                for key, val in nation.items():
+                    if isinstance(val, str):
+                        try:
+                            nation[key] = json.loads(val)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+        ensure_metadata_table(conn)
+        last_fetched = get_metadata(conn, 'last_fetched')
+
+        return {
+            'nation': nation,
+            'last_fetched': last_fetched,
         }
 
 

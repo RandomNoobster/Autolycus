@@ -4,12 +4,12 @@ import os
 from typing import Optional
 
 import discord
-from discord.ext import commands
 from discord.commands import Option, SlashCommandGroup
+from discord.ext import commands
 
-from logic import common
 from database import mongo as db_mongo
 from discord_utils import views
+from logic import common
 from main import logger
 
 
@@ -24,11 +24,11 @@ class Config(commands.Cog):
         """
         self.bot = bot
 
-    config_group = SlashCommandGroup("config", "Configure commands that need configuration")
+    config_group = SlashCommandGroup("config", "Server and personal configuration settings")
 
     @config_group.command(
         name="dnr",
-        description="Configure a DNR list for the /raids command",
+        description="Set the Do Not Raid alliance list for this server",
     )
     @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
@@ -67,7 +67,7 @@ class Config(commands.Cog):
     
     @config_group.command(
         name="view_current_settings",
-        description="Get an overview of how Autolycus is configured in this server.",
+        description="View this server's current Autolycus configuration",
     )
     @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
@@ -101,7 +101,7 @@ class Config(commands.Cog):
         
     @config_group.command(
         name="reminders",
-        description="Configure your personal beige reminders",
+        description="Customize when you receive beige exit reminder DMs",
     )
     @commands.has_permissions(manage_guild=True)
     async def config_beige_reminders(

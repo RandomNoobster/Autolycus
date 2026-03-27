@@ -38,8 +38,15 @@ interface UseUrlParamsReturn {
   getCustomParams: () => Record<string, string>;
 }
 
-// Reserved parameter names that shouldn't be treated as column filters
-const RESERVED_PARAMS = ['token', 'sort', 'sortDir', 'attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId'];
+// Reserved parameter names that shouldn't be treated as column filters.
+// Includes page-level filter params (score, beige, scope, etc.) that are
+// handled outside the table and don't correspond to actual column IDs.
+const RESERVED_PARAMS = [
+  'token', 'sort', 'sortDir', 'attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId',
+  'scoreMode', 'yourScore', 'minScore', 'maxScore',
+  'alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'minBeigeLoot', 'performance',
+  'code', 'auto', 'redirect',
+];
 
 /**
  * Parse column filters from URL search params.

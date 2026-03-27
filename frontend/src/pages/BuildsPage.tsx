@@ -256,7 +256,7 @@ export function BuildsPage() {
                 </Text>
                 <NationIdField
                   placeholder="Nation ID or Link to Nation"
-                  size="md"
+                  size="sm"
                   value={form.values.nationId?.toString() ?? ''}
                   onChange={handleNationIdChange}
                   onSubmit={handleLoadNation}

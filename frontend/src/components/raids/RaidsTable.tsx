@@ -13,7 +13,6 @@ import {
   ActionIcon,
   Anchor,
   Badge,
-  Group,
   Text,
   Tooltip,
   Box,
@@ -212,9 +211,10 @@ const NumericMinOnlyFilterInput = ({ column, max }: any) => {
   );
 };
 
+
 interface RaidsTableProps {
   data: RaidTarget[];
-  token: string;
+  token: string | null;
   showBeige: boolean;
   discordLinked: boolean;
   initialSorting?: { id: string; desc: boolean }[];
@@ -256,19 +256,31 @@ export function RaidsTable({
 
   // ... (Keep your mutations same as before) ...
   const addReminderMutation = useMutation({
-    mutationFn: (nationId: number) => addReminder(token, { nationId }),
+    mutationFn: (nationId: number) => {
+      if (!token) return Promise.reject(new Error('Authentication required for reminders'));
+      return addReminder(token, { nationId });
+    },
     onSuccess: (_, nationId) => {
       notifications.show({ title: 'Reminder Set', message: `Nation ${nationId}`, color: 'green' });
-      queryClient.invalidateQueries({ queryKey: ['raids'] });
+      queryClient.setQueriesData<{ targets: RaidTarget[] }>({ queryKey: ['raids'] }, (old) => {
+        if (!old) return old;
+        return { ...old, targets: old.targets.map((t) => t.id === nationId ? { ...t, hasReminderActive: true } : t) };
+      });
     },
     onError: (error: Error) => notifications.show({ title: 'Error', message: error.message, color: 'red' }),
   });
 
   const removeReminderMutation = useMutation({
-    mutationFn: (nationId: number) => removeReminder(token, nationId),
+    mutationFn: (nationId: number) => {
+      if (!token) return Promise.reject(new Error('Authentication required for reminders'));
+      return removeReminder(token, nationId);
+    },
     onSuccess: (_, nationId) => {
       notifications.show({ title: 'Reminder Removed', message: `Nation ${nationId}`, color: 'blue' });
-      queryClient.invalidateQueries({ queryKey: ['raids'] });
+      queryClient.setQueriesData<{ targets: RaidTarget[] }>({ queryKey: ['raids'] }, (old) => {
+        if (!old) return old;
+        return { ...old, targets: old.targets.map((t) => t.id === nationId ? { ...t, hasReminderActive: false } : t) };
+      });
     },
     onError: (error: Error) => notifications.show({ title: 'Error', message: error.message, color: 'red' }),
   });
@@ -383,6 +395,7 @@ export function RaidsTable({
           min: cityRange[0],
           max: cityRange[1],
           step: 1,
+          minRange: 0,
         },
         size: 120, // Increased slightly to fit "Cities" + Icon
       },
@@ -628,28 +641,7 @@ export function RaidsTable({
         filterFn: minOnlyFilter,
         Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
-      {
-        id: 'actions',
-        header: 'Actions',
-        size: 110,
-        enableSorting: false,
-        enableColumnFilter: false,
-        Cell: ({ row }) => (
-          <Group gap="xs">
-            <Tooltip label="Declare War">
-              <ActionIcon
-                variant="light"
-                color="red"
-                component="a"
-                href={`https://politicsandwar.com/nation/war/declare/id=${row.original.id}`}
-                target="_blank"
-              >
-                <IconExternalLink size={16} />
-              </ActionIcon>
-            </Tooltip>
-          </Group>
-        ),
-      },
+
     ],
     [showBeige, discordLinked, handleReminderToggle, addReminderMutation.isPending, removeReminderMutation.isPending, uniqueAlliances, uniquePositions, uniqueColors, cityRange]
   );
@@ -754,19 +746,23 @@ export function RaidsTable({
           >
             Open nation page
           </Menu.Item>
-          <Menu.Item
-            leftSection={<IconExternalLink size={16} />}
-            component="a"
-            href={
-              contextMenu && contextMenu.nation.allianceId !== '0'
-                ? `https://politicsandwar.com/alliance/id=${contextMenu.nation.allianceId}`
-                : '#'
-            }
-            target="_blank"
-            disabled={!contextMenu || contextMenu.nation.allianceId === '0'}
-          >
-            Open alliance page
-          </Menu.Item>
+          {contextMenu && contextMenu.nation.allianceId !== '0' ? (
+            <Menu.Item
+              leftSection={<IconExternalLink size={16} />}
+              component="a"
+              href={`https://politicsandwar.com/alliance/id=${contextMenu.nation.allianceId}`}
+              target="_blank"
+            >
+              Open alliance page
+            </Menu.Item>
+          ) : (
+            <Menu.Item
+              leftSection={<IconExternalLink size={16} />}
+              disabled
+            >
+              Open alliance page
+            </Menu.Item>
+          )}
           <Menu.Item
             leftSection={<IconExternalLink size={16} />}
             component="a"
@@ -792,8 +788,8 @@ export function RaidsTable({
       </Menu>
       <MantineReactTable table={table} />
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
-        Hide or show columns, reorder them, adjust density, and filter columns directly in the table.
-        When a custom template is active, every tweak is saved with it; built-in templates stay locked.
+        Hide or show columns, reorder them, adjust density, and filter columns by using the controls in the top-right of the table.
+        Right-click any row to open a context menu with quick links to the nation page, alliance page, declare war page, or to set a beige reminder.
       </Alert>
     </Stack>
   );

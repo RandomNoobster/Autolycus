@@ -2,13 +2,7 @@
  * Auth API Functions
  */
 
-import { apiPost, apiRequest } from './client';
-
-interface TokenGenerateRequest {
-  user_id?: string | number;
-  data_type: 'raids' | 'builds' | 'damage';
-  expires_in?: number;
-}
+import { apiPost } from './client';
 
 interface TokenGenerateResponse {
   token: string;
@@ -29,28 +23,20 @@ interface TokenVerifyResponse {
   message?: string;
 }
 
+interface TokenExchangeRequest {
+  code: string;
+}
+
 /**
- * Generate a secure access token for a specific data type.
+ * Exchange a bot-issued authorization code for a signed access token.
  *
- * @param data - Token generation request data
+ * @param data - Token exchange request data
  * @returns Token response with token string and expiration
  */
-export function generateToken(
-  data: TokenGenerateRequest
+export function exchangeToken(
+  data: TokenExchangeRequest
 ): Promise<TokenGenerateResponse> {
-  const authKey = import.meta.env.VITE_AUTH_TOKEN_API_KEY as string | undefined;
-
-  if (authKey) {
-    return apiRequest<TokenGenerateResponse>('/api/auth/token/generate', {
-      method: 'POST',
-      body: JSON.stringify(data),
-      headers: {
-        'X-Auth-Token': authKey,
-      },
-    });
-  }
-
-  return apiPost<TokenGenerateResponse, TokenGenerateRequest>('/api/auth/token/generate', data);
+  return apiPost<TokenGenerateResponse, TokenExchangeRequest>('/api/auth/token/exchange', data);
 }
 
 /**

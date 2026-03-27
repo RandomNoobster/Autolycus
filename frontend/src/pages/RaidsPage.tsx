@@ -22,17 +22,13 @@ import {
   Anchor,
   Alert,
   Loader,
-  LoadingOverlay,
   Skeleton,
-  TextInput,
-  Divider,
 } from '@mantine/core';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { IconSearch, IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
+import { IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
-import { IconPlus, IconCopy, IconTrash, IconPencil } from '@tabler/icons-react';
 import type {
   MRT_ColumnFiltersState,
   MRT_ColumnOrderState,
@@ -40,32 +36,21 @@ import type {
   MRT_VisibilityState,
 } from 'mantine-react-table';
 
-import { fetchRaids, searchAlliances } from '@/api';
+import { fetchRaids, searchAlliances, exchangeToken } from '@/api';
 import { useUrlParams, useNationId } from '@/hooks';
 import { RaidsTable } from '@/components/raids';
 import { TokenError, ErrorState, NationIdField } from '@/components/common';
 import type { ApiError } from '@/types';
 
-type TableTemplateSettings = {
+type TableSettings = {
   columnVisibility: MRT_VisibilityState;
   columnOrder: MRT_ColumnOrderState;
   density: MRT_DensityState;
   columnFilters: MRT_ColumnFiltersState;
 };
 
-type TableTemplate = {
-  id: string;
-  name: string;
-  builtIn: boolean;
-  settings: TableTemplateSettings;
-};
-
-const TEMPLATE_STORAGE_KEY = 'autolycus-raids-templates-v1';
-const ACTIVE_TEMPLATE_STORAGE_KEY = 'autolycus-raids-active-template';
-
-const PROVEN_TARGET_TEMPLATE_SETTINGS: TableTemplateSettings = {
+const DEFAULT_TABLE_SETTINGS: TableSettings = {
   columnVisibility: {
-    actions: true,
     id: false,
     nationName: true,
     leaderName: false,
@@ -118,97 +103,11 @@ const PROVEN_TARGET_TEMPLATE_SETTINGS: TableTemplateSettings = {
     'airWin',
     'navalWin',
     'totalWin',
-    'actions',
     'mrt-row-spacer',
   ],
   density: 'xs',
   columnFilters: [],
 };
-
-const UNREAPED_FRUIT_TEMPLATE_SETTINGS: TableTemplateSettings = {
-  columnVisibility: {
-    actions: true,
-    id: false,
-    nationName: true,
-    leaderName: false,
-    allianceName: true,
-    alliancePosition: true,
-    numCities: true,
-    color: true,
-    nationLoot: true,
-    daysInactive: true,
-    monetaryNetIncome: true,
-    netCashIncome: true,
-    taxable: true,
-    treasures: true,
-    defSlots: true,
-    timeSinceWar: true,
-    soldiers: false,
-    tanks: false,
-    aircraft: false,
-    ships: false,
-    missiles: false,
-    nukes: false,
-    groundWin: true,
-    airWin: true,
-    navalWin: true,
-    totalWin: true,
-  },
-  columnOrder: [
-    'id',
-    'nationName',
-    'leaderName',
-    'allianceName',
-    'alliancePosition',
-    'numCities',
-    'color',
-    'nationLoot',
-    'daysInactive',
-    'monetaryNetIncome',
-    'netCashIncome',
-    'taxable',
-    'treasures',
-    'defSlots',
-    'timeSinceWar',
-    'soldiers',
-    'tanks',
-    'aircraft',
-    'ships',
-    'missiles',
-    'nukes',
-    'groundWin',
-    'airWin',
-    'navalWin',
-    'totalWin',
-    'actions',
-    'mrt-row-spacer',
-  ],
-  density: 'xs',
-  columnFilters: [
-    { id: 'groundWin', value: 70 },
-    { id: 'taxable', value: false },
-    { id: 'monetaryNetIncome', value: 1e6 },
-    { id: 'daysInactive', value: 7 }
-  ],
-};
-
-const BUILT_IN_TEMPLATES: TableTemplate[] = [
-  {
-    id: 'builtin-proven',
-    name: "Already Proven Targets",
-    builtIn: true,
-    settings: cloneSettings(PROVEN_TARGET_TEMPLATE_SETTINGS),
-  },
-  {
-    id: 'builtin-unreaped',
-    name: 'Unreaped Fruits',
-    builtIn: true,
-    settings: {
-      ...cloneSettings(UNREAPED_FRUIT_TEMPLATE_SETTINGS),
-      // You can tweak this template's order/visibility later if desired.
-    },
-  },
-];
 
 const MAPPED_COLUMN_IDS = new Set([
   'allianceName',
@@ -219,46 +118,6 @@ const MAPPED_COLUMN_IDS = new Set([
   'nationLoot',
 ]);
 
-function cloneSettings(settings: TableTemplateSettings): TableTemplateSettings {
-  return {
-    columnVisibility: { ...settings.columnVisibility },
-    columnOrder: [...settings.columnOrder],
-    density: settings.density,
-    columnFilters: JSON.parse(JSON.stringify(settings.columnFilters || [])),
-  };
-}
-
-function loadCustomTemplates(): TableTemplate[] {
-  try {
-    const raw = localStorage.getItem(TEMPLATE_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as TableTemplate[];
-    return parsed
-      .filter((t) => !t.builtIn)
-      .map((t) => ({ ...t, settings: cloneSettings(t.settings) }));
-  } catch (error) {
-    console.warn('Failed to load raid table templates', error);
-    return [];
-  }
-}
-
-function persistCustomTemplates(customTemplates: TableTemplate[]): void {
-  try {
-    localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplates));
-  } catch (error) {
-    console.warn('Failed to save raid table templates', error);
-  }
-}
-
-function loadActiveTemplateId(fallbackId: string): string {
-  try {
-    const stored = localStorage.getItem(ACTIVE_TEMPLATE_STORAGE_KEY);
-    if (stored) return stored;
-  } catch (error) {
-    console.warn('Failed to read active template id', error);
-  }
-  return fallbackId;
-}
 
 function mergeColumnFilters(
   base: MRT_ColumnFiltersState,
@@ -270,25 +129,43 @@ function mergeColumnFilters(
   return Array.from(map.entries()).map(([id, value]) => ({ id, value }));
 }
 
-function areSettingsEqual(a: TableTemplateSettings, b: TableTemplateSettings): boolean {
-  return (
-    JSON.stringify(a.columnVisibility) === JSON.stringify(b.columnVisibility) &&
-    JSON.stringify(a.columnOrder) === JSON.stringify(b.columnOrder) &&
-    a.density === b.density &&
-    JSON.stringify(a.columnFilters) === JSON.stringify(b.columnFilters)
-  );
-}
-
-function buildInitialTemplates(): TableTemplate[] {
-  const builtIns = BUILT_IN_TEMPLATES.map((t) => ({ ...t, settings: cloneSettings(t.settings) }));
-  const custom = loadCustomTemplates();
-  return [...builtIns, ...custom];
-}
 
 export function RaidsPage() {
-  const { token, initialColumnFilters, initialSorting } = useUrlParams();
+  const { token: urlToken, initialColumnFilters, initialSorting } = useUrlParams();
   const { nationId: savedNationId, parseNationId, setNationId } = useNationId();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Handle Discord auth code → token exchange
+  const code = searchParams.get('code');
+  const [exchangedToken, setExchangedToken] = useState<string | null>(null);
+  const [exchangeError, setExchangeError] = useState<string | null>(null);
+  const token = urlToken || exchangedToken;
+  const isExchangingCode = !!code && !token && !exchangeError;
+  const exchangeInFlightRef = useRef(false);
+
+  useEffect(() => {
+    if (!code || urlToken || exchangeInFlightRef.current) return;
+    exchangeInFlightRef.current = true;
+    const doExchange = async () => {
+      try {
+        const response = await exchangeToken({ code });
+        setExchangedToken(response.token);
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('code');
+          next.delete('auto');
+          next.delete('redirect');
+          next.set('token', response.token);
+          return next;
+        }, { replace: true });
+      } catch (err: any) {
+        setExchangeError(err.message || 'Failed to authenticate with Discord.');
+        exchangeInFlightRef.current = false;
+      }
+    };
+    doExchange();
+  }, [code, urlToken, setSearchParams]);
+
   const targetNationIds = searchParams.get('targetNationIds') || undefined;
   const attackerNationIdParam = searchParams.get('attackerNationId') || undefined;
   const useSavedTargets = searchParams.get('useSavedTargets') === 'true';
@@ -353,40 +230,24 @@ export function RaidsPage() {
     maxScore: activeFilters.maxScore?.toString() || '',
   });
 
-  const [templates, setTemplates] = useState<TableTemplate[]>(() => buildInitialTemplates());
-  const [activeTemplateId, setActiveTemplateId] = useState<string>(() => {
-    const initial = buildInitialTemplates();
-    const fallback = initial[0]?.id || 'builtin-proven';
-    const saved = loadActiveTemplateId(fallback);
-    return initial.find((t) => t.id === saved)?.id || fallback;
-  });
-
-  const activeTemplate = useMemo(
-    () => templates.find((t) => t.id === activeTemplateId) || templates[0],
-    [templates, activeTemplateId]
-  );
-
   const [columnVisibility, setColumnVisibility] = useState<MRT_VisibilityState>(
-    () => activeTemplate?.settings.columnVisibility || {}
+    () => ({ ...DEFAULT_TABLE_SETTINGS.columnVisibility })
   );
   const [columnOrder, setColumnOrder] = useState<MRT_ColumnOrderState>(
-    () => activeTemplate?.settings.columnOrder || []
+    () => [...DEFAULT_TABLE_SETTINGS.columnOrder]
   );
   const [density, setDensity] = useState<MRT_DensityState>(
-    () => activeTemplate?.settings.density || 'xs'
+    () => DEFAULT_TABLE_SETTINGS.density
   );
   const [columnFilters, setColumnFilters] = useState<MRT_ColumnFiltersState>(
-    () => activeTemplate?.settings.columnFilters || []
+    () => [...DEFAULT_TABLE_SETTINGS.columnFilters]
   );
   const prevColumnFiltersRef = useRef<MRT_ColumnFiltersState>(
-    activeTemplate?.settings.columnFilters || []
+    DEFAULT_TABLE_SETTINGS.columnFilters
   );
   const syncingFromFiltersRef = useRef(false);
-  const syncingFromTemplateRef = useRef(false);
   const urlFiltersAppliedRef = useRef(false);
   const filtersRestoredRef = useRef(false);
-  const [newTemplateName, setNewTemplateName] = useState('');
-  const [renameValue, setRenameValue] = useState(activeTemplate?.name || '');
   const FILTER_STORAGE_KEY = 'autolycus-raids-filters-v1';
   const FILTER_QUERY_KEYS = [
     'alliance',
@@ -405,16 +266,19 @@ export function RaidsPage() {
   // Alliance autocomplete
   const [allianceQuery, setAllianceQuery] = useState(activeFilters.alliance || '');
   const [debouncedAllianceQuery] = useDebouncedValue(allianceQuery, 300);
+  const [debouncedDraftFilters] = useDebouncedValue(draftFilters, 300);
+
   const { data: allianceOptions = [] } = useQuery({
     queryKey: ['alliance-search', token, debouncedAllianceQuery],
-    queryFn: () => debouncedAllianceQuery.length >= 2 && token ? searchAlliances(token, debouncedAllianceQuery, 15) : Promise.resolve([]),
-    enabled: !!token && debouncedAllianceQuery.length >= 2,
+    queryFn: () => debouncedAllianceQuery.length >= 2 ? searchAlliances(token ?? undefined, debouncedAllianceQuery, 15) : Promise.resolve([]),
+    enabled: debouncedAllianceQuery.length >= 2,
   });
 
   // Fetch raids data - must be before any conditional returns
   const {
     data,
     isLoading,
+    isFetching,
     error,
     refetch,
   } = useQuery({
@@ -430,10 +294,10 @@ export function RaidsPage() {
       if (useSavedTargets) {
         filters.useSavedTargets = true;
       }
-      return fetchRaids(token || '', filters);
+      return fetchRaids(token ?? undefined, filters);
     },
     retry: false,
-    enabled: !!token,
+    enabled: !isExchangingCode,
   });
 
   useEffect(() => {
@@ -503,58 +367,81 @@ export function RaidsPage() {
   }, [savedNationId, appliedNationId]);
 
   useEffect(() => {
-    if (!activeTemplate) return;
-    const cloned = cloneSettings(activeTemplate.settings);
-    syncingFromTemplateRef.current = true;
-    setColumnVisibility(cloned.columnVisibility);
-    setColumnOrder(cloned.columnOrder);
-    setDensity(cloned.density);
-    setColumnFilters(cloned.columnFilters);
-    setRenameValue(activeTemplate.name);
-  }, [activeTemplate]);
-
-  useEffect(() => {
-    persistCustomTemplates(templates.filter((t) => !t.builtIn));
-  }, [templates]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(ACTIVE_TEMPLATE_STORAGE_KEY, activeTemplateId);
-    } catch (error) {
-      console.warn('Failed to persist active template id', error);
-    }
-  }, [activeTemplateId]);
-
-  useEffect(() => {
-    if (!activeTemplate || activeTemplate.builtIn) return;
-    setTemplates((prev) => {
-      let changed = false;
-      const next = prev.map((t) => {
-        if (t.id !== activeTemplateId) return t;
-        const nextSettings: TableTemplateSettings = {
-          columnVisibility,
-          columnOrder,
-          density,
-          columnFilters,
-        };
-        if (areSettingsEqual(t.settings, nextSettings)) return t;
-        changed = true;
-        return { ...t, settings: cloneSettings(nextSettings) };
-      });
-      return changed ? next : prev;
-    });
-  }, [columnVisibility, columnOrder, density, columnFilters, activeTemplate, activeTemplateId]);
-
-  useEffect(() => {
     if (urlFiltersAppliedRef.current || !initialColumnFilters.length) return;
     urlFiltersAppliedRef.current = true;
     syncingFromFiltersRef.current = true;
     setColumnFilters((prev) => mergeColumnFilters(prev, initialColumnFilters));
   }, [initialColumnFilters]);
 
+  // Sync draft filters and URL params when column filters change from table interaction.
+  // Side effects are in a useEffect (not inside a setState updater) to avoid
+  // "Cannot update a component while rendering a different component" warnings.
   useEffect(() => {
+    const previousFilters = prevColumnFiltersRef.current;
     prevColumnFiltersRef.current = columnFilters;
-  }, [columnFilters]);
+
+    if (syncingFromFiltersRef.current) {
+      syncingFromFiltersRef.current = false;
+      return;
+    }
+
+    const changedIds: string[] = [];
+    const getVal = (filters: MRT_ColumnFiltersState, id: string) =>
+      filters.find((f) => f.id === id)?.value;
+
+    MAPPED_COLUMN_IDS.forEach((id) => {
+      const before = getVal(previousFilters, id);
+      const after = getVal(columnFilters, id);
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        changedIds.push(id);
+      }
+    });
+
+    if (changedIds.length) {
+      const resetDraft: Record<string, string | boolean> = {};
+      const paramsToClear: string[] = [];
+
+      changedIds.forEach((id) => {
+        if (id === 'allianceName') {
+          resetDraft.alliance = '';
+          paramsToClear.push('alliance');
+          setAllianceQuery('');
+        }
+        if (id === 'beigeTurns') {
+          resetDraft.beige = 'all';
+          paramsToClear.push('beige');
+        }
+        if (id === 'defSlots') {
+          resetDraft.maxWars = 'all';
+          paramsToClear.push('maxWars');
+        }
+        if (id === 'daysInactive') {
+          resetDraft.inactiveMinDays = 'none';
+          paramsToClear.push('inactiveMinDays');
+        }
+        if (id === 'alliancePosition') {
+          resetDraft.scope = 'all';
+          paramsToClear.push('scope');
+        }
+        if (id === 'nationLoot') {
+          resetDraft.minBeigeLoot = '0';
+          paramsToClear.push('minBeigeLoot');
+        }
+      });
+
+      if (Object.keys(resetDraft).length) {
+        setDraftFilters((prevDraft) => ({ ...prevDraft, ...resetDraft }));
+      }
+
+      if (paramsToClear.length) {
+        setSearchParams((prevParams) => {
+          const nextParams = new URLSearchParams(prevParams);
+          paramsToClear.forEach((key) => nextParams.delete(key));
+          return nextParams;
+        }, { replace: true });
+      }
+    }
+  }, [columnFilters, setSearchParams]);
 
   // Apply filters locally in the browser - must be before conditional returns
   const filteredTargets = useMemo(() => {
@@ -664,6 +551,7 @@ export function RaidsPage() {
   }, [mappedColumnFiltersFromDraft]);
 
   const resetFilters = useCallback(() => {
+    const nationScore = data?.attacker?.score?.toString() || '';
     setDraftFilters({
       alliance: '',
       beige: 'all',
@@ -672,8 +560,8 @@ export function RaidsPage() {
       scope: 'all',
       minBeigeLoot: '0',
       performance: false,
-      scoreMode: 'yours',
-      yourScore: '',
+      scoreMode: appliedNationId ? 'yours' : 'custom',
+      yourScore: nationScore,
       minScore: '',
       maxScore: '',
     });
@@ -692,188 +580,70 @@ export function RaidsPage() {
     } catch (error) {
       console.warn('Failed to clear raids filter storage', error);
     }
-  }, [setSearchParams]);
+  }, [setSearchParams, data?.attacker?.score, appliedNationId]);
 
-  const applyFilters = () => {
+  // Auto-apply filters when draft filters change (debounced)
+  useEffect(() => {
+    if (!filtersRestoredRef.current) return;
+
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      
+
       // Clear old filter params
-      ['alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'minBeigeLoot', 'performance', 'scoreMode', 'yourScore', 'minScore', 'maxScore'].forEach(k => next.delete(k));
-      
+      FILTER_QUERY_KEYS.forEach(k => next.delete(k));
+
       // Apply new filters
-      if (draftFilters.alliance) next.set('alliance', draftFilters.alliance);
-      
-      if (draftFilters.beige === 'only') next.set('beige', 'true');
-      else if (draftFilters.beige === 'hide') next.set('beige', 'false');
-      
-      if (draftFilters.maxWars !== 'all') next.set('maxWars', draftFilters.maxWars);
-      
-      if (draftFilters.inactiveMinDays !== 'none') next.set('inactiveMinDays', draftFilters.inactiveMinDays);
-      
-      if (draftFilters.scope !== 'all') next.set('scope', draftFilters.scope);
-      
-      if (draftFilters.minBeigeLoot !== '0') next.set('minBeigeLoot', draftFilters.minBeigeLoot);
-      
-      if (draftFilters.performance) next.set('performance', 'true');
-      
+      if (debouncedDraftFilters.alliance) next.set('alliance', debouncedDraftFilters.alliance);
+
+      if (debouncedDraftFilters.beige === 'only') next.set('beige', 'true');
+      else if (debouncedDraftFilters.beige === 'hide') next.set('beige', 'false');
+
+      if (debouncedDraftFilters.maxWars !== 'all') next.set('maxWars', debouncedDraftFilters.maxWars);
+
+      if (debouncedDraftFilters.inactiveMinDays !== 'none') next.set('inactiveMinDays', debouncedDraftFilters.inactiveMinDays);
+
+      if (debouncedDraftFilters.scope !== 'all') next.set('scope', debouncedDraftFilters.scope);
+
+      if (debouncedDraftFilters.minBeigeLoot !== '0') next.set('minBeigeLoot', debouncedDraftFilters.minBeigeLoot);
+
+      if (debouncedDraftFilters.performance) next.set('performance', 'true');
+
       // Score handling
-      if (draftFilters.scoreMode === 'yours' && draftFilters.yourScore) {
-        const score = Number(draftFilters.yourScore);
+      if (debouncedDraftFilters.scoreMode === 'yours' && debouncedDraftFilters.yourScore) {
+        const score = Number(debouncedDraftFilters.yourScore);
         if (!Number.isNaN(score)) {
           next.set('minScore', String(Math.round(score * 0.75)));
           next.set('maxScore', String(Math.round(score * 2.5)));
           next.set('scoreMode', 'yours');
-          next.set('yourScore', draftFilters.yourScore);
+          next.set('yourScore', debouncedDraftFilters.yourScore);
         }
-      } else if (draftFilters.scoreMode === 'custom') {
-        if (draftFilters.minScore) next.set('minScore', draftFilters.minScore);
-        if (draftFilters.maxScore) next.set('maxScore', draftFilters.maxScore);
+      } else if (debouncedDraftFilters.scoreMode === 'custom') {
+        if (debouncedDraftFilters.minScore) next.set('minScore', debouncedDraftFilters.minScore);
+        if (debouncedDraftFilters.maxScore) next.set('maxScore', debouncedDraftFilters.maxScore);
         next.set('scoreMode', 'custom');
       }
-      
+
       return next;
     }, { replace: true });
+
     syncColumnFiltersFromDraft();
+
     try {
-      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(draftFilters));
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(debouncedDraftFilters));
     } catch (error) {
       console.warn('Failed to persist raids filters', error);
     }
-  };
+  }, [debouncedDraftFilters, syncColumnFiltersFromDraft, setSearchParams]);
 
   type ColumnFiltersUpdater = MRT_ColumnFiltersState | ((prev: MRT_ColumnFiltersState) => MRT_ColumnFiltersState);
 
-  const handleColumnFiltersChange = (updater: ColumnFiltersUpdater) => {
-    setColumnFilters((prevFilters) => {
-      const nextFilters = typeof updater === 'function' ? updater(prevFilters) : updater;
-      const previousFilters = prevFilters;
-      prevColumnFiltersRef.current = nextFilters;
-
-      if (syncingFromFiltersRef.current) {
-        syncingFromFiltersRef.current = false;
-        return nextFilters;
-      }
-
-      if (syncingFromTemplateRef.current) {
-        syncingFromTemplateRef.current = false;
-      }
-
-      const changedIds: string[] = [];
-      const getVal = (filters: MRT_ColumnFiltersState, id: string) =>
-        filters.find((f) => f.id === id)?.value;
-
-      MAPPED_COLUMN_IDS.forEach((id) => {
-        const before = getVal(previousFilters, id);
-        const after = getVal(nextFilters, id);
-        if (JSON.stringify(before) !== JSON.stringify(after)) {
-          changedIds.push(id);
-        }
-      });
-
-      if (changedIds.length) {
-        const resetDraft: Partial<typeof draftFilters> = {};
-        const paramsToClear: string[] = [];
-
-        changedIds.forEach((id) => {
-          if (id === 'allianceName') {
-            resetDraft.alliance = '';
-            paramsToClear.push('alliance');
-            setAllianceQuery('');
-          }
-          if (id === 'beigeTurns') {
-            resetDraft.beige = 'all';
-            paramsToClear.push('beige');
-          }
-          if (id === 'defSlots') {
-            resetDraft.maxWars = 'all';
-            paramsToClear.push('maxWars');
-          }
-          if (id === 'daysInactive') {
-            resetDraft.inactiveMinDays = 'none';
-            paramsToClear.push('inactiveMinDays');
-          }
-          if (id === 'alliancePosition') {
-            resetDraft.scope = 'all';
-            paramsToClear.push('scope');
-          }
-          if (id === 'nationLoot') {
-            resetDraft.minBeigeLoot = '0';
-            paramsToClear.push('minBeigeLoot');
-          }
-        });
-
-        if (Object.keys(resetDraft).length) {
-          setDraftFilters((prevDraft) => ({ ...prevDraft, ...resetDraft }));
-        }
-
-        if (paramsToClear.length) {
-          setSearchParams((prevParams) => {
-            const nextParams = new URLSearchParams(prevParams);
-            paramsToClear.forEach((key) => nextParams.delete(key));
-            return nextParams;
-          }, { replace: true });
-        }
-      }
-
-      return nextFilters;
-    });
-  };
-
-  const currentSettings = useMemo<TableTemplateSettings>(
-    () => ({ columnVisibility, columnOrder, density, columnFilters }),
-    [columnVisibility, columnOrder, density, columnFilters]
-  );
-
-  const addCustomTemplate = useCallback(
-    (name: string, settings: TableTemplateSettings) => {
-      const id = `custom-${Date.now()}`;
-      const newTemplate: TableTemplate = {
-        id,
-        name: name.trim() || 'Custom Template',
-        builtIn: false,
-        settings: cloneSettings(settings),
-      };
-      setTemplates((prev) => {
-        const withoutDuplicate = prev.filter((t) => t.id !== newTemplate.id);
-        return [...withoutDuplicate, newTemplate];
-      });
-      setActiveTemplateId(id);
-    },
-    []
-  );
-
-  const handleSaveTemplate = useCallback(() => {
-    addCustomTemplate(newTemplateName || 'Custom Template', currentSettings);
-    setNewTemplateName('');
-  }, [addCustomTemplate, currentSettings, newTemplateName]);
-
-  const handleDuplicateActive = useCallback(() => {
-    if (!activeTemplate) return;
-    addCustomTemplate(`${activeTemplate.name} Copy`, currentSettings);
-  }, [activeTemplate, addCustomTemplate, currentSettings]);
-
-  const handleRenameActive = useCallback(() => {
-    if (!activeTemplate || activeTemplate.builtIn) return;
-    const trimmed = renameValue.trim();
-    if (!trimmed) return;
-    setTemplates((prev) => prev.map((t) => (t.id === activeTemplateId ? { ...t, name: trimmed } : t)));
-  }, [activeTemplate, activeTemplateId, renameValue]);
-
-  const handleDeleteActive = useCallback(() => {
-    if (!activeTemplate || activeTemplate.builtIn) return;
-    setTemplates((prev) => {
-      const next = prev.filter((t) => t.id !== activeTemplateId);
-      const fallbackId = next.find((t) => t.builtIn)?.id || next[0]?.id;
-      if (fallbackId) setActiveTemplateId(fallbackId);
-      return next;
-    });
-  }, [activeTemplate, activeTemplateId]);
+  const handleColumnFiltersChange = useCallback((updater: ColumnFiltersUpdater) => {
+    setColumnFilters((prevFilters) =>
+      typeof updater === 'function' ? updater(prevFilters) : updater
+    );
+  }, []);
 
   // Conditional returns AFTER all hooks
-  if (!token) {
-    return <TokenError type="missing" dataType="raids" />;
-  }
 
   if (error) {
     const apiError = error as unknown as ApiError;
@@ -899,7 +669,6 @@ export function RaidsPage() {
   }
 
   const isInitialLoading = isLoading && !data;
-  const showTableOverlay = isLoading && !!data;
   const discordLinked = data?.discordLinked ?? false;
   const showBeige = data?.showBeige ?? false;
 
@@ -921,7 +690,6 @@ export function RaidsPage() {
           <NationIdField
             label="Nation ID"
             placeholder="Nation ID or Link to Nation"
-            description="Used for win% calculations"
             size="sm"
             value={draftNationId || ''}
             onChange={setDraftNationId}
@@ -935,6 +703,7 @@ export function RaidsPage() {
             buttonLabel="Load Nation"
             buttonIcon={<IconDownload size={14} />}
             buttonDisabled={!draftNationId || draftNationId === appliedNationId}
+            loading={isLoading && !!appliedNationId}
             inputProps={{ style: { maxWidth: 260 } }}
             warningMessage={data?.warning || null}
           />
@@ -949,20 +718,12 @@ export function RaidsPage() {
               </Badge>
             </Group>
           )}
-          {isLoading && appliedNationId && (
-            <Group gap="xs" style={{ position: 'absolute', top: 16, right: 16 }}>
-              <Loader size="xs" />
-              <Text size="xs" c="dimmed">Loading...</Text>
-            </Group>
-          )}
         </Paper>
 
         <Paper withBorder radius="md" p="lg">
           <Stack gap="sm">
             <Stack gap={4}>
-              <Group gap="xs">
-                <Title order={3}>Raid Filters</Title>
-              </Group>
+              <Title order={3}>Raid Filters</Title>
               <Text size="sm" c="dimmed">
                 Adjust the filters below to refine your raid target list.
               </Text>
@@ -981,7 +742,7 @@ export function RaidsPage() {
                     </Group>
                     <Text size="xs" c="dimmed">Choose whether to include beige nations.</Text>
                     <Select
-                      size="xs"
+                      size="sm"
                       data={[
                         { value: 'all', label: 'Show all nations' },
                         { value: 'only', label: 'Only beige nations' },
@@ -1010,7 +771,7 @@ export function RaidsPage() {
                     </Group>
                     <Text size="xs" c="dimmed">Search by name, acronym, or ID.</Text>
                     <Autocomplete
-                      size="xs"
+                      size="sm"
                       placeholder="Search by name, acronym, or ID..."
                       value={allianceQuery}
                       onChange={(val) => {
@@ -1043,7 +804,7 @@ export function RaidsPage() {
                     </Group>
                     <Text size="xs" c="dimmed">Limit results by applicant or unaffiliated status.</Text>
                     <Select
-                      size="xs"
+                      size="sm"
                       data={[
                         { value: 'all', label: 'All nations' },
                         { value: 'apps_or_none', label: 'Applicants + No alliance' },
@@ -1070,7 +831,7 @@ export function RaidsPage() {
                     <Text size="xs" c="dimmed">Upper bound on current defensive wars.</Text>
                     <Group gap="xs" align="center" wrap="nowrap">
                       <Select
-                        size="xs"
+                        size="sm"
                         style={{ flex: 1, minWidth: 120 }}
                         data={[
                           { value: 'all', label: 'Any' },
@@ -1103,7 +864,7 @@ export function RaidsPage() {
                     <Text size="xs" c="dimmed">Pick a minimum days inactive window.</Text>
                     <Group gap="xs" align="center" wrap="nowrap">
                       <Select
-                        size="xs"
+                        size="sm"
                         style={{ flex: 1 }}
                         data={[
                           { value: 'none', label: "Not" },
@@ -1137,7 +898,7 @@ export function RaidsPage() {
                     </Group>
                     <Text size="xs" c="dimmed">Require a minimum prior beige payout.</Text>
                     <Select
-                      size="xs"
+                      size="sm"
                       data={[
                         { value: '0', label: 'No minimum' },
                         { value: '5000000', label: '$5 million' },
@@ -1156,15 +917,33 @@ export function RaidsPage() {
                   <Stack gap="xs">
                     <Group gap="xs" justify="space-between">
                       <Text size="sm" fw={600}>Score Range</Text>
-                      {(draftFilters.scoreMode !== 'yours' || draftFilters.yourScore || draftFilters.minScore || draftFilters.maxScore) && (
-                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, scoreMode: 'yours', yourScore: '', minScore: '', maxScore: '' }))}>
+                      {(() => {
+                        const defaultMode = appliedNationId ? 'yours' : 'custom';
+                        const defaultScore = data?.attacker?.score?.toString() || '';
+                        const isDefault =
+                          draftFilters.scoreMode === defaultMode &&
+                          draftFilters.yourScore === defaultScore &&
+                          !draftFilters.minScore &&
+                          !draftFilters.maxScore;
+                        return !isDefault;
+                      })() && (
+                        <Anchor size="xs" onClick={() => {
+                          const nationScore = data?.attacker?.score?.toString() || '';
+                          setDraftFilters(prev => ({
+                            ...prev,
+                            scoreMode: appliedNationId ? 'yours' : 'custom',
+                            yourScore: nationScore,
+                            minScore: '',
+                            maxScore: '',
+                          }));
+                        }}>
                           reset
                         </Anchor>
                       )}
                     </Group>
                     <Text size="xs" c="dimmed">Use your score or set custom limits.</Text>
                     <Select
-                      size="xs"
+                      size="sm"
                       data={[
                         { value: 'custom', label: 'Custom min/max' },
                         { value: 'yours', label: 'Based on your score (0.75x - 2.5x)', disabled: !appliedNationId },
@@ -1175,7 +954,7 @@ export function RaidsPage() {
                     
                     {draftFilters.scoreMode === 'yours' ? (
                       <NumberInput
-                        size="xs"
+                        size="sm"
                         label="Your Score"
                         placeholder={appliedNationId ? "Auto-filled from nation" : "Set nation ID above"}
                         value={draftFilters.yourScore}
@@ -1188,7 +967,7 @@ export function RaidsPage() {
                       <Grid gutter="sm">
                         <Grid.Col span={6}>
                           <NumberInput
-                            size="xs"
+                            size="sm"
                             label="Min Score"
                             placeholder="Min"
                             value={draftFilters.minScore}
@@ -1199,7 +978,7 @@ export function RaidsPage() {
                         </Grid.Col>
                         <Grid.Col span={6}>
                           <NumberInput
-                            size="xs"
+                            size="sm"
                             label="Max Score"
                             placeholder="Max"
                             value={draftFilters.maxScore}
@@ -1236,18 +1015,12 @@ export function RaidsPage() {
 
             <Group gap="sm" justify="center">
               <Button
-                leftSection={<IconSearch size={16} />}
-                onClick={applyFilters}
-                size="sm"
-              >
-                Apply Filters
-              </Button>
-              <Button
                 leftSection={<IconX size={16} />}
                 onClick={resetFilters}
                 variant="light"
                 color="gray"
                 size="sm"
+                disabled={isLoading}
               >
                 Reset All
               </Button>
@@ -1255,141 +1028,31 @@ export function RaidsPage() {
           </Stack>
         </Paper>
 
-        {/* Discord Linking Alert */}
+        {/* Discord Link Disclaimer */}
         {!isLoading && !discordLinked && (
           <Alert
-            icon={<IconAlertCircle size={16} />}
-            title="Discord Integration Required for Reminders"
+            icon={<IconBrandDiscord size={16} />}
+            title="Beige Reminders"
             color="blue"
             variant="light"
           >
-            <Stack gap="xs">
-              <Text size="sm">
-                To enable beige reminder notifications, you need to link your Discord account with Autolycus.
-              </Text>
-              <Group gap="xs" align="center">
-                <IconBrandDiscord size={20} />
-                <Text size="sm" fw={600}>
-                  Run <Text span c="blue" ff="monospace">/raids</Text> in any Discord server where the Autolycus bot is present.
-                </Text>
-              </Group>
-              <Text size="xs" c="dimmed">
-                Once linked, you'll see reminder toggle buttons in the table below for beige nations.
-              </Text>
-            </Stack>
+            <Text size="sm">
+              To set beige reminder notifications, access this page using a link from the Autolycus Discord bot.
+              Run <Text span c="blue" fw={600} ff="monospace">/raids</Text> in any server where the bot is present to get a personalized link with reminder access.
+            </Text>
           </Alert>
         )}
-
-        <Paper withBorder radius="md" p="lg">
-          <Stack gap="sm">
-            <Group justify="space-between" align="center">
-              <Group gap="xs" align="center">
-                <Title order={3}>Chef's Suggestions</Title>
-                <Badge color="orange" variant="light">Table templates</Badge>
-              </Group>
-              {activeTemplate && (
-                <Badge color={activeTemplate.builtIn ? 'gray' : 'green'} variant="filled">
-                  Active: {activeTemplate.name}
-                </Badge>
-              )}
-            </Group>
-            <Text size="sm" c="dimmed">
-              Swap curated layouts for the raid table. Built-ins are locked; duplicate one or save your own and changes save instantly.
-            </Text>
-            <Grid gutter={{ base: 'sm', sm: 'md' }}>
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap="xs">
-                  <Select
-                    size="sm"
-                    label="Active template"
-                    data={templates.map((t) => ({
-                      value: t.id,
-                      label: `${t.name}${t.builtIn ? ' (built-in)' : ''}`,
-                    }))}
-                    value={activeTemplateId}
-                    onChange={(val) => val && setActiveTemplateId(val)}
-                  />
-                  <Group gap="xs">
-                    <Button
-                      leftSection={<IconCopy size={16} />}
-                      variant="light"
-                      onClick={handleDuplicateActive}
-                      size="xs"
-                    >
-                      Duplicate active
-                    </Button>
-                    <Button
-                      leftSection={<IconTrash size={16} />}
-                      variant="light"
-                      color="red"
-                      onClick={handleDeleteActive}
-                      disabled={!!activeTemplate?.builtIn}
-                      size="xs"
-                    >
-                      Delete active
-                    </Button>
-                  </Group>
-                </Stack>
-              </Grid.Col>
-
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Stack gap="xs">
-                  <Group gap="xs" align="center">
-                    <TextInput
-                      label="New template name"
-                      placeholder="e.g. Ground Sweep"
-                      size="sm"
-                      value={newTemplateName}
-                      onChange={(e) => setNewTemplateName(e.currentTarget.value)}
-                      style={{ flex: 1 }}
-                    />
-                    <Button
-                      leftSection={<IconPlus size={16} />}
-                      size="xs"
-                      onClick={handleSaveTemplate}
-                    >
-                      Save current as new
-                    </Button>
-                  </Group>
-                  <Group gap="xs" align="center">
-                    <TextInput
-                      label="Rename active"
-                      placeholder="Custom name"
-                      size="sm"
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.currentTarget.value)}
-                      disabled={!!activeTemplate?.builtIn}
-                      style={{ flex: 1 }}
-                    />
-                    <Button
-                      leftSection={<IconPencil size={16} />}
-                      size="xs"
-                      onClick={handleRenameActive}
-                      disabled={!!activeTemplate?.builtIn}
-                    >
-                      Rename
-                    </Button>
-                  </Group>
-                </Stack>
-              </Grid.Col>
-            </Grid>
-            <Group gap="xs" wrap="wrap">
-              {templates.map((t) => (
-                <Badge
-                  key={t.id}
-                  color={t.id === activeTemplateId ? 'green' : 'gray'}
-                  variant={t.id === activeTemplateId ? 'filled' : 'light'}
-                >
-                  {t.name}{t.builtIn ? ' • locked' : ''}
-                </Badge>
-              ))}
-            </Group>
-            <Divider />
-            <Text size="xs" c="dimmed">
-              Custom templates live in your browser storage (keys: {TEMPLATE_STORAGE_KEY} for data, {ACTIVE_TEMPLATE_STORAGE_KEY} for the active choice).
-            </Text>
-          </Stack>
-        </Paper>
+        {/* Auth code exchange error */}
+        {exchangeError && (
+          <Alert
+            icon={<IconAlertCircle size={16} />}
+            title="Authentication Error"
+            color="orange"
+            variant="light"
+          >
+            <Text size="sm">{exchangeError}</Text>
+          </Alert>
+        )}
 
         {/* Header */}
         <Stack gap="xs">
@@ -1402,7 +1065,29 @@ export function RaidsPage() {
 
         {/* Table */}
         <Box pos="relative">
-          <LoadingOverlay visible={showTableOverlay} zIndex={2} overlayProps={{ blur: 1 }} />
+          {isFetching && !isInitialLoading && (
+            <Box
+              pos="absolute"
+              top={0}
+              left={0}
+              right={0}
+              bottom={0}
+              style={{
+                zIndex: 3,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                backdropFilter: 'blur(1px)',
+                borderRadius: 'var(--mantine-radius-md)',
+                pointerEvents: 'none',
+              }}
+            >
+              <Loader size="lg" color="orange" />
+              <Text size="sm" fw={500} mt="xs" c="white">Updating...</Text>
+            </Box>
+          )}
           {isInitialLoading ? (
             <Paper withBorder radius="md" p="md">
               <Stack gap="xs">

@@ -1,10 +1,24 @@
 /**
  * App Navbar Component
  *
- * The side navigation with links to different pages.
+ * Sidebar navigation. Always visible on desktop, toggled via hamburger on mobile.
+ * Includes branding, nav links, external links, nation ID field, theme toggle,
+ * and footer text.
  */
 
-import { NavLink, Stack, Text, Divider, Badge, Group, ActionIcon } from '@mantine/core';
+import {
+  NavLink,
+  Stack,
+  Text,
+  Divider,
+  Badge,
+  Group,
+  ActionIcon,
+  Switch,
+  Title,
+  Image,
+  useMantineColorScheme,
+} from '@mantine/core';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -15,6 +29,8 @@ import {
   IconExternalLink,
   IconCheck,
   IconX,
+  IconSun,
+  IconMoon,
 } from '@tabler/icons-react';
 import { useNationId } from '@/hooks';
 import { NationIdField } from '@/components/common';
@@ -63,16 +79,22 @@ const externalLinks: NavItem[] = [
     external: true,
   },
   {
-    label: 'City Import',
+    label: 'Import Template',
     path: 'https://politicsandwar.com/city/improvements/bulk-import/',
     icon: <IconExternalLink size={16} stroke={1.5} />,
     external: true,
   },
 ];
 
-export function AppNavbar() {
+interface AppNavbarProps {
+  /** Called after a navigation event so the parent can close the mobile drawer. */
+  onNavigate?: () => void;
+}
+
+export function AppNavbar({ onNavigate }: AppNavbarProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { nationId, setNationId, clearNationId, parseNationId } = useNationId();
   const [inputValue, setInputValue] = useState(nationId);
   const [error, setError] = useState('');
@@ -97,27 +119,45 @@ export function AppNavbar() {
   const handleNavClick = (item: NavItem) => {
     if (item.external) {
       window.open(item.path, '_blank');
-    } else if (item.path === '/raids') {
-      // For raids, check if we have a token
+      return;
+    }
+
+    if (item.path === '/raids') {
       const searchParams = new URLSearchParams(location.search);
       const hasToken = searchParams.has('token');
-      
       if (hasToken) {
-        // Navigate with existing token
         navigate(`${item.path}${location.search}`);
       } else {
-        // Redirect to token request page with auto-generate
         navigate(`/token-request?type=raids&redirect=${item.path}&auto=true`);
       }
     } else {
-      // Preserve query params when navigating (for tokens)
-      const searchParams = location.search;
-      navigate(`${item.path}${searchParams}`);
+      const searchParams = new URLSearchParams(location.search);
+      searchParams.delete('token');
+      searchParams.delete('code');
+      const query = searchParams.toString();
+      navigate(`${item.path}${query ? `?${query}` : ''}`);
     }
+
+    onNavigate?.();
   };
 
   return (
     <Stack gap="xs" h="100%">
+      {/* Branding — visible in sidebar (desktop) */}
+      <Group gap="xs" py={4}>
+        <Image
+          src="/assets/icon.png"
+          alt="Autolycus"
+          w={30}
+          h={30}
+          fallbackSrc="/assets/icon.svg"
+        />
+        <Title order={4}>Autolycus</Title>
+      </Group>
+
+      <Divider />
+
+      {/* Main nav */}
       <Stack gap={4}>
         {navItems.map((item) => (
           <NavLink
@@ -142,7 +182,7 @@ export function AppNavbar() {
         ))}
       </Stack>
 
-      <Divider my="sm" label="External Links" labelPosition="center" />
+      <Divider my="xs" label="External" labelPosition="center" />
 
       <Stack gap={4}>
         {externalLinks.map((item) => (
@@ -157,13 +197,14 @@ export function AppNavbar() {
         ))}
       </Stack>
 
+      {/* Spacer */}
       <div style={{ flexGrow: 1 }} />
 
       <Divider my="xs" label="Your Nation" labelPosition="center" />
 
       <Stack gap="xs">
         <NationIdField
-          placeholder="Nation ID or Link to Nation"
+          placeholder="Nation ID or Link"
           size="xs"
           value={inputValue || ''}
           onChange={(value) => {
@@ -171,7 +212,7 @@ export function AppNavbar() {
             setError('');
           }}
           onSubmit={handleSaveNationId}
-          buttonLabel="Save Nation ID"
+          buttonLabel="Save"
           buttonIcon={<IconCheck size={14} />}
           buttonDisabled={!inputValue || inputValue === nationId}
           layout="column"
@@ -200,11 +241,15 @@ export function AppNavbar() {
 
       <Divider my="xs" />
 
-      <Text size="xs" c="dimmed" ta="center">
-        Please report bugs to RandomNoobster
-        <br />
-        Courtesy of Church of Atom
-      </Text>
+      {/* Footer: theme toggle */}
+      <Switch
+        checked={colorScheme === 'dark'}
+        onChange={toggleColorScheme}
+        label={colorScheme === 'dark' ? 'Dark mode' : 'Light mode'}
+        size="sm"
+        onLabel={<IconMoon size={14} stroke={1.5} />}
+        offLabel={<IconSun size={14} stroke={1.5} />}
+      />
     </Stack>
   );
 }

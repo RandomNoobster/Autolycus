@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
 import math
 import re
-from datetime import datetime, timedelta
-from typing import Any, Dict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 
 RSS = ['aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium', 'credits']
 EMBED_COLOR = 0xff5100  # Orange color used throughout Autolycus embeds
@@ -48,6 +49,121 @@ def beige_loot_value(loot_string: str, prices: dict[str, float]) -> int:
         price = int(prices[rs])
         nation_loot += amount * price
     return nation_loot
+
+
+logger = logging.getLogger(__name__)
+
+
+def parse_war_date(date_str: Optional[str]) -> datetime:
+    """Best-effort parser for war dates to enable ordering.
+
+    Handles both ISO-8601 and ``YYYY-MM-DD HH:MM:SS`` formats that appear in
+    the cached nation data.  Returns the epoch when the date cannot be parsed.
+
+    Args:
+        date_str: Raw date string from the war record.
+
+    Returns:
+        Timezone-aware datetime (UTC).
+    """
+    if not date_str:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+    try:
+        if "T" in date_str:
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except Exception:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def compute_beige_loot(
+    nation: dict[str, Any],
+    prices: Optional[dict[str, float]],
+) -> Optional[int]:
+    """Compute estimated beige loot value from a nation's finished wars.
+
+    Scans cached war logs for the most recent war where the nation was the
+    defender and lost, then reverse-engineers the *base* loot value by
+    undoing attacker policy / war-type multipliers.  This gives a rough
+    estimate of how much loot the nation is holding.
+
+    The function performs a single linear pass (no sorting) over the wars
+    list to find the most recent qualifying war.
+
+    Args:
+        nation: Nation dict (must include ``id`` and ``wars`` fields).
+        prices: Current market prices keyed by resource name.  When *None*
+            the computation is skipped.
+
+    Returns:
+        Estimated loot value in dollars, or *None* when computation cannot
+        be performed (no prices, no wars, no qualifying loot records).
+    """
+    if not prices:
+        return None
+
+    wars = nation.get('wars') or []
+    nation_id = str(nation.get('id', ''))
+    if not nation_id or not wars:
+        return None
+
+    best_loot: Optional[int] = None
+    best_date: Optional[datetime] = None
+
+    for war in wars:
+        try:
+            turns_left = war.get('turnsleft', 1)
+            try:
+                turns_left_val = float(turns_left)
+            except (TypeError, ValueError):
+                turns_left_val = 1
+            if turns_left_val > 0:
+                continue  # still active
+
+            if str(war.get('defid')) != nation_id:
+                continue  # only care about wars where this nation was defender
+
+            war_dt = parse_war_date(war.get('date'))
+            attacks = war.get('attacks') or []
+
+            for attack in reversed(attacks):  # reverse to favour latest attack
+                text = attack.get('loot_info')
+                if not text or "won the war and looted" not in text:
+                    continue
+                victor = str(attack.get('victor', ''))
+                if victor == nation_id:
+                    continue  # they won, so no beige loot
+
+                try:
+                    loot_value = float(beige_loot_value(text, prices))
+                except Exception:
+                    continue
+
+                # Undo attacker policy multipliers to estimate base loot
+                attacker_info = war.get('attacker') or {}
+                policy = (attacker_info.get('war_policy') or '').upper()
+                if policy == "ATTRITION":
+                    loot_value = loot_value / 0.8
+                elif policy == "PIRATE":
+                    loot_value = loot_value / 1.4
+                if attacker_info.get('advanced_pirate_economy'):
+                    loot_value = loot_value / 1.1
+
+                # Undo war-type multipliers
+                war_type = (war.get('war_type') or '').upper()
+                if war_type == "ATTRITION":
+                    loot_value *= 4
+                elif war_type == "ORDINARY":
+                    loot_value *= 2
+
+                if best_date is None or war_dt > best_date:
+                    best_date = war_dt
+                    best_loot = int(round(loot_value))
+                    break  # latest attack in this war found; move to next war
+        except Exception:
+            continue
+
+    return best_loot
 
 
 def weird_division(a: float, b: float) -> float:

@@ -5,16 +5,34 @@ This module provides endpoints for generating secure tokens for accessing
 protected resources without requiring pre-existing Discord bot interaction.
 """
 import logging
+import secrets
 import time
-from typing import Any
+from typing import Any, Optional
 
 from flask import Blueprint, current_app, jsonify, request
+from pymongo import MongoClient
 
 from api.security import generate_token
 
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+_sync_client: Optional[MongoClient] = None
+_sync_db = None
+
+
+def _get_sync_mongo():
+    """Return a sync MongoDB database handle for auth routes."""
+    global _sync_client, _sync_db
+    if _sync_client is None:
+        mongo_uri = current_app.config.get('MONGO_URI')
+        if not mongo_uri:
+            return None
+        _sync_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        db_name = current_app.config.get('MONGO_DB', 'autolycus')
+        _sync_db = _sync_client[db_name]
+    return _sync_db
 
 
 def _normalize_api_key(value: Any) -> str:
@@ -88,27 +106,38 @@ def generate_access_token() -> tuple[Any, int]:
         data = request.get_json() or {}
         
         # Extract parameters with defaults
-        user_id = data.get('user_id', 'web_user')
+        user_id = data.get('user_id')
         data_type = data.get('data_type', 'raids')
         expires_in = data.get('expires_in', 3600)  # 1 hour default
 
-        # Optional shared secret for token generation (protects unauthenticated use)
+        # Require shared secret for token generation (server-to-server only)
         auth_key = _normalize_api_key(current_app.config.get("AUTH_TOKEN_API_KEY"))
-        if auth_key:
-            provided = _normalize_api_key(
-                request.headers.get("X-Auth-Token") or request.headers.get("X-Api-Key")
-            )
-            if not provided and current_app.config.get("DEBUG") and _is_local_request():
-                logger.info("Allowing localhost token generation without API key in DEBUG")
-            elif provided != auth_key:
-                return jsonify({
-                    'error': 'Unauthorized',
-                    'message': 'Invalid or missing API key.',
-                    'code': 'UNAUTHORIZED'
-                }), 401
-        else:
-            logger.warning("AUTH_TOKEN_API_KEY not set; /token/generate is publicly accessible")
+        if not auth_key:
+            return jsonify({
+                'error': 'Service unavailable',
+                'message': 'Token generation is disabled until AUTH_TOKEN_API_KEY is configured.',
+                'code': 'AUTH_KEY_NOT_CONFIGURED'
+            }), 503
+
+        provided = _normalize_api_key(
+            request.headers.get("X-Auth-Token") or request.headers.get("X-Api-Key")
+        )
+        if provided != auth_key:
+            return jsonify({
+                'error': 'Unauthorized',
+                'message': 'Invalid or missing API key.',
+                'code': 'UNAUTHORIZED'
+            }), 401
         
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return jsonify({
+                'error': 'Invalid user id',
+                'message': 'user_id must be numeric.',
+                'code': 'INVALID_USER'
+            }), 400
+
         # Validate data_type
         valid_types = ['raids', 'builds', 'damage']
         if data_type not in valid_types:
@@ -162,6 +191,183 @@ def generate_access_token() -> tuple[Any, int]:
             'error': 'Token generation failed',
             'message': 'An unexpected error occurred while generating token.',
             'code': 'GENERATION_ERROR'
+        }), 500
+
+
+@auth_bp.route('/token/issue', methods=['POST'])
+def issue_discord_token_code() -> tuple[Any, int]:
+    """
+    Issue a short-lived authorization code for a Discord user.
+
+    This endpoint is intended for the Discord bot only and requires a
+    server-side shared secret.
+    """
+    try:
+        bot_key = _normalize_api_key(current_app.config.get("DISCORD_BOT_API_KEY"))
+        if not bot_key:
+            return jsonify({
+                'error': 'Service unavailable',
+                'message': 'Bot token issuance is disabled until DISCORD_BOT_API_KEY is configured.',
+                'code': 'BOT_KEY_NOT_CONFIGURED'
+            }), 503
+
+        provided = _normalize_api_key(
+            request.headers.get("X-Bot-Token") or request.headers.get("X-Api-Key")
+        )
+        if provided != bot_key:
+            return jsonify({
+                'error': 'Unauthorized',
+                'message': 'Invalid or missing bot API key.',
+                'code': 'UNAUTHORIZED'
+            }), 401
+
+        data = request.get_json() or {}
+        user_id = data.get('user_id')
+        data_type = data.get('data_type', 'raids')
+        expires_in = data.get('expires_in', 3600)
+
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return jsonify({
+                'error': 'Invalid user id',
+                'message': 'user_id must be numeric.',
+                'code': 'INVALID_USER'
+            }), 400
+
+        valid_types = ['raids', 'builds', 'damage']
+        if data_type not in valid_types:
+            return jsonify({
+                'error': 'Invalid data type',
+                'message': f'data_type must be one of: {", ".join(valid_types)}',
+                'code': 'INVALID_DATA_TYPE'
+            }), 400
+
+        try:
+            expires_in = int(expires_in)
+        except (TypeError, ValueError):
+            return jsonify({
+                'error': 'Invalid parameter',
+                'message': 'expires_in must be an integer (seconds)',
+                'code': 'INVALID_PARAMETER'
+            }), 400
+
+        max_age = int(current_app.config.get('TOKEN_MAX_AGE', 3600 * 24 * 7))
+        if expires_in < 60 or expires_in > max_age:
+            return jsonify({
+                'error': 'Invalid parameter',
+                'message': f'expires_in must be between 60 and {max_age} seconds',
+                'code': 'INVALID_PARAMETER'
+            }), 400
+
+        mongo_db = _get_sync_mongo()
+        if mongo_db is None:
+            return jsonify({
+                'error': 'Database unavailable',
+                'message': 'MongoDB is not configured.',
+                'code': 'DB_UNAVAILABLE'
+            }), 503
+
+        now = int(time.time())
+        code_ttl = 300  # 5 minutes
+        code = secrets.token_urlsafe(32)
+
+        mongo_db.auth_codes.insert_one({
+            'code': code,
+            'user_id': user_id,
+            'data_type': data_type,
+            'expires_in': expires_in,
+            'created_at': now,
+            'expires_at': now + code_ttl,
+            'used': False,
+        })
+
+        return jsonify({
+            'code': code,
+            'expires_at': now + code_ttl,
+            'data_type': data_type,
+            'message': 'Authorization code issued'
+        }), 200
+    except Exception as e:
+        logger.error(f"Error issuing auth code: {e}", exc_info=True)
+        return jsonify({
+            'error': 'Auth code issuance failed',
+            'message': 'An unexpected error occurred while issuing code.',
+            'code': 'ISSUE_ERROR'
+        }), 500
+
+
+@auth_bp.route('/token/exchange', methods=['POST'])
+def exchange_token_code() -> tuple[Any, int]:
+    """Exchange a short-lived auth code for a signed access token."""
+    try:
+        data = request.get_json() or {}
+        code = data.get('code')
+        if not code:
+            return jsonify({
+                'error': 'Validation error',
+                'message': 'code is required.',
+                'code': 'VALIDATION_ERROR'
+            }), 400
+
+        mongo_db = _get_sync_mongo()
+        if mongo_db is None:
+            return jsonify({
+                'error': 'Database unavailable',
+                'message': 'MongoDB is not configured.',
+                'code': 'DB_UNAVAILABLE'
+            }), 503
+
+        now = int(time.time())
+        doc = mongo_db.auth_codes.find_one({'code': code})
+        if not doc:
+            return jsonify({
+                'error': 'Invalid code',
+                'message': 'Authorization code is invalid or expired.',
+                'code': 'CODE_INVALID'
+            }), 401
+        if doc.get('used'):
+            return jsonify({
+                'error': 'Code used',
+                'message': 'Authorization code has already been used.',
+                'code': 'CODE_USED'
+            }), 401
+        if now > int(doc.get('expires_at', 0)):
+            return jsonify({
+                'error': 'Code expired',
+                'message': 'Authorization code has expired.',
+                'code': 'CODE_EXPIRED'
+            }), 401
+
+        user_id = doc.get('user_id')
+        data_type = doc.get('data_type', 'raids')
+        expires_in = int(doc.get('expires_in', 3600))
+
+        token = generate_token(
+            user_id=user_id,
+            timestamp=now,
+            data_type=data_type,
+            expires_in=expires_in,
+        )
+
+        mongo_db.auth_codes.update_one(
+            {'code': code},
+            {'$set': {'used': True, 'used_at': now}}
+        )
+
+        return jsonify({
+            'token': token,
+            'expires_at': now + expires_in,
+            'data_type': data_type,
+            'message': 'Token issued successfully'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error exchanging auth code: {e}", exc_info=True)
+        return jsonify({
+            'error': 'Token exchange failed',
+            'message': 'An unexpected error occurred while exchanging code.',
+            'code': 'EXCHANGE_ERROR'
         }), 500
 
 

@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 import queries
 from logic.api_client import call
+from logic.common import compute_beige_loot
 from logic.merge_utils import get_query
 from utils.db_utils import (ensure_metadata_table, ensure_table_and_columns,
                             get_alliances_db_path, get_nations_db_path,
@@ -71,9 +72,34 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
     conn = sqlite3.connect(get_nations_db_path())
     try:
         nations = new_nations['nations']
+
+        # Pre-compute beige loot values using current market prices.
+        # Gracefully skip if prices are unavailable.
+        prices = None
+        try:
+            prices_query = get_query(queries.PRICES)
+            prices_resp = await call_api(
+                f"{{tradeprices(first:1){{data{prices_query}}}}}"
+            )
+            prices = prices_resp['data']['tradeprices']['data'][0]
+            prices['money'] = 1
+            logger.info("Fetched prices for beige loot pre-computation")
+        except Exception as exc:
+            logger.warning(f"Failed to fetch prices for beige loot: {exc}")
+
+        loot_computed = 0
         if nations:
             ensure_table_and_columns(conn, 'nations', nations[0])
             for row in nations:
+                # Compute beige loot from war data before persisting
+                if prices:
+                    try:
+                        loot = compute_beige_loot(row, prices)
+                        if loot is not None:
+                            row['nation_loot_value'] = loot
+                            loot_computed += 1
+                    except Exception:
+                        pass  # Never let loot computation break the scan
                 ensure_table_and_columns(conn, 'nations', row)
                 upsert(conn, 'nations', row)
 
@@ -85,7 +111,8 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
         set_metadata(conn, metadata_key, last_ts)
         logger.info(
             f"Done fetching nation data (vmode={vmode}, min_score={min_score}). {n} pages, "
-            f"saved {len(nations)} rows to SQLite. Took {(time.time() - series_start) / 60 :.2f} minutes"
+            f"saved {len(nations)} rows to SQLite, pre-computed {loot_computed} beige loot values. "
+            f"Took {(time.time() - series_start) / 60 :.2f} minutes"
         )
     finally:
         conn.close()

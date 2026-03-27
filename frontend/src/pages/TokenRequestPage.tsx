@@ -19,7 +19,7 @@ import {
   Loader,
 } from '@mantine/core';
 import { IconShield, IconAlertCircle, IconCheck } from '@tabler/icons-react';
-import { generateToken } from '@/api';
+import { exchangeToken } from '@/api';
 
 type DataType = 'raids' | 'builds' | 'damage';
 
@@ -31,7 +31,7 @@ export function TokenRequestPage() {
 
   const dataType = (searchParams.get('type') || 'raids') as DataType;
   const redirectPath = searchParams.get('redirect') || `/${dataType}`;
-  const userId = searchParams.get('userId') || searchParams.get('user_id') || undefined;
+  const authCode = searchParams.get('code') || undefined;
 
   const dataTypeLabels: Record<DataType, string> = {
     raids: 'Raid Targets',
@@ -44,10 +44,14 @@ export function TokenRequestPage() {
     setError(null);
 
     try {
-      const response = await generateToken({
-        ...(userId ? { user_id: userId } : {}),
-        data_type: dataType,
-        expires_in: 3600, // 1 hour
+      if (!authCode) {
+        setError('Missing authorization code. Please use the link from the Discord bot.');
+        setLoading(false);
+        return;
+      }
+
+      const response = await exchangeToken({
+        code: authCode,
       });
 
       // Redirect to the target page with the token
@@ -113,6 +117,16 @@ export function TokenRequestPage() {
               </ThemeIcon>
               <Text size="sm">No login required</Text>
             </Group>
+            {!authCode && (
+              <Alert
+                icon={<IconAlertCircle size={16} />}
+                title="Missing authorization code"
+                color="yellow"
+                variant="light"
+              >
+                Please open this page using the link provided by the Discord bot.
+              </Alert>
+            )}
           </Stack>
         </Paper>
 
@@ -120,15 +134,15 @@ export function TokenRequestPage() {
           size="lg"
           leftSection={loading ? <Loader size="xs" color="white" /> : <IconShield size={20} />}
           onClick={handleGenerateToken}
-          disabled={loading}
+          disabled={loading || !authCode}
           fullWidth
         >
-          {loading ? 'Generating Token...' : 'Generate Secure Token'}
+          {loading ? 'Generating Token...' : 'Use Discord Link'}
         </Button>
 
         <Text size="xs" c="dimmed" ta="center" maw={400}>
-          By generating a token, you'll be able to access {dataTypeLabels[dataType]}{' '}
-          for the next hour. The token is cryptographically signed and cannot be forged.
+          This link was issued by the Discord bot and is valid for a short time.
+          Your token is cryptographically signed and cannot be forged.
         </Text>
       </Stack>
     </Container>

@@ -9,6 +9,7 @@ from functools import partial
 from typing import Any, Dict, List, Optional
 
 import aiofiles
+import aiohttp
 import discord
 from discord.commands import Option, SlashCommandGroup, slash_command
 from discord.ext import commands
@@ -28,6 +29,10 @@ from utils.db_utils import get_all_nations, get_nations_db_path
 
 api_key = os.getenv("api_key")
 call_api = partial(api_client.call, api_key=api_key)
+
+WEB_BASE_URL = os.getenv("AUTOLYCUS_WEB_BASE_URL", "http://132.145.71.195:3000")
+API_BASE_URL = os.getenv("AUTOLYCUS_API_BASE_URL", "http://132.145.71.195:5000")
+DISCORD_BOT_API_KEY = os.getenv("DISCORD_BOT_API_KEY")
 
 # Get database instance for queries
 db = db_mongo.get_db()
@@ -61,7 +66,7 @@ class TargetFinding(commands.Cog):
 
     @slash_command(
         name="raids",
-        description="Find raid targets",
+        description="Find profitable raid targets in your war range",
     )
     async def raids(
         self, 
@@ -470,19 +475,70 @@ class TargetFinding(commands.Cog):
                 clean_params = {k: v for k, v in params.items() if v is not None and v != ""}
                 raids_query = urllib.parse.urlencode(clean_params)
                 raids_redirect = f"/raids?{raids_query}"
-                raids_url = f"http://132.145.71.195:3000{raids_redirect}"
+                raids_url = f"{WEB_BASE_URL}{raids_redirect}"
+                if not DISCORD_BOT_API_KEY:
+                    await ctx.edit(
+                        content="Secure token issuance is not configured. Please contact an admin.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
+                issue_url = f"{API_BASE_URL}/api/auth/token/issue"
+                payload = {
+                    "user_id": ctx.author.id,
+                    "data_type": "raids",
+                    "expires_in": 3600,
+                }
+
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            issue_url,
+                            json=payload,
+                            headers={"X-Bot-Token": DISCORD_BOT_API_KEY},
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp:
+                            if resp.status != 200:
+                                error_text = await resp.text()
+                                logger.error(f"Failed to issue auth code: {resp.status} {error_text}")
+                                await ctx.edit(
+                                    content="I couldn't issue a secure web token. Please try again later.",
+                                    embed=None,
+                                    view=None,
+                                )
+                                return
+                            data = await resp.json()
+                except Exception as exc:
+                    logger.error(f"Error issuing auth code: {exc}")
+                    await ctx.edit(
+                        content="I couldn't reach the auth service. Please try again later.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
+                code = data.get("code")
+                if not code:
+                    await ctx.edit(
+                        content="I couldn't issue a secure web token. Please try again later.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
                 token_url = (
-                    "http://132.145.71.195:3000/token-request?type=raids"
+                    f"{WEB_BASE_URL}/token-request?type=raids"
                     f"&redirect={urllib.parse.quote(raids_redirect)}"
                     "&auto=true"
-                    f"&userId={ctx.author.id}"
+                    f"&code={urllib.parse.quote(code)}"
                 )
 
                 webpage_embed = discord.Embed(
                     title="Targets ready",
                     description=(
                         "Your configuration has been sent to the raids page. "
-                        "Open the web view to compute and filter targets."
+                        "Click the button below to get your personal link."
                     ),
                     color=0xff5100,
                 )
@@ -490,22 +546,24 @@ class TargetFinding(commands.Cog):
                 class webpage_view(discord.ui.View):
                     def __init__(self):
                         super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-                        self.add_item(
-                            discord.ui.Button(
-                                label="See your targets",
-                                style=discord.ButtonStyle.link,
-                                url=token_url,
-                            )
+                        btn = discord.ui.Button(
+                            label="Get your link",
+                            style=discord.ButtonStyle.primary,
                         )
+                        btn.callback = self.send_link
+                        self.add_item(btn)
 
-                    async def interaction_check(self, interaction) -> bool:
+                    async def send_link(self, interaction: discord.Interaction):
                         if interaction.user != ctx.author:
                             await interaction.response.send_message(
-                                "These buttons are reserved for someone else!",
+                                "This button is reserved for the person who ran the command!",
                                 ephemeral=True,
                             )
-                            return False
-                        return True
+                            return
+                        await interaction.response.send_message(
+                            f"Here is your personal link (do not share it):\n{token_url}",
+                            ephemeral=True,
+                        )
 
                     async def on_timeout(self):
                         await views.run_timeout(ctx, view)
@@ -788,12 +846,63 @@ class TargetFinding(commands.Cog):
 
                 raids_query = f"attackerNationId={atck_ntn.get('id', '')}&useSavedTargets=true"
                 raids_redirect = f"/raids?{raids_query}"
-                raids_url = f"http://132.145.71.195:3000{raids_redirect}"
+                raids_url = f"{WEB_BASE_URL}{raids_redirect}"
+                if not DISCORD_BOT_API_KEY:
+                    await ctx.edit(
+                        content="Secure token issuance is not configured. Please contact an admin.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
+                issue_url = f"{API_BASE_URL}/api/auth/token/issue"
+                payload = {
+                    "user_id": ctx.author.id,
+                    "data_type": "raids",
+                    "expires_in": 3600,
+                }
+
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            issue_url,
+                            json=payload,
+                            headers={"X-Bot-Token": DISCORD_BOT_API_KEY},
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp:
+                            if resp.status != 200:
+                                error_text = await resp.text()
+                                logger.error(f"Failed to issue auth code: {resp.status} {error_text}")
+                                await ctx.edit(
+                                    content="I couldn't issue a secure web token. Please try again later.",
+                                    embed=None,
+                                    view=None,
+                                )
+                                return
+                            data = await resp.json()
+                except Exception as exc:
+                    logger.error(f"Error issuing auth code: {exc}")
+                    await ctx.edit(
+                        content="I couldn't reach the auth service. Please try again later.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
+                code = data.get("code")
+                if not code:
+                    await ctx.edit(
+                        content="I couldn't issue a secure web token. Please try again later.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
                 token_url = (
-                    "http://132.145.71.195:3000/token-request?type=raids"
+                    f"{WEB_BASE_URL}/token-request?type=raids"
                     f"&redirect={urllib.parse.quote(raids_redirect)}"
                     "&auto=true"
-                    f"&userId={ctx.author.id}"
+                    f"&code={urllib.parse.quote(code)}"
                 )
                 
                 webpage_embed = discord.Embed(title=f"Targets successfully gathered", description=f"{filters}\n\nYou can view your targets by pressing the button below.", color=0xff5100)
@@ -957,11 +1066,11 @@ class TargetFinding(commands.Cog):
             logger.error(e, exc_info=True)
             raise e
     
-    reminder_group = SlashCommandGroup("reminders", "Beige reminders")
+    reminder_group = SlashCommandGroup("reminders", "Manage beige exit reminder notifications")
 
     @reminder_group.command(
         name="show",
-        description="Show all your beige reminders"
+        description="View all your active beige exit reminders",
     )
     async def reminders(self, ctx: discord.ApplicationContext):
         try:
@@ -1050,7 +1159,7 @@ class TargetFinding(commands.Cog):
         
     @reminder_group.command(
         name="delete",
-        description="Delete a beige reminder"
+        description="Remove a beige reminder for a specific nation",
     )
     async def delreminder(
         self,
@@ -1090,7 +1199,7 @@ class TargetFinding(commands.Cog):
 
     @reminder_group.command(
         name="add",
-        description="Add a beige reminder"
+        description="Get notified when a nation exits beige or VM",
     )
     async def addreminder(
         self,
@@ -1132,7 +1241,7 @@ class TargetFinding(commands.Cog):
 
     @slash_command(
         name="battlesimulation",
-        description='Simulate battles between two nations'
+        description="Simulate ground, air, and naval battles between two nations",
     )
     async def battlesim(
         self,
@@ -1256,7 +1365,7 @@ class TargetFinding(commands.Cog):
 
     @slash_command(
         name="war_status",
-        description="Get an overivew of a nation's ongoing wars.",
+        description="Get a detailed overview of a nation's ongoing wars",
     )
     async def war_status(
         self,
@@ -1443,7 +1552,7 @@ class TargetFinding(commands.Cog):
     
     @slash_command(
         name="nuketargets",
-        description='Find nations with juicy infra'
+        description="Find high-infra nations to nuke or missile in your range",
     )
     @commands.guild_only()
     async def nuketargets(
@@ -1578,7 +1687,7 @@ class TargetFinding(commands.Cog):
     
     @slash_command(
         name="damage",
-        description="Shows you how much damage each war attack would do",
+        description="View full damage calculations between two nations",
     )
     async def damage(
         self,

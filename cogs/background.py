@@ -16,8 +16,10 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from database import mongo as db_mongo
+from discord_utils.embeds import EMBED_COLOR
 from logic import api_client, common
 from main import kit, logger
+from utils.db_utils import get_nation_by_id, get_nations_db_path
 
 load_dotenv()
 
@@ -295,10 +297,21 @@ class General(commands.Cog):
         """
         try:
             disc_user = await self.bot.fetch_user(user["user"])
-            content = self._build_reminder_message(
-                nation_id, beige_turns, vm_turns
+            nation_payload = get_nation_by_id(get_nations_db_path(), nation_id)
+            nation = nation_payload.get("nation")
+            data_timestamp = self._extract_data_timestamp(
+                nation,
+                nation_payload.get("last_fetched"),
             )
-            await disc_user.send(content)
+            embed = self._build_reminder_embed(
+                nation=nation,
+                nation_id=nation_id,
+                beige_turns=beige_turns,
+                vm_turns=vm_turns,
+                data_timestamp=data_timestamp,
+                preemptive=False,
+            )
+            await disc_user.send(embed=embed)
             logger.info(f"Reminder sent to {user['user']} about {nation_id}")
 
             if pull_after:
@@ -362,6 +375,144 @@ class General(commands.Cog):
                 f"Hey, {nation_url} left beige while I wasn't looking!"
             )
 
+    @staticmethod
+    def _extract_data_timestamp(
+        nation: Optional[dict],
+        last_fetched: Optional[int | float],
+    ) -> Optional[int]:
+        """Extract a Unix timestamp for when the cached data was updated.
+
+        Args:
+            nation: Cached nation data, if available.
+            last_fetched: Global cache timestamp from metadata.
+
+        Returns:
+            Unix timestamp in seconds, or None if unavailable.
+        """
+        if nation:
+            raw = nation.get("_created_at")
+            try:
+                if raw is not None:
+                    return int(raw)
+            except (TypeError, ValueError):
+                pass
+        try:
+            if last_fetched is not None:
+                return int(last_fetched)
+        except (TypeError, ValueError):
+            pass
+        return None
+
+    def _build_reminder_embed(
+        self,
+        nation: Optional[dict],
+        nation_id: str,
+        beige_turns: int,
+        vm_turns: int,
+        data_timestamp: Optional[int],
+        preemptive: bool,
+    ) -> discord.Embed:
+        """Build a rich embed for beige/vacation reminders.
+
+        Args:
+            nation: Cached nation data if available.
+            nation_id: The nation ID.
+            beige_turns: Remaining beige turns.
+            vm_turns: Remaining vacation mode turns.
+            data_timestamp: Unix timestamp of cached data update.
+            preemptive: True if the nation exited early.
+
+        Returns:
+            Discord embed for the reminder.
+        """
+        nation_url = f"https://politicsandwar.com/nation/id={nation_id}"
+        nation_name = nation.get("nation_name") if nation else f"Nation {nation_id}"
+        leader_name = nation.get("leader_name") if nation else "Unknown"
+        alliance_name = "None"
+        if nation and isinstance(nation.get("alliance"), dict):
+            alliance_name = nation.get("alliance", {}).get("name") or "None"
+
+        embed = discord.Embed(
+            title=nation_name,
+            url=nation_url,
+            color=EMBED_COLOR,
+        )
+        embed.description = (
+            f"Leader: **{leader_name}**\n"
+            f"Alliance: **{alliance_name}**\n"
+            f"[Open nation profile]({nation_url})"
+        )
+
+        flag_url = nation.get("flag") if nation else None
+        if flag_url:
+            embed.set_thumbnail(url=str(flag_url))
+
+        status_lines: list[str] = []
+        if preemptive:
+            status_lines.append("Exited beige/vacation early")
+        if beige_turns > 0:
+            exit_time = common.get_datetime_of_turns(beige_turns)
+            timestamp = round(exit_time.timestamp())
+            status_lines.append(
+                f"Beige turns: **{beige_turns}**"
+            )
+            status_lines.append(
+                f"Exits beige: <t:{timestamp}:f> (<t:{timestamp}:R>)"
+            )
+        elif vm_turns > 0:
+            exit_time = common.get_datetime_of_turns(vm_turns)
+            timestamp = round(exit_time.timestamp())
+            status_lines.append(
+                f"VM turns: **{vm_turns}**"
+            )
+            status_lines.append(
+                f"Exits VM: <t:{timestamp}:f> (<t:{timestamp}:R>)"
+            )
+        else:
+            status_lines.append("No active beige/VM turns")
+
+        embed.add_field(name="Status", value="\n".join(status_lines), inline=False)
+
+        if nation:
+            soldiers = nation.get("soldiers", 0)
+            tanks = nation.get("tanks", 0)
+            aircraft = nation.get("aircraft", 0)
+            ships = nation.get("ships", 0)
+            missiles = nation.get("missiles", 0)
+            nukes = nation.get("nukes", 0)
+            military = (
+                f"Soldiers: **{soldiers:,}**\n"
+                f"Tanks: **{tanks:,}**\n"
+                f"Aircraft: **{aircraft:,}**\n"
+                f"Ships: **{ships:,}**\n"
+                f"Missiles: **{missiles}**\n"
+                f"Nukes: **{nukes}**"
+            )
+            embed.add_field(name="Military", value=military, inline=True)
+
+            score = nation.get("score")
+            cities = nation.get("num_cities")
+            color = nation.get("color")
+            info_parts = []
+            if score is not None:
+                info_parts.append(f"Score: **{score}**")
+            if cities is not None:
+                info_parts.append(f"Cities: **{cities}**")
+            if color:
+                info_parts.append(f"Color: **{str(color).capitalize()}**")
+            if info_parts:
+                embed.add_field(name="Nation Info", value="\n".join(info_parts), inline=True)
+
+        if data_timestamp:
+            embed.add_field(
+                name="Data Updated",
+                value=f"<t:{data_timestamp}:R> (<t:{data_timestamp}:f>)",
+                inline=False,
+            )
+
+        embed.set_footer(text="Autolycus beige reminder")
+        return embed
+
     async def _send_preemptive_reminder(
         self, nation_id: str, alerts: list[dict]
     ) -> None:
@@ -377,13 +528,21 @@ class General(commands.Cog):
 
             try:
                 disc_user = await self.bot.fetch_user(user["user"])
-                nation_url = (
-                    f"https://politicsandwar.com/nation/id={nation_id}"
+                nation_payload = get_nation_by_id(get_nations_db_path(), nation_id)
+                nation = nation_payload.get("nation")
+                data_timestamp = self._extract_data_timestamp(
+                    nation,
+                    nation_payload.get("last_fetched"),
                 )
-                content = (
-                    f"Hey, {nation_url} has left beige prematurely!"
+                embed = self._build_reminder_embed(
+                    nation=nation,
+                    nation_id=nation_id,
+                    beige_turns=0,
+                    vm_turns=0,
+                    data_timestamp=data_timestamp,
+                    preemptive=True,
                 )
-                await disc_user.send(content)
+                await disc_user.send(embed=embed)
                 logger.info(
                     f"Preemptive reminder sent to {user['user']} "
                     f"about {nation_id}"

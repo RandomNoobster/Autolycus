@@ -72,7 +72,7 @@ export function DamageDashboard({ data }: DamageDashboardProps) {
     <Stack gap="lg">
       <Text size="sm" c="dimmed">
         Use the tabs to switch between per-attack (default), per-resistance, and per-MAP
-        views. Positive net damage is better; negative means the opponent would do more.
+        views. Positive net damage is better; negative means the opponent would do more damage.
       </Text>
 
       <Tabs defaultValue="attack">

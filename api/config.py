@@ -20,6 +20,7 @@ class Config:
     TOKEN_MAX_AGE: int = 3600 * 24 * 7  # 7 days in seconds
     TOKEN_SALT: str = "autolycus-ephemeral-link"
     AUTH_TOKEN_API_KEY: str = os.getenv("AUTH_TOKEN_API_KEY", "")
+    DISCORD_BOT_API_KEY: str = os.getenv("DISCORD_BOT_API_KEY", "")
     
     # CORS settings
     CORS_ORIGINS: list[str] = [

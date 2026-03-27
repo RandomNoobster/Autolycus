@@ -53,6 +53,7 @@ export interface RaidTarget {
   navalWin: number;
   totalWin: number;
   hasReminderActive: boolean;
+  updatedAt?: number | null;
 }
 
 export interface AttackerInfo {

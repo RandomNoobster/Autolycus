@@ -22,98 +22,106 @@ import {
   Grid,
   SegmentedControl,
   Loader,
-} from '@mantine/core';
-import { useForm } from '@mantine/form';
-import { useQuery } from '@tanstack/react-query';
-import { IconSearch, IconCalculator } from '@tabler/icons-react';
-import { useDebouncedValue } from '@mantine/hooks';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+} from "@mantine/core";
+import { useForm } from "@mantine/form";
+import { useQuery } from "@tanstack/react-query";
+import { IconSearch, IconCalculator } from "@tabler/icons-react";
+import { useDebouncedValue } from "@mantine/hooks";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 
-import { calculateDamage, fetchDamage, searchNations } from '@/api';
-import { DamageDashboard } from '@/components/damage';
-import { TokenError, LoadingState, ErrorState } from '@/components/common';
+import { calculateDamage, fetchDamage, searchNations } from "@/api";
+import { DamageDashboard } from "@/components/damage";
+import { LoadingState, ErrorState } from "@/components/common";
 import type {
   ApiError,
   DamageCalculationInput,
   DamageResponse,
   DamageWarType,
-} from '@/types';
+} from "@/types";
 
 // Per PWPedia "War-Policy" article.
 const WAR_POLICY_OPTIONS = [
   {
-    value: 'Attrition',
-    label: 'Attrition',
-    description: 'Infra damage dealt +10%; loot stolen -20%.',
+    value: "Attrition",
+    label: "Attrition",
+    description: "Infra damage dealt +10%; loot stolen -20%.",
   },
   {
-    value: 'Turtle',
-    label: 'Turtle',
-    description: 'Infra damage taken -10%; loot lost +20%.',
+    value: "Turtle",
+    label: "Turtle",
+    description: "Infra damage taken -10%; loot lost +20%.",
   },
   {
-    value: 'Moneybags',
-    label: 'Moneybags',
-    description: 'Loot stolen -40%; infra damage taken +5%.',
+    value: "Moneybags",
+    label: "Moneybags",
+    description: "Loot stolen -40%; infra damage taken +5%.",
   },
   {
-    value: 'Pirate',
-    label: 'Pirate',
-    description: 'Loot stolen +40%; double chance to lose own improvements in ground/naval attacks.',
+    value: "Pirate",
+    label: "Pirate",
+    description:
+      "Loot stolen +40%; double chance to lose own improvements in ground/naval attacks.",
   },
   {
-    value: 'Tactician',
-    label: 'Tactician',
-    description: 'Double chance to destroy enemy improvements (ground/naval).',
+    value: "Tactician",
+    label: "Tactician",
+    description: "Double chance to destroy enemy improvements (ground/naval).",
   },
   {
-    value: 'Guardian',
-    label: 'Guardian',
-    description: 'Improvement loss chance halved; loot stolen +20%.',
+    value: "Guardian",
+    label: "Guardian",
+    description: "Improvement loss chance halved; loot stolen +20%.",
   },
   {
-    value: 'Covert',
-    label: 'Covert',
-    description: 'Infra damage taken +5%.',
+    value: "Covert",
+    label: "Covert",
+    description: "Infra damage taken +5%.",
   },
   {
-    value: 'Arcane',
-    label: 'Arcane',
-    description: 'Infra damage taken +5%.',
+    value: "Arcane",
+    label: "Arcane",
+    description: "Infra damage taken +5%.",
   },
   {
-    value: 'Blitzkrieg',
-    label: 'Blitzkrieg',
-    description: 'First 12 turns: infra damage dealt +10% and casualties dealt +10%; if declared on, attacker +1 MAP.',
+    value: "Blitzkrieg",
+    label: "Blitzkrieg",
+    description:
+      "First 12 turns: infra damage dealt +10% and casualties dealt +10%; if declared on, attacker +1 MAP.",
   },
   {
-    value: 'Fortress',
-    label: 'Fortress',
-    description: 'Starting MAP for both attacker and defender -1.',
+    value: "Fortress",
+    label: "Fortress",
+    description: "Starting MAP for both attacker and defender -1.",
   },
 ];
 
 // Per PWPedia "War-Types" and individual war type articles.
-const WAR_TYPE_OPTIONS: { value: DamageWarType; label: string; description: string }[] = [
+const WAR_TYPE_OPTIONS: {
+  value: DamageWarType;
+  label: string;
+  description: string;
+}[] = [
   {
-    value: 'RAID',
-    label: 'Raid',
-    description: 'War attacker: 25% infra dealt , 100% loot stolen. War defender: 50% infra dealt, 100% loot stolen.',
+    value: "RAID",
+    label: "Raid",
+    description:
+      "War attacker: 25% infra dealt , 100% loot stolen. War defender: 50% infra dealt, 100% loot stolen.",
   },
   {
-    value: 'ORDINARY',
-    label: 'Ordinary',
-    description: 'War attacker & defender: 50% infra dealt, 50% loot stolen.',
+    value: "ORDINARY",
+    label: "Ordinary",
+    description: "War attacker & defender: 50% infra dealt, 50% loot stolen.",
   },
   {
-    value: 'ATTRITION',
-    label: 'Attrition',
-    description: 'War attacker: 100% infra dealt, 25% loot stolen. War defender: 100% infra dealt, 50% loot stolen.',
+    value: "ATTRITION",
+    label: "Attrition",
+    description:
+      "War attacker: 100% infra dealt, 25% loot stolen. War defender: 100% infra dealt, 50% loot stolen.",
   },
 ];
 
-type UnitKey = 'soldiers' | 'tanks' | 'aircraft' | 'ships';
+type UnitKey = "soldiers" | "tanks" | "aircraft" | "ships";
 
 interface UnitConfig {
   label: string;
@@ -133,32 +141,32 @@ interface MmrCounts {
 // Per PWPedia: "Soldiers", "Tanks", "Planes", and "Ships" articles.
 const UNIT_CONFIG: Record<UnitKey, UnitConfig> = {
   soldiers: {
-    label: 'Soldiers',
+    label: "Soldiers",
     perDay: 1000,
     capacity: 3000,
-    improvementLabel: 'Barracks',
-    improvementKey: 'barracks',
+    improvementLabel: "Barracks",
+    improvementKey: "barracks",
   },
   tanks: {
-    label: 'Tanks',
+    label: "Tanks",
     perDay: 50,
     capacity: 250,
-    improvementLabel: 'Factories',
-    improvementKey: 'factories',
+    improvementLabel: "Factories",
+    improvementKey: "factories",
   },
   aircraft: {
-    label: 'Aircraft',
+    label: "Aircraft",
     perDay: 3,
     capacity: 15,
-    improvementLabel: 'Hangars',
-    improvementKey: 'hangars',
+    improvementLabel: "Hangars",
+    improvementKey: "hangars",
   },
   ships: {
-    label: 'Ships',
+    label: "Ships",
     perDay: 1,
     capacity: 5,
-    improvementLabel: 'Drydocks',
-    improvementKey: 'drydocks',
+    improvementLabel: "Drydocks",
+    improvementKey: "drydocks",
   },
 };
 
@@ -170,12 +178,13 @@ const MAX_MMR_COUNTS: MmrCounts = {
 };
 
 const normalizeNumberInput = (value: string | number | null): number => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const clampNumber = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const clampNumber = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max);
 
 interface UnitInputWithRebuyProps {
   label: string;
@@ -192,13 +201,16 @@ interface ResetLinkProps {
   onClick?: () => void;
 }
 
-const ResetLink = memo(function ResetLink({ isDirty, onClick }: ResetLinkProps) {
+const ResetLink = memo(function ResetLink({
+  isDirty,
+  onClick,
+}: ResetLinkProps) {
   return (
     <Text
       size="xs"
-      c={isDirty ? 'orange' : 'dimmed'}
+      c={isDirty ? "orange" : "dimmed"}
       fw={600}
-      style={{ cursor: isDirty ? 'pointer' : 'default' }}
+      style={{ cursor: isDirty ? "pointer" : "default" }}
       onClick={isDirty ? onClick : undefined}
     >
       Reset to current
@@ -233,7 +245,9 @@ const UnitInputWithRebuy = memo(function UnitInputWithRebuy({
         <NumberInput
           label={label}
           value={value}
-          onChange={(nextValue) => onChange(clampNumber(normalizeNumberInput(nextValue), 0, max))}
+          onChange={(nextValue) =>
+            onChange(clampNumber(normalizeNumberInput(nextValue), 0, max))
+          }
           min={0}
           max={max}
           allowDecimal={false}
@@ -241,19 +255,35 @@ const UnitInputWithRebuy = memo(function UnitInputWithRebuy({
           style={{ flex: 1, minWidth: 160 }}
         />
         <Group gap="xs">
-          <Button size="xs" variant="light" onClick={() => removeUnits(1)} disabled={dailyRebuy <= 0 || value <= 0}>
+          <Button
+            size="xs"
+            variant="light"
+            onClick={() => removeUnits(1)}
+            disabled={dailyRebuy <= 0 || value <= 0}
+          >
             -1 day
           </Button>
-          <Button size="xs" variant="light" onClick={() => addUnits(1)} disabled={dailyRebuy <= 0 || value >= max}>
+          <Button
+            size="xs"
+            variant="light"
+            onClick={() => addUnits(1)}
+            disabled={dailyRebuy <= 0 || value >= max}
+          >
             +1 day
           </Button>
-          <Button size="xs" variant="light" onClick={() => addUnits(2)} disabled={dailyRebuy <= 0 || value >= max}>
+          <Button
+            size="xs"
+            variant="light"
+            onClick={() => addUnits(2)}
+            disabled={dailyRebuy <= 0 || value >= max}
+          >
             +2 days
           </Button>
         </Group>
       </Group>
       <Text size="xs" c="dimmed">
-        Daily buy: {dailyRebuy.toLocaleString()} · Double buy: {(dailyRebuy * 2).toLocaleString()} · Max: {max.toLocaleString()}
+        Daily buy: {dailyRebuy.toLocaleString()} · Double buy:{" "}
+        {(dailyRebuy * 2).toLocaleString()} · Max: {max.toLocaleString()}
       </Text>
       {onReset && <ResetLink isDirty={Boolean(isDirty)} onClick={onReset} />}
     </Stack>
@@ -262,7 +292,7 @@ const UnitInputWithRebuy = memo(function UnitInputWithRebuy({
 
 interface NationUnitPlannerProps {
   form: DamageForm;
-  basePath: 'nation1' | 'nation2';
+  basePath: "nation1" | "nation2";
   initialCityCount?: number;
   baselineUnits?: {
     soldiers: number;
@@ -337,7 +367,7 @@ const NationUnitPlanner = memo(function NationUnitPlanner({
       aircraft: baselineUnits.aircraft,
       ships: baselineUnits.ships,
     };
-    if (typeof initialCityCount === 'number') {
+    if (typeof initialCityCount === "number") {
       baselineRef.current.cityCount = initialCityCount;
     }
   }, [baselineUnits, initialCityCount]);
@@ -349,7 +379,7 @@ const NationUnitPlanner = memo(function NationUnitPlanner({
       hangars: mmrCounts.hangars * cityCount,
       drydocks: mmrCounts.drydocks * cityCount,
     }),
-    [mmrCounts, cityCount]
+    [mmrCounts, cityCount],
   );
 
   const dailyMultiplier = 1 + (propagandaBureau ? 0.1 : 0);
@@ -361,27 +391,43 @@ const NationUnitPlanner = memo(function NationUnitPlanner({
       aircraft: totalImprovements.hangars * UNIT_CONFIG.aircraft.capacity,
       ships: totalImprovements.drydocks * UNIT_CONFIG.ships.capacity,
     }),
-    [totalImprovements]
+    [totalImprovements],
   );
 
   const dailyRebuy = useMemo(
     () => ({
-      soldiers: Math.floor(totalImprovements.barracks * UNIT_CONFIG.soldiers.perDay * dailyMultiplier),
-      tanks: Math.floor(totalImprovements.factories * UNIT_CONFIG.tanks.perDay * dailyMultiplier),
-      aircraft: Math.floor(totalImprovements.hangars * UNIT_CONFIG.aircraft.perDay * dailyMultiplier),
-      ships: Math.floor(totalImprovements.drydocks * UNIT_CONFIG.ships.perDay * dailyMultiplier),
+      soldiers: Math.floor(
+        totalImprovements.barracks *
+          UNIT_CONFIG.soldiers.perDay *
+          dailyMultiplier,
+      ),
+      tanks: Math.floor(
+        totalImprovements.factories *
+          UNIT_CONFIG.tanks.perDay *
+          dailyMultiplier,
+      ),
+      aircraft: Math.floor(
+        totalImprovements.hangars *
+          UNIT_CONFIG.aircraft.perDay *
+          dailyMultiplier,
+      ),
+      ships: Math.floor(
+        totalImprovements.drydocks * UNIT_CONFIG.ships.perDay * dailyMultiplier,
+      ),
     }),
-    [totalImprovements, dailyMultiplier]
+    [totalImprovements, dailyMultiplier],
   );
 
   useEffect(() => {
-    (['soldiers', 'tanks', 'aircraft', 'ships'] as UnitKey[]).forEach((unit) => {
-      const current = form.values[basePath][unit];
-      const max = maxUnits[unit];
-      if (current > max) {
-        form.setFieldValue(`${basePath}.${unit}`, max);
-      }
-    });
+    (["soldiers", "tanks", "aircraft", "ships"] as UnitKey[]).forEach(
+      (unit) => {
+        const current = form.values[basePath][unit];
+        const max = maxUnits[unit];
+        if (current > max) {
+          form.setFieldValue(`${basePath}.${unit}`, max);
+        }
+      },
+    );
   }, [basePath, form, maxUnits]);
 
   const updateMmrCount = (key: keyof MmrCounts, value: number) => {
@@ -392,18 +438,25 @@ const NationUnitPlanner = memo(function NationUnitPlanner({
   };
 
   const setUnitValue = (unit: UnitKey, value: number) => {
-    form.setFieldValue(`${basePath}.${unit}`, clampNumber(value, 0, maxUnits[unit]));
+    form.setFieldValue(
+      `${basePath}.${unit}`,
+      clampNumber(value, 0, maxUnits[unit]),
+    );
   };
 
   return (
     <Stack gap="sm">
-      <Text size="sm" fw={600}>Unit Planner</Text>
+      <Text size="sm" fw={600}>
+        Unit Planner
+      </Text>
       <Group grow align="flex-end">
         <Stack gap={4}>
           <NumberInput
             label="Cities"
             value={cityCount}
-            onChange={(value) => setCityCount(Math.max(0, normalizeNumberInput(value)))}
+            onChange={(value) =>
+              setCityCount(Math.max(0, normalizeNumberInput(value)))
+            }
             min={0}
             allowDecimal={false}
           />
@@ -424,56 +477,83 @@ const NationUnitPlanner = memo(function NationUnitPlanner({
           <NumberInput
             label="Barracks per City"
             value={mmrCounts.barracks}
-            onChange={(value) => updateMmrCount('barracks', normalizeNumberInput(value))}
+            onChange={(value) =>
+              updateMmrCount("barracks", normalizeNumberInput(value))
+            }
             min={0}
             max={MAX_MMR_COUNTS.barracks}
             allowDecimal={false}
           />
           <ResetLink
-            isDirty={mmrCounts.barracks !== baselineRef.current.mmrCounts.barracks}
-            onClick={() => updateMmrCount('barracks', baselineRef.current.mmrCounts.barracks)}
+            isDirty={
+              mmrCounts.barracks !== baselineRef.current.mmrCounts.barracks
+            }
+            onClick={() =>
+              updateMmrCount("barracks", baselineRef.current.mmrCounts.barracks)
+            }
           />
         </Stack>
         <Stack gap={4}>
           <NumberInput
             label="Factories per City"
             value={mmrCounts.factories}
-            onChange={(value) => updateMmrCount('factories', normalizeNumberInput(value))}
+            onChange={(value) =>
+              updateMmrCount("factories", normalizeNumberInput(value))
+            }
             min={0}
             max={MAX_MMR_COUNTS.factories}
             allowDecimal={false}
           />
           <ResetLink
-            isDirty={mmrCounts.factories !== baselineRef.current.mmrCounts.factories}
-            onClick={() => updateMmrCount('factories', baselineRef.current.mmrCounts.factories)}
+            isDirty={
+              mmrCounts.factories !== baselineRef.current.mmrCounts.factories
+            }
+            onClick={() =>
+              updateMmrCount(
+                "factories",
+                baselineRef.current.mmrCounts.factories,
+              )
+            }
           />
         </Stack>
         <Stack gap={4}>
           <NumberInput
             label="Hangars per City"
             value={mmrCounts.hangars}
-            onChange={(value) => updateMmrCount('hangars', normalizeNumberInput(value))}
+            onChange={(value) =>
+              updateMmrCount("hangars", normalizeNumberInput(value))
+            }
             min={0}
             max={MAX_MMR_COUNTS.hangars}
             allowDecimal={false}
           />
           <ResetLink
-            isDirty={mmrCounts.hangars !== baselineRef.current.mmrCounts.hangars}
-            onClick={() => updateMmrCount('hangars', baselineRef.current.mmrCounts.hangars)}
+            isDirty={
+              mmrCounts.hangars !== baselineRef.current.mmrCounts.hangars
+            }
+            onClick={() =>
+              updateMmrCount("hangars", baselineRef.current.mmrCounts.hangars)
+            }
           />
         </Stack>
         <Stack gap={4}>
           <NumberInput
             label="Drydocks per City"
             value={mmrCounts.drydocks}
-            onChange={(value) => updateMmrCount('drydocks', normalizeNumberInput(value))}
+            onChange={(value) =>
+              updateMmrCount("drydocks", normalizeNumberInput(value))
+            }
             min={0}
             max={MAX_MMR_COUNTS.drydocks}
             allowDecimal={false}
           />
           <ResetLink
-            isDirty={mmrCounts.drydocks !== baselineRef.current.mmrCounts.drydocks}
-            onClick={() => updateMmrCount('drydocks', baselineRef.current.mmrCounts.drydocks)}
+            isDirty={
+              mmrCounts.drydocks !== baselineRef.current.mmrCounts.drydocks
+            }
+            onClick={() =>
+              updateMmrCount("drydocks", baselineRef.current.mmrCounts.drydocks)
+            }
           />
         </Stack>
       </SimpleGrid>
@@ -484,40 +564,55 @@ const NationUnitPlanner = memo(function NationUnitPlanner({
           value={form.values[basePath].soldiers}
           max={maxUnits.soldiers}
           dailyRebuy={dailyRebuy.soldiers}
-          onChange={(value) => setUnitValue('soldiers', value)}
-          onReset={() => setUnitValue('soldiers', baselineRef.current.units.soldiers)}
-          isDirty={form.values[basePath].soldiers !== baselineRef.current.units.soldiers}
+          onChange={(value) => setUnitValue("soldiers", value)}
+          onReset={() =>
+            setUnitValue("soldiers", baselineRef.current.units.soldiers)
+          }
+          isDirty={
+            form.values[basePath].soldiers !==
+            baselineRef.current.units.soldiers
+          }
         />
         <UnitInputWithRebuy
           label={UNIT_CONFIG.tanks.label}
           value={form.values[basePath].tanks}
           max={maxUnits.tanks}
           dailyRebuy={dailyRebuy.tanks}
-          onChange={(value) => setUnitValue('tanks', value)}
-          onReset={() => setUnitValue('tanks', baselineRef.current.units.tanks)}
-          isDirty={form.values[basePath].tanks !== baselineRef.current.units.tanks}
+          onChange={(value) => setUnitValue("tanks", value)}
+          onReset={() => setUnitValue("tanks", baselineRef.current.units.tanks)}
+          isDirty={
+            form.values[basePath].tanks !== baselineRef.current.units.tanks
+          }
         />
         <UnitInputWithRebuy
           label={UNIT_CONFIG.aircraft.label}
           value={form.values[basePath].aircraft}
           max={maxUnits.aircraft}
           dailyRebuy={dailyRebuy.aircraft}
-          onChange={(value) => setUnitValue('aircraft', value)}
-          onReset={() => setUnitValue('aircraft', baselineRef.current.units.aircraft)}
-          isDirty={form.values[basePath].aircraft !== baselineRef.current.units.aircraft}
+          onChange={(value) => setUnitValue("aircraft", value)}
+          onReset={() =>
+            setUnitValue("aircraft", baselineRef.current.units.aircraft)
+          }
+          isDirty={
+            form.values[basePath].aircraft !==
+            baselineRef.current.units.aircraft
+          }
         />
         <UnitInputWithRebuy
           label={UNIT_CONFIG.ships.label}
           value={form.values[basePath].ships}
           max={maxUnits.ships}
           dailyRebuy={dailyRebuy.ships}
-          onChange={(value) => setUnitValue('ships', value)}
-          onReset={() => setUnitValue('ships', baselineRef.current.units.ships)}
-          isDirty={form.values[basePath].ships !== baselineRef.current.units.ships}
+          onChange={(value) => setUnitValue("ships", value)}
+          onReset={() => setUnitValue("ships", baselineRef.current.units.ships)}
+          isDirty={
+            form.values[basePath].ships !== baselineRef.current.units.ships
+          }
         />
       </SimpleGrid>
       <Text size="xs" c="dimmed">
-        Max units = MMR improvements per city × cities. Limits here do not account for population caps or military research.
+        Max units = MMR improvements per city × cities. Limits here do not
+        account for population caps or military research.
       </Text>
     </Stack>
   );
@@ -528,10 +623,10 @@ const buildNationOptions = (
   nation2Id: number,
   nation1Label: string,
   nation2Label: string,
-  includeNone = false
+  includeNone = false,
 ): { value: string; label: string }[] => {
   const options = [
-    ...(includeNone ? [{ value: 'none', label: 'None' }] : []),
+    ...(includeNone ? [{ value: "none", label: "None" }] : []),
     { value: String(nation1Id), label: nation1Label },
     { value: String(nation2Id), label: nation2Label },
   ];
@@ -546,7 +641,10 @@ const buildNationOptions = (
   });
 };
 
-const buildDefaultInputs = (nation1Id: number, nation2Id: number): DamageCalculationInput => ({
+const buildDefaultInputs = (
+  nation1Id: number,
+  nation2Id: number,
+): DamageCalculationInput => ({
   nation1Id,
   nation2Id,
   nation1: {
@@ -557,7 +655,7 @@ const buildDefaultInputs = (nation1Id: number, nation2Id: number): DamageCalcula
     ships: 0,
     missiles: 0,
     nukes: 0,
-    warpolicy: '',
+    warpolicy: "",
     vds: false,
     irond: false,
     falloutShelter: false,
@@ -575,7 +673,7 @@ const buildDefaultInputs = (nation1Id: number, nation2Id: number): DamageCalcula
     ships: 0,
     missiles: 0,
     nukes: 0,
-    warpolicy: '',
+    warpolicy: "",
     vds: false,
     irond: false,
     falloutShelter: false,
@@ -588,7 +686,7 @@ const buildDefaultInputs = (nation1Id: number, nation2Id: number): DamageCalcula
   war: {
     attackerId: nation1Id,
     defenderId: nation2Id,
-    warType: 'ORDINARY',
+    warType: "ORDINARY",
     groundControlId: null,
     airSuperiorityId: null,
     navalBlockadeId: null,
@@ -633,9 +731,11 @@ const NationAutocompleteField = memo(function NationAutocompleteField({
   }, [value]);
 
   const { data: options = [] } = useQuery({
-    queryKey: ['nation-search', debouncedInput],
+    queryKey: ["nation-search", debouncedInput],
     queryFn: () =>
-      debouncedInput.length >= 2 ? searchNations(debouncedInput, 10) : Promise.resolve([]),
+      debouncedInput.length >= 2
+        ? searchNations(debouncedInput, 10)
+        : Promise.resolve([]),
     enabled: debouncedInput.length >= 2,
   });
 
@@ -645,7 +745,7 @@ const NationAutocompleteField = memo(function NationAutocompleteField({
         value: option.label,
         label: option.label,
       })),
-    [options]
+    [options],
   );
 
   return (
@@ -668,7 +768,7 @@ type DamageForm = ReturnType<typeof useForm<DamageCalculationInput>>;
 
 interface NationDamageModifiersProps {
   form: DamageForm;
-  basePath: 'nation1' | 'nation2';
+  basePath: "nation1" | "nation2";
 }
 
 // Per PWPedia: "Soldiers", "Vital-Defense-System", "Iron-Dome",
@@ -679,23 +779,23 @@ const NationDamageModifiers = memo(function NationDamageModifiers({
 }: NationDamageModifiersProps) {
   const isChecked = (
     field:
-      | 'soldiersUseMunitions'
-      | 'vds'
-      | 'irond'
-      | 'falloutShelter'
-      | 'militarySalvage'
-      | 'advancedPirateEconomy'
+      | "soldiersUseMunitions"
+      | "vds"
+      | "irond"
+      | "falloutShelter"
+      | "militarySalvage"
+      | "advancedPirateEconomy",
   ) => Boolean(form.values[basePath][field]);
 
   const handleToggle = (
     field:
-      | 'soldiersUseMunitions'
-      | 'vds'
-      | 'irond'
-      | 'falloutShelter'
-      | 'militarySalvage'
-      | 'advancedPirateEconomy',
-    checked: boolean
+      | "soldiersUseMunitions"
+      | "vds"
+      | "irond"
+      | "falloutShelter"
+      | "militarySalvage"
+      | "advancedPirateEconomy",
+    checked: boolean,
   ) => {
     form.setFieldValue(`${basePath}.${field}`, checked);
   };
@@ -705,41 +805,53 @@ const NationDamageModifiers = memo(function NationDamageModifiers({
       <Switch
         label="Soldiers Use Munitions"
         description="Soldiers fight at 175% combat value with munitions (1 munition per 5,000 soldiers per ground battle)."
-        checked={isChecked('soldiersUseMunitions')}
-        onChange={(event) => handleToggle('soldiersUseMunitions', event.currentTarget.checked)}
+        checked={isChecked("soldiersUseMunitions")}
+        onChange={(event) =>
+          handleToggle("soldiersUseMunitions", event.currentTarget.checked)
+        }
       />
       <Switch
         label="Vital Defense System"
         description="25% chance to shoot down incoming nukes; reduces non-power-plant, non-military improvements destroyed by a nuke by 1."
-        checked={isChecked('vds')}
-        onChange={(event) => handleToggle('vds', event.currentTarget.checked)}
+        checked={isChecked("vds")}
+        onChange={(event) => handleToggle("vds", event.currentTarget.checked)}
       />
       <Switch
         label="Iron Dome"
         description="30% chance to shoot down incoming missiles; reduces improvements destroyed by a missile by 1."
-        checked={isChecked('irond')}
-        onChange={(event) => handleToggle('irond', event.currentTarget.checked)}
+        checked={isChecked("irond")}
+        onChange={(event) => handleToggle("irond", event.currentTarget.checked)}
       />
       <Switch
         label="Fallout Shelter"
         description="Nukes: infrastructure damage -10%, fallout length -25%."
-        checked={isChecked('falloutShelter')}
-        onChange={(event) => handleToggle('falloutShelter', event.currentTarget.checked)}
+        checked={isChecked("falloutShelter")}
+        onChange={(event) =>
+          handleToggle("falloutShelter", event.currentTarget.checked)
+        }
       />
       <Switch
         label="Military Salvage"
         description="Recover 5% of steel and aluminum costs from units lost in victorious war attacks (based on both sides' losses)."
-        checked={isChecked('militarySalvage')}
-        onChange={(event) => handleToggle('militarySalvage', event.currentTarget.checked)}
+        checked={isChecked("militarySalvage")}
+        onChange={(event) =>
+          handleToggle("militarySalvage", event.currentTarget.checked)
+        }
       />
       <Switch
         label="Advanced Pirate Economy"
         description="+5% loot from ground attacks and +10% loot from a defeated nation and its alliance bank."
-        checked={isChecked('advancedPirateEconomy')}
-        onChange={(event) => handleToggle('advancedPirateEconomy', event.currentTarget.checked)}
+        checked={isChecked("advancedPirateEconomy")}
+        onChange={(event) =>
+          handleToggle("advancedPirateEconomy", event.currentTarget.checked)
+        }
       />
       <Divider my="sm" />
-      <NumberInput label="Target City Infrastructure" {...form.getInputProps(`${basePath}.cityInfrastructure`)} min={0} />
+      <NumberInput
+        label="Target City Infrastructure"
+        {...form.getInputProps(`${basePath}.cityInfrastructure`)}
+        min={0}
+      />
     </>
   );
 });
@@ -748,15 +860,17 @@ export function DamagePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
-  const nation1 = params.get('nation1');
-  const nation2 = params.get('nation2');
-  const [inputNation1, setInputNation1] = useState('');
-  const [inputNation2, setInputNation2] = useState('');
-  const [nation1Query, setNation1Query] = useState('');
-  const [nation2Query, setNation2Query] = useState('');
+  const nation1 = params.get("nation1");
+  const nation2 = params.get("nation2");
+  const [inputNation1, setInputNation1] = useState("");
+  const [inputNation2, setInputNation2] = useState("");
+  const [nation1Query, setNation1Query] = useState("");
+  const [nation2Query, setNation2Query] = useState("");
   const [isCalculating, setIsCalculating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [calculatedData, setCalculatedData] = useState<DamageResponse | null>(null);
+  const [calculatedData, setCalculatedData] = useState<DamageResponse | null>(
+    null,
+  );
 
   const parsedNation1 = nation1 ? Number(nation1) : 0;
   const parsedNation2 = nation2 ? Number(nation2) : 0;
@@ -769,16 +883,20 @@ export function DamagePage() {
   const [debouncedInputNation2] = useDebouncedValue(inputNation2, 300);
 
   const { data: inputNation1Options = [] } = useQuery({
-    queryKey: ['nation-search', debouncedInputNation1],
+    queryKey: ["nation-search", debouncedInputNation1],
     queryFn: () =>
-      debouncedInputNation1.length >= 1 ? searchNations(debouncedInputNation1, 15) : Promise.resolve([]),
+      debouncedInputNation1.length >= 1
+        ? searchNations(debouncedInputNation1, 15)
+        : Promise.resolve([]),
     enabled: debouncedInputNation1.length >= 1,
   });
 
   const { data: inputNation2Options = [] } = useQuery({
-    queryKey: ['nation-search', debouncedInputNation2],
+    queryKey: ["nation-search", debouncedInputNation2],
     queryFn: () =>
-      debouncedInputNation2.length >= 1 ? searchNations(debouncedInputNation2, 15) : Promise.resolve([]),
+      debouncedInputNation2.length >= 1
+        ? searchNations(debouncedInputNation2, 15)
+        : Promise.resolve([]),
     enabled: debouncedInputNation2.length >= 1,
   });
 
@@ -788,7 +906,7 @@ export function DamagePage() {
         value: option.label,
         label: option.label,
       })),
-    [inputNation1Options]
+    [inputNation1Options],
   );
 
   const inputNation2OptionsData = useMemo(
@@ -797,7 +915,7 @@ export function DamagePage() {
         value: option.label,
         label: option.label,
       })),
-    [inputNation2Options]
+    [inputNation2Options],
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -809,13 +927,8 @@ export function DamagePage() {
     }
   };
 
-  const {
-    data,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ['damage', nation1, nation2],
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["damage", nation1, nation2],
     queryFn: async () => {
       return fetchDamage(parsedNation1, parsedNation2);
     },
@@ -831,19 +944,25 @@ export function DamagePage() {
   }, [data]);
 
   useEffect(() => {
-    setNation1Query(form.values.nation1Id ? String(form.values.nation1Id) : '');
-    setNation2Query(form.values.nation2Id ? String(form.values.nation2Id) : '');
+    setNation1Query(form.values.nation1Id ? String(form.values.nation1Id) : "");
+    setNation2Query(form.values.nation2Id ? String(form.values.nation2Id) : "");
   }, [form.values.nation1Id, form.values.nation2Id]);
 
-  const commitNation1Query = useCallback((value: string) => {
-    setNation1Query(value);
-    form.setFieldValue('nation1Id', parseNationIdInput(value));
-  }, [form]);
+  const commitNation1Query = useCallback(
+    (value: string) => {
+      setNation1Query(value);
+      form.setFieldValue("nation1Id", parseNationIdInput(value));
+    },
+    [form],
+  );
 
-  const commitNation2Query = useCallback((value: string) => {
-    setNation2Query(value);
-    form.setFieldValue('nation2Id', parseNationIdInput(value));
-  }, [form]);
+  const commitNation2Query = useCallback(
+    (value: string) => {
+      setNation2Query(value);
+      form.setFieldValue("nation2Id", parseNationIdInput(value));
+    },
+    [form],
+  );
 
   const activeData = calculatedData ?? data ?? null;
 
@@ -851,15 +970,19 @@ export function DamagePage() {
     setFormError(null);
     setIsCalculating(true);
     try {
-      const resolvedNation1 = form.values.nation1Id || await resolveNationId(nation1Query);
-      const resolvedNation2 = form.values.nation2Id || await resolveNationId(nation2Query);
+      const resolvedNation1 =
+        form.values.nation1Id || (await resolveNationId(nation1Query));
+      const resolvedNation2 =
+        form.values.nation2Id || (await resolveNationId(nation2Query));
       if (!resolvedNation1 || !resolvedNation2) {
-        setFormError('Please provide valid nation IDs or select from the autocomplete list.');
+        setFormError(
+          "Please provide valid nation IDs or select from the autocomplete list.",
+        );
         setIsCalculating(false);
         return;
       }
-      form.setFieldValue('nation1Id', resolvedNation1);
-      form.setFieldValue('nation2Id', resolvedNation2);
+      form.setFieldValue("nation1Id", resolvedNation1);
+      form.setFieldValue("nation2Id", resolvedNation2);
 
       const payload: DamageCalculationInput = {
         ...form.values,
@@ -883,7 +1006,8 @@ export function DamagePage() {
       const response = await calculateDamage(payload);
       setCalculatedData(response);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to calculate damage';
+      const message =
+        err instanceof Error ? err.message : "Failed to calculate damage";
       setFormError(message);
     } finally {
       setIsCalculating(false);
@@ -905,7 +1029,7 @@ export function DamagePage() {
                 <Group grow>
                   <Autocomplete
                     placeholder="Nation 1 ID, name, or leader"
-                    size="lg"
+                    size="sm"
                     value={inputNation1}
                     onChange={setInputNation1}
                     leftSection={<IconSearch size={16} />}
@@ -915,7 +1039,7 @@ export function DamagePage() {
                   />
                   <Autocomplete
                     placeholder="Nation 2 ID, name, or leader"
-                    size="lg"
+                    size="sm"
                     value={inputNation2}
                     onChange={setInputNation2}
                     leftSection={<IconSearch size={16} />}
@@ -925,7 +1049,7 @@ export function DamagePage() {
                   />
                   <Button
                     type="submit"
-                    size="lg"
+                    size="sm"
                     leftSection={<IconCalculator size={20} />}
                     disabled={!inputNation1.trim() || !inputNation2.trim()}
                   >
@@ -938,7 +1062,9 @@ export function DamagePage() {
 
           <Stack gap="md">
             <Title order={2}>Damage Analysis</Title>
-            <Text c="dimmed">Enter nation IDs above to see damage calculations</Text>
+            <Text c="dimmed">
+              Enter nation IDs above to see damage calculations
+            </Text>
 
             <Skeleton height={300} radius="md" animate={false} />
             <SimpleGrid cols={2}>
@@ -958,17 +1084,10 @@ export function DamagePage() {
   if (error && !activeData) {
     const apiError = error as unknown as ApiError;
 
-    if (apiError.code === 'TOKEN_EXPIRED') {
-      return <TokenError type="expired" message={apiError.message} dataType="damage" />;
-    }
-    if (apiError.code === 'TOKEN_INVALID') {
-      return <TokenError type="invalid" message={apiError.message} dataType="damage" />;
-    }
-
     return (
       <ErrorState
         title="Failed to load damage data"
-        message={apiError.message || 'An unexpected error occurred'}
+        message={apiError.message || "An unexpected error occurred"}
         onRetry={() => refetch()}
       />
     );
@@ -978,19 +1097,23 @@ export function DamagePage() {
     return <ErrorState title="No data" message="No damage data available" />;
   }
 
-  const nation1Label = activeData.nations.nation1.nationName || 'Nation 1';
-  const nation2Label = activeData.nations.nation2.nationName || 'Nation 2';
+  const nation1Label = activeData.nations.nation1.nationName || "Nation 1";
+  const nation2Label = activeData.nations.nation2.nationName || "Nation 2";
   const nation1CityCount = activeData.nations.nation1.numCities ?? 0;
   const nation2CityCount = activeData.nations.nation2.numCities ?? 0;
   const baselineNation1Units = data?.inputs?.nation1;
   const baselineNation2Units = data?.inputs?.nation2;
-  const attackerName = form.values.war.attackerId === form.values.nation2Id
-    ? nation2Label
-    : nation1Label;
-  const defenderName = attackerName === nation1Label ? nation2Label : nation1Label;
-  const warTypeDescription = WAR_TYPE_OPTIONS.find((option) => option.value === form.values.war.warType)?.description;
+  const attackerName =
+    form.values.war.attackerId === form.values.nation2Id
+      ? nation2Label
+      : nation1Label;
+  const defenderName =
+    attackerName === nation1Label ? nation2Label : nation1Label;
+  const warTypeDescription = WAR_TYPE_OPTIONS.find(
+    (option) => option.value === form.values.war.warType,
+  )?.description;
   const warPolicyDescriptions = Object.fromEntries(
-    WAR_POLICY_OPTIONS.map((option) => [option.value, option.description])
+    WAR_POLICY_OPTIONS.map((option) => [option.value, option.description]),
   );
 
   return (
@@ -1012,7 +1135,8 @@ export function DamagePage() {
               <div>
                 <Title order={3}>Damage Inputs</Title>
                 <Text size="sm" c="dimmed">
-                  Adjust the assumptions below and re-run the calculator with custom inputs.
+                  Adjust the assumptions below and re-run the calculator with
+                  custom inputs.
                 </Text>
               </div>
 
@@ -1032,12 +1156,18 @@ export function DamagePage() {
                     <Button
                       variant="light"
                       type="button"
-                      style={{ alignSelf: 'flex-end' }}
+                      style={{ alignSelf: "flex-end" }}
                       onClick={async () => {
-                        const nation1Id = form.values.nation1Id || await resolveNationId(nation1Query);
-                        const nation2Id = form.values.nation2Id || await resolveNationId(nation2Query);
+                        const nation1Id =
+                          form.values.nation1Id ||
+                          (await resolveNationId(nation1Query));
+                        const nation2Id =
+                          form.values.nation2Id ||
+                          (await resolveNationId(nation2Query));
                         if (nation1Id && nation2Id) {
-                          navigate(`/damage?nation1=${nation1Id}&nation2=${nation2Id}`);
+                          navigate(
+                            `/damage?nation1=${nation1Id}&nation2=${nation2Id}`,
+                          );
                         }
                       }}
                     >
@@ -1051,7 +1181,9 @@ export function DamagePage() {
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
-                      <Text size="sm" fw={600}>{nation1Label}</Text>
+                      <Text size="sm" fw={600}>
+                        {nation1Label}
+                      </Text>
                       <NationUnitPlanner
                         form={form}
                         basePath="nation1"
@@ -1064,7 +1196,10 @@ export function DamagePage() {
                         searchable
                         maxDropdownHeight={320}
                         renderOption={({ option }) => {
-                          const details = option as { label: string; description?: string };
+                          const details = option as {
+                            label: string;
+                            description?: string;
+                          };
                           return (
                             <div>
                               <Text fw={600} size="sm">
@@ -1073,14 +1208,17 @@ export function DamagePage() {
                               <Text
                                 size="xs"
                                 c="dimmed"
-                                style={{ whiteSpace: 'normal', lineHeight: 1.35 }}
+                                style={{
+                                  whiteSpace: "normal",
+                                  lineHeight: 1.35,
+                                }}
                               >
                                 {details.description}
                               </Text>
                             </div>
                           );
                         }}
-                        {...form.getInputProps('nation1.warpolicy')}
+                        {...form.getInputProps("nation1.warpolicy")}
                       />
                       {form.values.nation1.warpolicy && (
                         <Text size="xs" c="dimmed">
@@ -1095,7 +1233,9 @@ export function DamagePage() {
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
-                      <Text size="sm" fw={600}>{nation2Label}</Text>
+                      <Text size="sm" fw={600}>
+                        {nation2Label}
+                      </Text>
                       <NationUnitPlanner
                         form={form}
                         basePath="nation2"
@@ -1108,7 +1248,10 @@ export function DamagePage() {
                         searchable
                         maxDropdownHeight={320}
                         renderOption={({ option }) => {
-                          const details = option as { label: string; description?: string };
+                          const details = option as {
+                            label: string;
+                            description?: string;
+                          };
                           return (
                             <div>
                               <Text fw={600} size="sm">
@@ -1117,14 +1260,17 @@ export function DamagePage() {
                               <Text
                                 size="xs"
                                 c="dimmed"
-                                style={{ whiteSpace: 'normal', lineHeight: 1.35 }}
+                                style={{
+                                  whiteSpace: "normal",
+                                  lineHeight: 1.35,
+                                }}
                               >
                                 {details.description}
                               </Text>
                             </div>
                           );
                         }}
-                        {...form.getInputProps('nation2.warpolicy')}
+                        {...form.getInputProps("nation2.warpolicy")}
                       />
                       {form.values.nation2.warpolicy && (
                         <Text size="xs" c="dimmed">
@@ -1139,40 +1285,53 @@ export function DamagePage() {
 
               <Paper p="md" withBorder radius="md">
                 <Stack gap="sm">
-                  <Text size="sm" fw={600}>War State</Text>
+                  <Text size="sm" fw={600}>
+                    War State
+                  </Text>
                   <Select
                     label="War Type"
                     data={WAR_TYPE_OPTIONS}
                     value={form.values.war.warType}
-                    onChange={(value) => form.setFieldValue('war.warType', (value as DamageWarType) || 'ORDINARY')}
+                    onChange={(value) =>
+                      form.setFieldValue(
+                        "war.warType",
+                        (value as DamageWarType) || "ORDINARY",
+                      )
+                    }
                   />
                   {warTypeDescription && (
                     <Text size="xs" c="dimmed">
                       {warTypeDescription}
                     </Text>
                   )}
-                  <Text size="sm" fw={600}>Attacker Selection</Text>
+                  <Text size="sm" fw={600}>
+                    Attacker Selection
+                  </Text>
                   <Text size="xs" c="dimmed">
-                    Choose the war attacker (the nation that declared the war) and the war defender.
-                    This affects war type and war policy modifiers. It is separate from which side is
-                    making a specific attack in the tables below.
+                    Choose the war attacker (the nation that declared the war)
+                    and the war defender. This affects war type and war policy
+                    modifiers. It is separate from which side is making a
+                    specific attack in the tables below.
                   </Text>
                   <SegmentedControl
                     fullWidth
-                    value={String(form.values.war.attackerId || form.values.nation1Id)}
+                    value={String(
+                      form.values.war.attackerId || form.values.nation1Id,
+                    )}
                     onChange={(value) => {
                       const attackerId = Number(value);
-                      const defenderId = attackerId === form.values.nation1Id
-                        ? form.values.nation2Id
-                        : form.values.nation1Id;
-                      form.setFieldValue('war.attackerId', attackerId);
-                      form.setFieldValue('war.defenderId', defenderId);
+                      const defenderId =
+                        attackerId === form.values.nation1Id
+                          ? form.values.nation2Id
+                          : form.values.nation1Id;
+                      form.setFieldValue("war.attackerId", attackerId);
+                      form.setFieldValue("war.defenderId", defenderId);
                     }}
                     data={buildNationOptions(
                       form.values.nation1Id,
                       form.values.nation2Id,
                       nation1Label,
-                      nation2Label
+                      nation2Label,
                     )}
                   />
                   <Divider my="sm" />
@@ -1180,16 +1339,23 @@ export function DamagePage() {
                   <Group grow>
                     <Select
                       label="Air Superiority"
-                      value={form.values.war.airSuperiorityId ? String(form.values.war.airSuperiorityId) : 'none'}
+                      value={
+                        form.values.war.airSuperiorityId
+                          ? String(form.values.war.airSuperiorityId)
+                          : "none"
+                      }
                       onChange={(value) =>
-                        form.setFieldValue('war.airSuperiorityId', value === 'none' ? null : Number(value))
+                        form.setFieldValue(
+                          "war.airSuperiorityId",
+                          value === "none" ? null : Number(value),
+                        )
                       }
                       data={buildNationOptions(
                         form.values.nation1Id,
                         form.values.nation2Id,
                         nation1Label,
                         nation2Label,
-                        true
+                        true,
                       )}
                     />
                   </Group>
@@ -1199,13 +1365,23 @@ export function DamagePage() {
                       label={`Fortified (${attackerName})`}
                       description="Apply fortified modifier to the attacker."
                       checked={form.values.war.attackerFortified}
-                      onChange={(event) => form.setFieldValue('war.attackerFortified', event.currentTarget.checked)}
+                      onChange={(event) =>
+                        form.setFieldValue(
+                          "war.attackerFortified",
+                          event.currentTarget.checked,
+                        )
+                      }
                     />
                     <Switch
                       label={`Fortified (${defenderName})`}
                       description="Apply fortified modifier to the defender."
                       checked={form.values.war.defenderFortified}
-                      onChange={(event) => form.setFieldValue('war.defenderFortified', event.currentTarget.checked)}
+                      onChange={(event) =>
+                        form.setFieldValue(
+                          "war.defenderFortified",
+                          event.currentTarget.checked,
+                        )
+                      }
                     />
                   </Group>
                 </Stack>
@@ -1220,8 +1396,14 @@ export function DamagePage() {
               <Group justify="center">
                 <Button
                   type="submit"
-                  size="lg"
-                  leftSection={isCalculating ? <Loader size="xs" /> : <IconCalculator size={20} />}
+                  size="sm"
+                  leftSection={
+                    isCalculating ? (
+                      <Loader size="xs" />
+                    ) : (
+                      <IconCalculator size={20} />
+                    )
+                  }
                   loading={isCalculating}
                   fullWidth
                 >
@@ -1231,8 +1413,9 @@ export function DamagePage() {
             </Stack>
           </form>
         </Paper>
-
-        <DamageDashboard data={activeData} />
+        <Paper p="lg" withBorder radius="md">
+          <DamageDashboard data={activeData} />
+        </Paper>
       </Stack>
     </Container>
   );
