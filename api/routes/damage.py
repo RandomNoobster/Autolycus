@@ -13,12 +13,12 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
-import queries
+from logic import queries
 from api.calculations.damage_calc import calculate_damage
+from database.sqlite_cache import get_all_nations
 from logic.api_client import call as call_api
 from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
-from utils.db_utils import get_all_nations
 
 logger = logging.getLogger(__name__)
 

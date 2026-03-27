@@ -214,6 +214,8 @@ const NumericMinOnlyFilterInput = ({ column, max }: any) => {
 
 interface RaidsTableProps {
   data: RaidTarget[];
+  /** Alliance names for the column multi-select (from parent: full target list + current picks). Keeps options when filtered rows are empty. */
+  allianceSelectOptions?: string[];
   token: string | null;
   showBeige: boolean;
   discordLinked: boolean;
@@ -234,6 +236,7 @@ interface RaidsTableProps {
 
 export function RaidsTable({
   data,
+  allianceSelectOptions,
   token,
   showBeige,
   discordLinked,
@@ -308,9 +311,12 @@ export function RaidsTable({
 
   // Get unique values for filters
   const uniqueAlliances = useMemo(() => {
-    const alliances = new Set(data.map(d => d.allianceName).filter(a => a && a !== 'None'));
+    if (allianceSelectOptions !== undefined) {
+      return [...allianceSelectOptions].sort((a, b) => a.localeCompare(b));
+    }
+    const alliances = new Set(data.map((d) => d.allianceName).filter((a) => a && a !== 'None'));
     return Array.from(alliances).sort();
-  }, [data]);
+  }, [data, allianceSelectOptions]);
 
   const uniquePositions = useMemo(() => {
     const positions = new Set(data.map(d => d.alliancePosition).filter(p => p));
@@ -714,6 +720,7 @@ export function RaidsTable({
       shadow: 'sm',
       radius: 'md',
       withBorder: true,
+      px: 'lg',
     },
   });
 

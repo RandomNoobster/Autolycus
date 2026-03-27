@@ -443,7 +443,7 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
     Raises:
         ValueError: If nation is not found
     """
-    import queries
+    from logic import queries
 
     # GraphQL query for nation profile
     query = f"""{{

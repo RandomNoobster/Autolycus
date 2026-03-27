@@ -6,6 +6,7 @@ and polls the Politics & War API periodically.
 """
 
 import asyncio
+import logging
 import os
 import traceback
 from datetime import datetime, timedelta
@@ -16,12 +17,13 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from database import mongo as db_mongo
-from discord_utils.embeds import EMBED_COLOR
+from database.sqlite_cache import get_nation_by_id, get_nations_db_path
+from bot.discord_utils.embeds import EMBED_COLOR
 from logic import api_client, common
-from main import kit, logger
-from utils.db_utils import get_nation_by_id, get_nations_db_path
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Configuration
 API_KEY = os.getenv("api_key")
@@ -54,7 +56,7 @@ class General(commands.Cog):
         debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
 
         # Subscribe to nation updates for real-time notifications
-        nation_updates = await kit.subscribe("nation", "update")
+        nation_updates = await self.bot.pnw_kit.subscribe("nation", "update")
         asyncio.ensure_future(
             self._handle_subscriptions(nation_updates, unique_ids, alerts)
         )

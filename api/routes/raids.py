@@ -6,204 +6,29 @@ target listings and beige reminder functionality.
 """
 import asyncio
 import logging
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-import motor.motor_asyncio
 from flask import Blueprint, current_app, jsonify, request
-from pymongo import MongoClient
 
-import queries
+from logic import queries
 from api.security import optional_token, require_token
+from database.mongo import get_sync_db
+from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
+                                   get_nation_by_id)
 from logic import api_client, merge_utils
-from logic.common import beige_loot_value, compute_beige_loot, parse_war_date
+from logic.common import compute_beige_loot
 from logic.military import calculate_win_chance_raw
 from logic.revenue import pre_revenue_calc, revenue_calc_sync
-from utils.db_utils import (get_all_alliances, get_all_nations_filtered,
-                            get_nation_by_id)
+from services.raids_service import (calculate_days_inactive,
+                                    derive_def_slots_and_time_since_war,
+                                    is_in_vacation_mode)
 
 logger = logging.getLogger(__name__)
 
 raids_bp = Blueprint('raids', __name__, url_prefix='/api/raids')
-
-# MongoDB connection (lazy initialization)
-async_client = None
-async_mongo = None
-sync_client: Optional[MongoClient] = None
-sync_db = None
-
-
-def _parse_war_date(date_str: Optional[str]) -> datetime:
-    """Best-effort parser for war dates to enable ordering."""
-    if not date_str:
-        return datetime.fromtimestamp(0, tz=timezone.utc)
-    try:
-        if "T" in date_str:
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    except Exception:
-        return datetime.fromtimestamp(0, tz=timezone.utc)
-
-
-def _is_in_vacation_mode(nation: dict[str, Any]) -> bool:
-    """Determine whether a nation is currently in Vacation Mode (VM).
-
-    Supports multiple field shapes that can appear in cached nation rows:
-    - 'vmode': may be bool or numeric (0/1 or turns)
-    - 'vacation_mode_turns': numeric remaining turns in VM
-    Returns True if VM is active, False otherwise.
-    """
-    vmode = nation.get('vmode')
-    if isinstance(vmode, bool):
-        if vmode:
-            return True
-    elif isinstance(vmode, (int, float)):
-        if vmode > 0:
-            return True
-
-    vmt = nation.get('vacation_mode_turns')
-    try:
-        vmt_val = int(vmt) if vmt is not None else 0
-    except (TypeError, ValueError):
-        vmt_val = 0
-    return vmt_val > 0
-
-
-def _compute_beige_loot(nation: dict[str, Any], prices: Optional[dict[str, float]]) -> Optional[int]:
-    """Compute last beige loot value from finished wars using cached war logs.
-
-    Optimized to scan once without sorting (reduces per-request overhead when many wars exist).
-    """
-    t0 = time.perf_counter()
-    if not prices:
-        logger.debug("[beige] skip: prices unavailable nation=%s", nation.get('id'))
-        return None
-
-    wars = nation.get('wars') or []
-    nation_id = str(nation.get('id', ''))
-    if not nation_id or not wars:
-        logger.debug("[beige] skip: no wars nation=%s", nation.get('id'))
-        return None
-
-    best_loot: Optional[int] = None
-    best_date: Optional[datetime] = None
-    best_war_id: Optional[str] = None
-    scanned = 0
-
-    for war in wars:
-        try:
-            scanned += 1
-            turns_left = war.get('turnsleft', 1)
-            try:
-                turns_left_val = float(turns_left)
-            except (TypeError, ValueError):
-                turns_left_val = 1
-            if turns_left_val > 0:
-                logger.debug(
-                    "[beige] skip: unfinished war nation=%s warId=%s turnsleft=%s",
-                    nation.get('id'),
-                    war.get('id'),
-                    turns_left,
-                )
-                continue  # still active
-            if str(war.get('defid')) != nation_id:
-                logger.debug(
-                    "[beige] skip: nation not defender nation=%s warId=%s defid=%s",
-                    nation.get('id'),
-                    war.get('id'),
-                    war.get('defid'),
-                )
-                continue  # only care about wars where this nation was defender/lost beige
-
-            war_dt = _parse_war_date(war.get('date'))
-            attacks = war.get('attacks') or []
-
-            for attack in reversed(attacks):  # reverse to favor latest attack within the war
-                text = attack.get('loot_info')
-                if not text or "won the war and looted" not in text:
-                    continue
-                victor = str(attack.get('victor', ''))
-                if victor == nation_id:
-                    continue  # they won, so no beige loot
-
-                try:
-                    loot_value = float(beige_loot_value(text, prices))
-                except Exception as parse_exc:
-                    logger.debug(
-                        "[beige] parse error nation=%s warId=%s loot_info=%s err=%s",
-                        nation.get('id'),
-                        war.get('id'),
-                        str(text)[:120],
-                        parse_exc,
-                    )
-                    continue
-
-                attacker_info = war.get('attacker') or {}
-                policy = (attacker_info.get('war_policy') or '').upper()
-                # Policy adjustments
-                if policy == "ATTRITION":
-                    loot_value = loot_value / 0.8
-                elif policy == "PIRATE":
-                    loot_value = loot_value / 1.4
-                if attacker_info.get('advanced_pirate_economy'):
-                    loot_value = loot_value / 1.1
-
-                war_type = (war.get('war_type') or '').upper()
-                # War-type multipliers
-                if war_type == "ATTRITION":
-                    loot_value *= 4
-                elif war_type == "ORDINARY":
-                    loot_value *= 2
-
-                logger.debug(
-                    "[beige] candidate nation=%s warId=%s date=%s value=%.2f type=%s policy=%s advPir=%s",
-                    nation.get('id'),
-                    war.get('id'),
-                    war.get('date'),
-                    loot_value,
-                    war_type,
-                    policy,
-                    bool(attacker_info.get('advanced_pirate_economy')),
-                )
-
-                if best_date is None or war_dt > best_date:
-                    best_date = war_dt
-                    best_loot = int(round(loot_value))
-                    best_war_id = str(war.get('id'))
-                    break  # latest attack in this war found; move to next war
-        except Exception as exc:  # pragma: no cover - defensive guard for malformed war data
-            logger.debug(f"Failed to compute beige loot for nation {nation_id}: {exc}")
-            continue
-
-    return best_loot
-
-def get_mongo():
-    """Lazy initialize MongoDB connection."""
-    global async_client, async_mongo
-    if async_client is None:
-        async_client = motor.motor_asyncio.AsyncIOMotorClient(
-            os.getenv("pymongolink"), 
-            serverSelectionTimeoutMS=5000
-        )
-        version = os.getenv("version")
-        async_mongo = async_client[str(version)]
-    return async_mongo
-
-
-def get_sync_mongo():
-    """Lazy initialize synchronous MongoDB connection for Flask routes."""
-    global sync_client, sync_db
-    if sync_client is None:
-        mongo_uri = current_app.config.get('MONGO_URI') or os.getenv("pymongolink")
-        if not mongo_uri:
-            return None
-        sync_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-        db_name = current_app.config.get('MONGO_DB', os.getenv("version", "autolycus"))
-        sync_db = sync_client[db_name]
-    return sync_db
 
 
 @raids_bp.route('/', methods=['GET'])
@@ -268,7 +93,6 @@ def get_raids() -> tuple[Any, int]:
         if isinstance(vmode_param, str):
             vmode_param = vmode_param.lower() in ('true', '1', 'yes')
         # When vmode_param is False, we will exclude VM nations; when True, include only VM nations
-        max_score = request.args.get('maxScore', type=float)
         if isinstance(beige_only, str):
             beige_only = beige_only.lower() in ('true', '1', 'yes')
         if isinstance(performance_filter, str):
@@ -345,7 +169,7 @@ def get_raids() -> tuple[Any, int]:
                 logger.warning(f"[raids] failed to load alliances db: {exc}")
 
         # Fetch user profile from Mongo (sync) to resolve attacker and reminders
-        mongo_db = get_sync_mongo()
+        mongo_db = get_sync_db()
         user_profile = None
         discord_linked = False
         if mongo_db is not None and user_id is not None:
@@ -398,7 +222,7 @@ def get_raids() -> tuple[Any, int]:
         # Attempt to prepare revenue context (prices, treasures, radiation)
         revenue_context: Optional[tuple[Any, dict[str, float], dict[str, float], list[dict[str, Any]], dict[str, float], dict[str, float]]] = None
         prices: Optional[dict[str, float]] = None
-        api_key = os.getenv('api_key')
+        api_key = current_app.config.get("API_KEY") or None
         if api_key and attacker:
             try:
                 # pre_revenue_calc returns (nation, colors, prices, treasures, radiation, seasonal_mod)
@@ -441,7 +265,7 @@ def get_raids() -> tuple[Any, int]:
                     if str(nation.get('alliance_id', '')) != '0':
                         continue
                 # Vacation mode filtering
-                in_vm = _is_in_vacation_mode(nation)
+                in_vm = is_in_vacation_mode(nation)
                 if vmode_param is False and in_vm:
                     continue  # exclude VM nations by default
                 if vmode_param is True and not in_vm:
@@ -466,33 +290,10 @@ def get_raids() -> tuple[Any, int]:
                     continue
 
             # Defensive slots and war recency
-            wars = nation.get('wars') or []
-            def_slots = 0
-            time_since_war: int | str = "14+"
-            if wars:
-                nation_id_str = str(nation.get('id'))
-                for war in wars:
-                    if war.get('turnsleft', 0) > 0 and str(war.get('defid')) == nation_id_str:
-                        def_slots += 1
-                # O(n) max instead of O(n log n) sort — we only need the most recent
-                most_recent = max(wars, key=lambda w: w.get('date', ''))
-                war_date = most_recent.get('date')
-                if war_date and war_date != '-0001-11-30 00:00:00':
-                    try:
-                        if 'T' in war_date:
-                            dt = datetime.fromisoformat(war_date.replace('Z', '+00:00'))
-                        else:
-                            dt = datetime.strptime(war_date, "%Y-%m-%d %H:%M:%S")
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        days = (now_utc - dt).days
-                        time_since_war = 0 if def_slots > 0 else days 
-                    except Exception:
-                        time_since_war = "14+"
-                else:
-                    time_since_war = "14+"
+            def_slots, time_since_war = derive_def_slots_and_time_since_war(nation, now_utc)
 
             # Inactivity
-            days_inactive = _calculate_days_inactive(nation.get('last_active'), now_utc)
+            days_inactive = calculate_days_inactive(nation.get('last_active'), now_utc)
             if apply_filters and inactive_min_days is not None and days_inactive < inactive_min_days:
                 continue
 
@@ -675,7 +476,7 @@ def add_reminder() -> tuple[Any, int]:
                 'code': 'VALIDATION_ERROR'
             }), 400
 
-        mongo_db = get_sync_mongo()
+        mongo_db = get_sync_db()
         if mongo_db is None:
             return jsonify({
                 'error': 'Database unavailable',
@@ -740,7 +541,7 @@ def remove_reminder(nation_id: str) -> tuple[Any, int]:
                 'code': 'TOKEN_MISSING'
             }), 401
 
-        mongo_db = get_sync_mongo()
+        mongo_db = get_sync_db()
         if mongo_db is None:
             return jsonify({
                 'error': 'Database unavailable',
@@ -870,29 +671,3 @@ def search_alliances():
             'message': 'Failed to search alliances.',
             'code': 'INTERNAL_ERROR'
         }), 500
-
-
-def _calculate_days_inactive(last_active: str, now: Optional[datetime] = None) -> int:
-    """Calculate days since last activity.
-
-    Args:
-        last_active: ISO-8601 or ``YYYY-MM-DD HH:MM:SS`` timestamp string.
-        now: Pre-computed current UTC datetime.  When *None*, falls back to
-            ``datetime.now(timezone.utc)``.
-    """
-    if not last_active or last_active == '-0001-11-30 00:00:00':
-        return 0
-    
-    try:
-        # Parse the ISO format timestamp
-        if 'T' in last_active:
-            last_active_dt = datetime.fromisoformat(last_active.replace('Z', '+00:00'))
-        else:
-            last_active_dt = datetime.strptime(last_active, "%Y-%m-%d %H:%M:%S")
-            last_active_dt = last_active_dt.replace(tzinfo=timezone.utc)
-        
-        if now is None:
-            now = datetime.now(timezone.utc)
-        return (now - last_active_dt).days
-    except (ValueError, TypeError):
-        return 0

@@ -5,7 +5,7 @@ from typing import Optional
 
 import discord
 
-from discord_utils.modals import SimpleModal
+from bot.discord_utils.modals import SimpleModal
 
 # Discord UI components only. No business logic here.
 

@@ -14,6 +14,7 @@ _JSON_FIELDS: frozenset[str] = frozenset({
     'wars', 'alliance', 'treasures', 'cities', 'bounties', 'military_research',
 })
 
+
 def get_nations_db_path() -> Path:
     """Return the absolute path to nations SQLite database."""
     return Path.cwd() / 'data' / 'nations.db'
@@ -29,13 +30,8 @@ def get_builds_db_path() -> Path:
     return Path.cwd() / 'data' / 'city_builds.db'
 
 
-# --- Dynamic schema + upsert for nations ---
-
 def map_sqlite_type(value: Any) -> str:
-    """Infer a reasonable SQLite column type from a Python value.
-
-    Scalars map to INTEGER/REAL/TEXT; complex types are stored as TEXT (JSON).
-    """
+    """Infer a reasonable SQLite column type from a Python value."""
     if isinstance(value, bool):
         return "INTEGER"
     if isinstance(value, int):
@@ -48,25 +44,17 @@ def map_sqlite_type(value: Any) -> str:
 
 
 def ensure_table_and_columns(conn: sqlite3.Connection, table: str, sample_row: Dict[str, Any]) -> None:
-    """Ensure the table exists and has columns for all keys in sample_row.
-
-    - Creates table if missing, using 'id INTEGER PRIMARY KEY' when present.
-    - Adds new columns on the fly when data gains fields.
-    - Complex (dict/list) fields are stored as TEXT containing compact JSON.
-    """
+    """Ensure the table exists and has columns for all keys in sample_row."""
     cur = conn.cursor()
-    # Create table if not exists
     columns_def = []
     if "id" in sample_row:
         columns_def.append("id INTEGER PRIMARY KEY")
     columns_def.append("_created_at INTEGER")
     cur.execute(f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(columns_def)})")
 
-    # Discover existing columns
     cur.execute(f"PRAGMA table_info({table})")
     existing_cols = {row[1] for row in cur.fetchall()}
 
-    # Add missing columns
     for key, val in sample_row.items():
         if key not in existing_cols:
             col_type = map_sqlite_type(val)
@@ -77,12 +65,7 @@ def ensure_table_and_columns(conn: sqlite3.Connection, table: str, sample_row: D
 
 
 def row_to_db_values(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert a data row to DB-ready values.
-
-    - Booleans become 0/1
-    - dict/list become JSON strings
-    - None/str/int/float left as-is
-    """
+    """Convert a data row to DB-ready values."""
     out: Dict[str, Any] = {}
     for k, v in row.items():
         if isinstance(v, bool):
@@ -131,15 +114,6 @@ def set_metadata(conn: sqlite3.Connection, key: str, value: Any) -> None:
 
 
 def get_metadata(conn: sqlite3.Connection, key: str) -> Any:
-    """Retrieve a metadata value by key.
-    
-    Args:
-        conn: SQLite connection
-        key: The metadata key to retrieve
-        
-    Returns:
-        The parsed value, or None if not found
-    """
     cur = conn.cursor()
     cur.execute("SELECT value FROM metadata WHERE key = ?", (key,))
     row = cur.fetchone()
@@ -152,11 +126,7 @@ def get_metadata(conn: sqlite3.Connection, key: str) -> Any:
 
 
 def prune_missing_ids(conn: sqlite3.Connection, table: str, keep_ids: List[int]) -> None:
-    """Delete rows whose id is not in keep_ids. No-op if keep_ids is empty.
-
-    Guards against accidental full wipes when a fetch fails by skipping deletion
-    when no ids were collected.
-    """
+    """Delete rows whose id is not in keep_ids. No-op if keep_ids is empty."""
     if not keep_ids:
         return
     placeholders = ",".join(["?"] * len(keep_ids))
@@ -167,30 +137,13 @@ def prune_missing_ids(conn: sqlite3.Connection, table: str, keep_ids: List[int])
 
 
 def get_all_nations(db_path: Path) -> Dict[str, Any]:
-    """Fetch all nations from the nations database.
-    
-    Retrieves all nation records from the nations.db SQLite database and
-    parses JSON-encoded fields back to their original types. Also retrieves
-    the last_fetched timestamp from the metadata table.
-    
-    Args:
-        db_path: Path to nations.db SQLite database
-        
-    Returns:
-        Dictionary with 'nations' list and 'last_fetched' timestamp
-        
-    Raises:
-        sqlite3.Error: If database query fails
-    """
+    """Fetch all nations from the nations database."""
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        
-        # Get all nations
         cur.execute("SELECT * FROM nations")
         nations = [dict(row) for row in cur.fetchall()]
-        
-        # Parse JSON fields back to their original types
+
         for nation in nations:
             for key, val in nation.items():
                 if isinstance(val, str):
@@ -198,14 +151,13 @@ def get_all_nations(db_path: Path) -> Dict[str, Any]:
                         nation[key] = json.loads(val)
                     except (json.JSONDecodeError, TypeError):
                         pass
-        
-        # Get last_fetched timestamp
+
         ensure_metadata_table(conn)
         last_fetched = get_metadata(conn, 'last_fetched')
-        
+
         return {
             'nations': nations,
-            'last_fetched': last_fetched
+            'last_fetched': last_fetched,
         }
 
 
@@ -215,28 +167,7 @@ def get_all_nations_filtered(
     max_score: Optional[float] = None,
     nation_ids: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
-    """Fetch nations with optional SQL-level filters and optimised JSON parsing.
-
-    Unlike :func:`get_all_nations` which loads every nation and tries
-    ``json.loads`` on every string column, this function:
-
-    1. Pushes ``score`` and ``id`` filters down to the SQL query so fewer
-       rows are materialised in Python.
-    2. Only parses known JSON columns (see ``_JSON_FIELDS``), plus any
-       other string value whose first character is ``{`` or ``[`` as a
-       safety net for future schema additions.
-
-    Args:
-        db_path: Path to nations.db SQLite database.
-        min_score: Exclude nations below this score.  Pass *None* to skip.
-        max_score: Exclude nations above this score.  Pass *None* to skip.
-        nation_ids: When provided, only return nations whose ``id`` is in
-            this set.  Values should be stringified integers.
-
-    Returns:
-        Dictionary with ``nations`` list and ``last_fetched`` timestamp,
-        identical in shape to :func:`get_all_nations`.
-    """
+    """Fetch nations with optional SQL-level filters and selective JSON parsing."""
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -262,9 +193,7 @@ def get_all_nations_filtered(
         cur.execute(sql, params)
         nations = [dict(row) for row in cur.fetchall()]
 
-        # --- Selective JSON parsing ---
         for nation in nations:
-            # 1) Always parse the known JSON-encoded columns
             for key in _JSON_FIELDS:
                 val = nation.get(key)
                 if isinstance(val, str):
@@ -272,11 +201,9 @@ def get_all_nations_filtered(
                         nation[key] = json.loads(val)
                     except (json.JSONDecodeError, TypeError):
                         pass
-
-            # 2) Safety net: parse any other string that *looks* like JSON
             for key, val in nation.items():
                 if key in _JSON_FIELDS:
-                    continue  # already handled
+                    continue
                 if isinstance(val, str) and val and val[0] in ('{', '['):
                     try:
                         nation[key] = json.loads(val)
@@ -293,15 +220,7 @@ def get_all_nations_filtered(
 
 
 def get_nation_by_id(db_path: Path, nation_id: int | str) -> Dict[str, Any]:
-    """Fetch a single nation by ID from the nations database.
-
-    Args:
-        db_path: Path to nations.db SQLite database
-        nation_id: The nation ID to fetch
-
-    Returns:
-        Dictionary with 'nation' (or None) and 'last_fetched' timestamp.
-    """
+    """Fetch a single nation by ID from the nations database."""
     try:
         nation_id_int = int(str(nation_id))
     except (TypeError, ValueError):
@@ -334,16 +253,10 @@ def get_nation_by_id(db_path: Path, nation_id: int | str) -> Dict[str, Any]:
 
 
 def get_all_alliances(db_path: Path) -> Dict[str, Any]:
-    """Fetch all alliances from the alliances database.
-
-    Returns an object with `alliances` and `last_fetched`. Gracefully handles
-    missing tables so callers can treat empty datasets as no data yet.
-    """
+    """Fetch all alliances from the alliances database."""
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-
-        # Detect table presence without throwing on fresh DBs
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alliances'")
         has_table = cur.fetchone() is not None
 
@@ -361,21 +274,18 @@ def get_all_alliances(db_path: Path) -> Dict[str, Any]:
 
         ensure_metadata_table(conn)
         last_fetched = get_metadata(conn, 'last_fetched')
-
         return {
             'alliances': alliances,
             'last_fetched': last_fetched,
         }
 
 
-# --- Builds DB helpers (extracted from legacy utils.py) ---
-
 IMPROVEMENT_FIELDS: List[str] = [
     'infrastructure', 'oilpower', 'windpower', 'coalpower', 'nuclearpower',
     'coalmine', 'oilwell', 'uramine', 'leadmine', 'ironmine', 'bauxitemine',
     'farm', 'gasrefinery', 'aluminumrefinery', 'steelmill', 'munitionsfactory',
     'policestation', 'hospital', 'recyclingcenter', 'subway', 'supermarket',
-    'bank', 'mall', 'stadium', 'barracks', 'factory', 'airforcebase', 'drydock'
+    'bank', 'mall', 'stadium', 'barracks', 'factory', 'airforcebase', 'drydock',
 ]
 
 
@@ -386,35 +296,19 @@ def fetch_build_rows(
     caps: Dict[str, int],
     restricted_mines: List[str],
 ) -> List[Dict[str, int]]:
-    """Fetch build rows matching criteria from the builds DB.
-
-    Args:
-        db_path: Path to SQLite DB
-        infra_level: Exact infrastructure value to match
-        mmr_mins: Dict with keys barracks/factory/airforcebase/drydock minimums
-        caps: Dict with keys hospital/recyclingcenter/bank/mall caps
-        restricted_mines: List of improvement names (json names) that must be zero
-
-    Returns:
-        List of dictionaries keyed by IMPROVEMENT_FIELDS
-    """
-    improvements = [f for f in IMPROVEMENT_FIELDS if f != 'infrastructure']
+    """Fetch build rows matching criteria from the builds DB."""
     fields = IMPROVEMENT_FIELDS
-
     where_clauses = ["infrastructure = ?"]
     params: List[Any] = [infra_level]
 
-    # MMR filters
     for key in ("barracks", "factory", "airforcebase", "drydock"):
         if key in mmr_mins and mmr_mins[key] > 0:
             where_clauses.append(f"{key} >= ?")
             params.append(mmr_mins[key])
 
-    # Restricted mines must be zero
     for mine in restricted_mines:
         where_clauses.append(f"{mine} = 0")
 
-    # Caps
     for key in ("hospital", "recyclingcenter", "bank", "mall"):
         if key in caps:
             where_clauses.append(f"{key} <= ?")
@@ -432,9 +326,3 @@ def fetch_build_rows(
     for row in rows:
         results.append({key: int(row[key]) for key in fields})
     return results
-
-
-# --- Web data storage helpers (DEPRECATED) ---
-# These functions are deprecated and will be removed in a future version.
-# The application now uses in-memory caching via aiocache instead of file-based storage.
-# See api/cache.py for the new caching infrastructure.

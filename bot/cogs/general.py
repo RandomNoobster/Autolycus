@@ -5,6 +5,7 @@ revenue calculations, builds optimizer, and user management.
 """
 
 import json
+import logging
 import os
 import pathlib
 import re
@@ -16,12 +17,13 @@ import discord
 from discord.commands import Option, SlashCommandGroup, slash_command
 from discord.ext import commands
 
-import queries
+from logic import queries
 from database.mongo import find_nation, get_db, get_global_user_by_any, listify
+from database import sqlite_cache as db_utils
 from database.users import (delete_verification, get_verification,
                             set_verification)
-from discord_utils import help_data, helpers
-from discord_utils.embeds import nation_overview_embed
+from bot.discord_utils import help_data, helpers
+from bot.discord_utils.embeds import nation_overview_embed
 from logic.api_client import call, paginate_call
 from logic.builds import calculate_builds as calculate_builds_logic
 from logic.builds import generate_build_template
@@ -29,8 +31,8 @@ from logic.common import str_to_int
 from logic.merge_utils import get_query
 from logic.military import militarization_checker
 from logic.revenue import pre_revenue_calc, revenue_calc
-from main import logger
-from utils import db_utils
+
+logger = logging.getLogger(__name__)
 
 api_key = os.getenv("api_key")
 call_api = partial(call, api_key=api_key)
@@ -504,13 +506,14 @@ class Background(commands.Cog):
             command: Optional command name to get detailed help for.
         """
         try:
+            # Prevent "Unknown interaction" if embed construction takes >3 seconds.
+            await ctx.defer()
             if command:
                 # ── Detailed help for a single command ──
                 cmd_help = help_data.get_help(command.lower())
                 if not cmd_help:
-                    await ctx.respond(
-                        f"Unknown command `{command}`. Use `/help` to see all commands.",
-                        ephemeral=True,
+                    await ctx.edit(
+                        content=f"Unknown command `{command}`. Use `/help` to see all commands."
                     )
                     return
 
@@ -551,15 +554,13 @@ class Background(commands.Cog):
                     )
 
                 embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
-                await ctx.respond(embed=embed)
+                await ctx.edit(content="", embed=embed)
             else:
                 # ── Compact list of all commands ──
                 cmds = sorted(self.bot.application_commands, key=lambda x: f"{x}")
-                embed = discord.Embed(title="📖 Autolycus Command List", color=0xff5100)
+                embed = discord.Embed(title="Autolycus Command List", color=0xff5100)
                 embed.description = (
-                    "Use `/help <command>` for detailed info, parameters, and examples.\n\n"
-                    "[Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/) · "
-                    "[Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)"
+                    "Use `/help <command>` for detailed info, parameters, and examples."
                 )
 
                 seen: set[str] = set()
@@ -582,7 +583,7 @@ class Background(commands.Cog):
                     )
 
                 embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
-                await ctx.respond(embed=embed)
+                await ctx.edit(content="", embed=embed)
         except Exception as e:
             logger.error(e, exc_info=True)
             raise e

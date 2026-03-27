@@ -1,14 +1,8 @@
 """
-Caching configuration for Autolycus API.
+Shared caching infrastructure for backend services and domain modules.
 
 Uses aiocache for async-compatible memoization with TTL support.
-Cache strategy: Cache expensive logic/computation functions, NOT API routes.
-
-Design Principles:
-    - Cache shared game data (prices, colors, radiation, treasures)
-    - Cache expensive per-nation calculations
-    - Do NOT cache API routes (they need user context and filters)
-    - Use in-memory cache for development, optionally Redis for production
+Cache strategy: cache expensive logic/computation functions, not HTTP routes.
 """
 from __future__ import annotations
 
@@ -69,7 +63,6 @@ def build_key_from_nation_id(
     """Build cache key using nation_id from kwargs or first positional arg."""
     nation_id = kwargs.get("nation_id") or kwargs.get("nationid")
     if nation_id is None and args:
-        # Try to extract from first positional argument
         nation_id = args[0] if isinstance(args[0], (int, str)) else None
     return f"{func.__name__}:{nation_id or 'unknown'}"
 
@@ -86,13 +79,7 @@ def build_key_from_all_args(
 # --- Decorator Factories ---
 
 def cache_prices(ttl: int = TTL_PRICES):
-    """
-    Cache decorator for trade price fetches.
-    
-    Use this for functions that fetch current market prices from P&W API.
-    Prices update roughly hourly, so 5-minute TTL reduces API calls while
-    keeping data reasonably fresh.
-    """
+    """Cache decorator for trade price fetches."""
     return cached(
         ttl=ttl,
         cache=CACHE_BACKEND,
@@ -103,12 +90,7 @@ def cache_prices(ttl: int = TTL_PRICES):
 
 
 def cache_game_context(ttl: int = TTL_GAME_DATA):
-    """
-    Cache decorator for shared game context (colors, radiation, treasures).
-    
-    This data changes slowly and is shared across all requests, making it
-    an ideal caching target. Used by revenue calculations.
-    """
+    """Cache decorator for shared game context (colors, radiation, treasures)."""
     return cached(
         ttl=ttl,
         cache=CACHE_BACKEND,
@@ -119,11 +101,7 @@ def cache_game_context(ttl: int = TTL_GAME_DATA):
 
 
 def cache_historical_prices(ttl: int = TTL_HISTORICAL_PRICES):
-    """
-    Cache decorator for 30-day historical price averages.
-    
-    Historical averages don't change rapidly, so longer TTL is appropriate.
-    """
+    """Cache decorator for 30-day historical price averages."""
     return cached(
         ttl=ttl,
         cache=CACHE_BACKEND,
@@ -134,12 +112,7 @@ def cache_historical_prices(ttl: int = TTL_HISTORICAL_PRICES):
 
 
 def cache_builds(ttl: int = TTL_BUILDS):
-    """
-    Cache decorator for build optimizer results.
-    
-    Build calculations are expensive but deterministic for the same inputs.
-    Cache by all parameters (infra, land, mmr, continent, etc.)
-    """
+    """Cache decorator for build optimizer results."""
     return cached(
         ttl=ttl,
         cache=CACHE_BACKEND,
@@ -151,12 +124,7 @@ def cache_builds(ttl: int = TTL_BUILDS):
 
 
 def cache_revenue_context(ttl: int = TTL_REVENUE_CONTEXT):
-    """
-    Cache decorator for revenue calculation context.
-    
-    Caches the shared data needed for revenue calculations:
-    colors, prices, treasures, radiation, seasonal modifiers.
-    """
+    """Cache decorator for revenue calculation context."""
     return cached(
         ttl=ttl,
         cache=CACHE_BACKEND,
@@ -218,14 +186,9 @@ T = TypeVar("T")
 
 
 def run_cached_async(coro: Callable[..., T]) -> Callable[..., T]:
-    """
-    Wrapper to run async cached functions from sync Flask routes.
-    
-    Usage:
-        result = run_cached_async(get_cached_prices)()
-    """
+    """Wrapper to run async cached functions from sync Flask routes."""
     import asyncio
-    
+
     @wraps(coro)
     def wrapper(*args: Any, **kwargs: Any) -> T:
         loop = asyncio.new_event_loop()
@@ -235,5 +198,5 @@ def run_cached_async(coro: Callable[..., T]) -> Callable[..., T]:
         finally:
             loop.close()
             asyncio.set_event_loop(None)
-    
+
     return wrapper

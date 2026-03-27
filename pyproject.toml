@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autolycus"
+version = "0.1.0"
+description = "Autolycus backend, bot, scanner, and tooling"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pymongo==4.16.0",
+  "motor==3.7.1",
+  "dnspython==2.8.0",
+  "flask[async]==3.1.3",
+  "flask-cors==6.0.2",
+  "waitress==3.0.2",
+  "werkzeug==3.1.7",
+  "itsdangerous==2.2.0",
+  "aiohttp==3.8.6",
+  "requests==2.28.2",
+  "pnwkit-py==2.6.26",
+  "python-dotenv==1.2.2",
+  "aiofiles==25.1.0",
+  "aiocache>=0.12.0",
+  "py-cord==2.7.1",
+  "watchfiles==1.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.0.2",
+  "watchfiles==1.1.1",
+]
+
+[project.scripts]
+api = "api.app:run_api"
+bot = "bot.main:run_bot"
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+py-modules = ["scanner"]
+
+[tool.setuptools.packages.find]
+include = ["api*", "bot*", "core*", "database*", "infra*", "logic*", "services*"]

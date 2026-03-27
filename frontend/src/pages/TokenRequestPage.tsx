@@ -20,6 +20,7 @@ import {
 } from '@mantine/core';
 import { IconShield, IconAlertCircle, IconCheck } from '@tabler/icons-react';
 import { exchangeToken } from '@/api';
+import { persistAccessTokenFromExchange } from '@/lib/accessTokenStorage';
 
 type DataType = 'raids' | 'builds' | 'damage';
 
@@ -53,6 +54,8 @@ export function TokenRequestPage() {
       const response = await exchangeToken({
         code: authCode,
       });
+
+      await persistAccessTokenFromExchange(response);
 
       // Redirect to the target page with the token
       const separator = redirectPath.includes('?') ? '&' : '?';

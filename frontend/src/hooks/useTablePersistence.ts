@@ -8,7 +8,7 @@
  * - Density setting
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   MRT_ColumnOrderState,
   MRT_DensityState,
@@ -16,6 +16,13 @@ import type {
 } from 'mantine-react-table';
 
 interface TablePreferences {
+  columnVisibility: MRT_VisibilityState;
+  columnOrder: MRT_ColumnOrderState;
+  density: MRT_DensityState;
+}
+
+/** App defaults for a table; used to merge with localStorage and for reset. */
+export interface TablePersistenceDefaults {
   columnVisibility: MRT_VisibilityState;
   columnOrder: MRT_ColumnOrderState;
   density: MRT_DensityState;
@@ -52,14 +59,75 @@ const DEFAULT_PREFERENCES: TablePreferences = {
   density: 'md',
 };
 
+function cloneDefaults(defaults: TablePersistenceDefaults): TablePreferences {
+  return {
+    columnVisibility: { ...defaults.columnVisibility },
+    columnOrder: [...defaults.columnOrder],
+    density: defaults.density,
+  };
+}
+
+function mergeColumnOrder(
+  defaultOrder: MRT_ColumnOrderState,
+  storedOrder: unknown
+): MRT_ColumnOrderState {
+  if (!Array.isArray(storedOrder) || storedOrder.length === 0) {
+    return [...defaultOrder];
+  }
+  const valid = new Set(defaultOrder);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of storedOrder) {
+    if (typeof id !== 'string') continue;
+    if (valid.has(id) && !seen.has(id)) {
+      out.push(id);
+      seen.add(id);
+    }
+  }
+  for (const id of defaultOrder) {
+    if (!seen.has(id)) {
+      out.push(id);
+      seen.add(id);
+    }
+  }
+  return out;
+}
+
+function mergeWithDefaults(
+  defaults: TablePersistenceDefaults,
+  parsed: Partial<TablePreferences>
+): TablePreferences {
+  const storedVis = parsed.columnVisibility;
+  return {
+    columnVisibility: {
+      ...defaults.columnVisibility,
+      ...(storedVis && typeof storedVis === 'object' ? storedVis : {}),
+    },
+    columnOrder: mergeColumnOrder(
+      defaults.columnOrder,
+      parsed.columnOrder
+    ),
+    density:
+      parsed.density !== undefined && parsed.density !== null
+        ? parsed.density
+        : defaults.density,
+  };
+}
+
 /**
  * Load preferences from localStorage.
  */
-function loadPreferences(key: string): TablePreferences {
+function loadPreferences(
+  key: string,
+  defaults?: TablePersistenceDefaults
+): TablePreferences {
   try {
     const stored = localStorage.getItem(key);
     if (stored) {
-      const parsed = JSON.parse(stored);
+      const parsed = JSON.parse(stored) as Partial<TablePreferences>;
+      if (defaults) {
+        return mergeWithDefaults(defaults, parsed);
+      }
       return {
         ...DEFAULT_PREFERENCES,
         ...parsed,
@@ -67,6 +135,9 @@ function loadPreferences(key: string): TablePreferences {
     }
   } catch (error) {
     console.warn(`Failed to load table preferences for ${key}:`, error);
+  }
+  if (defaults) {
+    return cloneDefaults(defaults);
   }
   return DEFAULT_PREFERENCES;
 }
@@ -85,15 +156,21 @@ function savePreferences(key: string, preferences: TablePreferences): void {
 /**
  * Hook for persisting table preferences.
  *
- * @param tableId - Unique identifier for the table (e.g., 'raids-table')
+ * @param tableId - Unique identifier for the table (e.g., 'raids')
+ * @param defaults - Optional app defaults; merged with stored prefs and used on reset
  * @returns State values and setters for table preferences
  */
-export function useTablePersistence(tableId: string): UseTablePersistenceReturn {
+export function useTablePersistence(
+  tableId: string,
+  defaults?: TablePersistenceDefaults
+): UseTablePersistenceReturn {
   const storageKey = `autolycus-table-${tableId}`;
+  const defaultsRef = useRef(defaults);
+  defaultsRef.current = defaults;
 
   // Initialize state from localStorage
   const [preferences, setPreferences] = useState<TablePreferences>(() =>
-    loadPreferences(storageKey)
+    loadPreferences(storageKey, defaults)
   );
 
   // Save to localStorage whenever preferences change
@@ -151,7 +228,12 @@ export function useTablePersistence(tableId: string): UseTablePersistenceReturn 
 
   // Reset to defaults
   const resetPreferences = useCallback(() => {
-    setPreferences(DEFAULT_PREFERENCES);
+    const d = defaultsRef.current;
+    if (d) {
+      setPreferences(cloneDefaults(d));
+    } else {
+      setPreferences(DEFAULT_PREFERENCES);
+    }
     localStorage.removeItem(storageKey);
   }, [storageKey]);
 

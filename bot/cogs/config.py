@@ -1,5 +1,6 @@
 """Configuration cog for Autolycus Discord bot."""
 
+import logging
 import os
 from typing import Optional
 
@@ -8,9 +9,10 @@ from discord.commands import Option, SlashCommandGroup
 from discord.ext import commands
 
 from database import mongo as db_mongo
-from discord_utils import views
+from bot.discord_utils import views
 from logic import common
-from main import logger
+
+logger = logging.getLogger(__name__)
 
 
 class Config(commands.Cog):

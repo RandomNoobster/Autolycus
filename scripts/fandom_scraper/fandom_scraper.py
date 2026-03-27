@@ -7,6 +7,7 @@ import logging
 import os
 from markdownify import markdownify as md
 from tqdm import tqdm
+from core.logging_config import setup_logging
 
 # --- CONFIGURATION ---
 ROOT_URL = "https://politicsandwar.fandom.com/wiki/Category:Mechanics"
@@ -25,13 +26,7 @@ HEADERS = {
 }
 
 # --- LOGGING SETUP ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, mode='w')
-    ]
-)
+setup_logging(process_name="fandom_scraper", level=os.getenv("LOG_LEVEL", "INFO"))
 
 class FandomMainCrawler:
     def __init__(self, root_url, output_file):

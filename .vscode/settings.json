@@ -50,5 +50,6 @@
         "**/.venv": true,
         "**/dist": true,
         "**/__pycache__": true
-    }
+    },
+    "cursorpyright.analysis.autoImportCompletions": true
 }

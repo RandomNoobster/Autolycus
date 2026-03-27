@@ -6,6 +6,7 @@ import json
 import logging
 import os
 from markdownify import markdownify as md
+from core.logging_config import setup_logging
 
 # --- CONFIGURATION ---
 START_URL = "https://politicsandwar.com/pwpedia/index"
@@ -26,15 +27,7 @@ HEADERS = {
 }
 
 # --- LOGGING SETUP ---
-# Logs to both console and a file for debugging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, mode='w'), # 'w' overwrites log each run
-        logging.StreamHandler()
-    ]
-)
+setup_logging(process_name="pwpedia_scraper", level=os.getenv("LOG_LEVEL", "INFO"))
 
 class PWPediaCrawler:
     def __init__(self, start_url, output_file):

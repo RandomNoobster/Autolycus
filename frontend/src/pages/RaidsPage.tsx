@@ -18,7 +18,7 @@ import {
   Select,
   Switch,
   Button,
-  Autocomplete,
+  MultiSelect,
   Anchor,
   Alert,
   Loader,
@@ -28,7 +28,6 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
-import { useDebouncedValue } from '@mantine/hooks';
 import type {
   MRT_ColumnFiltersState,
   MRT_ColumnOrderState,
@@ -36,8 +35,14 @@ import type {
   MRT_VisibilityState,
 } from 'mantine-react-table';
 
-import { fetchRaids, searchAlliances, exchangeToken } from '@/api';
-import { useUrlParams, useNationId } from '@/hooks';
+import { fetchRaids, exchangeToken } from '@/api';
+import { persistAccessTokenFromExchange } from '@/lib/accessTokenStorage';
+import {
+  useUrlParams,
+  useNationId,
+  useTablePersistence,
+  usePersistedAccessToken,
+} from '@/hooks';
 import { RaidsTable } from '@/components/raids';
 import { TokenError, ErrorState, NationIdField } from '@/components/common';
 import type { ApiError } from '@/types';
@@ -109,6 +114,12 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
   columnFilters: [],
 };
 
+const RAIDS_TABLE_PERSISTENCE_DEFAULTS = {
+  columnVisibility: DEFAULT_TABLE_SETTINGS.columnVisibility,
+  columnOrder: DEFAULT_TABLE_SETTINGS.columnOrder,
+  density: DEFAULT_TABLE_SETTINGS.density,
+};
+
 const MAPPED_COLUMN_IDS = new Set([
   'allianceName',
   'beigeTurns',
@@ -129,9 +140,31 @@ function mergeColumnFilters(
   return Array.from(map.entries()).map(([id, value]) => ({ id, value }));
 }
 
+function allianceNamesFromColumnFilterValue(value: unknown): string[] {
+  if (value == null || value === '') return [];
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v)).filter((s) => s.length > 0);
+  }
+  return [String(value)];
+}
+
+function parseAlliancesFromSearchParams(sp: URLSearchParams): string[] {
+  const raw = sp.getAll('alliance').map((s) => s.trim()).filter(Boolean);
+  return [...new Set(raw)];
+}
+
+function migrateStoredAlliance(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((s) => String(s).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  return [];
+}
+
 
 export function RaidsPage() {
   const { token: urlToken, initialColumnFilters, initialSorting } = useUrlParams();
+  const { resolveToken } = usePersistedAccessToken('raids', urlToken);
   const { nationId: savedNationId, parseNationId, setNationId } = useNationId();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -139,7 +172,9 @@ export function RaidsPage() {
   const code = searchParams.get('code');
   const [exchangedToken, setExchangedToken] = useState<string | null>(null);
   const [exchangeError, setExchangeError] = useState<string | null>(null);
-  const token = urlToken || exchangedToken;
+  const awaitingFreshDiscordCode =
+    Boolean(code) && !urlToken && !exchangedToken && !exchangeError;
+  const token = awaitingFreshDiscordCode ? null : resolveToken(exchangedToken);
   const isExchangingCode = !!code && !token && !exchangeError;
   const exchangeInFlightRef = useRef(false);
 
@@ -149,6 +184,7 @@ export function RaidsPage() {
     const doExchange = async () => {
       try {
         const response = await exchangeToken({ code });
+        await persistAccessTokenFromExchange(response);
         setExchangedToken(response.token);
         setSearchParams((prev) => {
           const next = new URLSearchParams(prev);
@@ -202,7 +238,7 @@ export function RaidsPage() {
 
   // Active filters from URL (used for API call)
   const activeFilters = {
-    alliance: searchParams.get('alliance') || undefined,
+    alliance: parseAlliancesFromSearchParams(searchParams),
     beige: parseBoolean('beige'),
     maxWars: parseNumber('maxWars'),
     inactiveMinDays: parseNumber('inactiveMinDays'),
@@ -217,7 +253,7 @@ export function RaidsPage() {
 
   // Local draft state for filters (before submit)
   const [draftFilters, setDraftFilters] = useState({
-    alliance: activeFilters.alliance || '',
+    alliance: parseAlliancesFromSearchParams(searchParams),
     beige: activeFilters.beige === true ? 'only' : activeFilters.beige === false ? 'hide' : 'all',
     maxWars: activeFilters.maxWars?.toString() || 'all',
     inactiveMinDays: activeFilters.inactiveMinDays?.toString() || 'none',
@@ -230,15 +266,15 @@ export function RaidsPage() {
     maxScore: activeFilters.maxScore?.toString() || '',
   });
 
-  const [columnVisibility, setColumnVisibility] = useState<MRT_VisibilityState>(
-    () => ({ ...DEFAULT_TABLE_SETTINGS.columnVisibility })
-  );
-  const [columnOrder, setColumnOrder] = useState<MRT_ColumnOrderState>(
-    () => [...DEFAULT_TABLE_SETTINGS.columnOrder]
-  );
-  const [density, setDensity] = useState<MRT_DensityState>(
-    () => DEFAULT_TABLE_SETTINGS.density
-  );
+  const {
+    columnVisibility,
+    setColumnVisibility,
+    columnOrder,
+    setColumnOrder,
+    density,
+    setDensity,
+  } = useTablePersistence('raids', RAIDS_TABLE_PERSISTENCE_DEFAULTS);
+
   const [columnFilters, setColumnFilters] = useState<MRT_ColumnFiltersState>(
     () => [...DEFAULT_TABLE_SETTINGS.columnFilters]
   );
@@ -262,17 +298,6 @@ export function RaidsPage() {
     'minScore',
     'maxScore',
   ];
-
-  // Alliance autocomplete
-  const [allianceQuery, setAllianceQuery] = useState(activeFilters.alliance || '');
-  const [debouncedAllianceQuery] = useDebouncedValue(allianceQuery, 300);
-  const [debouncedDraftFilters] = useDebouncedValue(draftFilters, 300);
-
-  const { data: allianceOptions = [] } = useQuery({
-    queryKey: ['alliance-search', token, debouncedAllianceQuery],
-    queryFn: () => debouncedAllianceQuery.length >= 2 ? searchAlliances(token ?? undefined, debouncedAllianceQuery, 15) : Promise.resolve([]),
-    enabled: debouncedAllianceQuery.length >= 2,
-  });
 
   // Fetch raids data - must be before any conditional returns
   const {
@@ -300,9 +325,25 @@ export function RaidsPage() {
     enabled: !isExchangingCode,
   });
 
+  /** Same option list for sidebar MultiSelect and table column (full API list + current picks). */
+  const allianceFilterOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of data?.targets ?? []) {
+      const a = t.allianceName;
+      if (a && a !== 'None') names.add(a);
+    }
+    for (const a of draftFilters.alliance) {
+      if (a.trim()) names.add(a.trim());
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [data?.targets, draftFilters.alliance]);
+
   useEffect(() => {
     if (filtersRestoredRef.current) return;
-    const hasUrlFilters = FILTER_QUERY_KEYS.some((key) => searchParams.get(key) !== null);
+    const hasUrlFilters = FILTER_QUERY_KEYS.some((key) => {
+      if (key === 'alliance') return searchParams.getAll('alliance').some(Boolean);
+      return searchParams.get(key) !== null;
+    });
     if (hasUrlFilters) {
       filtersRestoredRef.current = true;
       return;
@@ -315,15 +356,18 @@ export function RaidsPage() {
         return;
       }
       const stored = JSON.parse(raw) as Partial<typeof draftFilters>;
-      setDraftFilters((prev) => ({ ...prev, ...stored }));
       if (stored.alliance !== undefined) {
-        setAllianceQuery(stored.alliance || '');
+        (stored as { alliance: string[] }).alliance = migrateStoredAlliance(stored.alliance);
       }
+      setDraftFilters((prev) => ({ ...prev, ...stored }));
 
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         FILTER_QUERY_KEYS.forEach((key) => next.delete(key));
-        if (stored.alliance) next.set('alliance', stored.alliance);
+        const alliances = stored.alliance !== undefined ? migrateStoredAlliance(stored.alliance) : [];
+        for (const a of alliances) {
+          if (a.trim()) next.append('alliance', a.trim());
+        }
         if (stored.beige === 'only') next.set('beige', 'true');
         else if (stored.beige === 'hide') next.set('beige', 'false');
         if (stored.maxWars && stored.maxWars !== 'all') next.set('maxWars', stored.maxWars);
@@ -347,14 +391,16 @@ export function RaidsPage() {
   // Auto-fill score when attacker data loads and we have a nation ID
   useEffect(() => {
     if (data?.attacker?.score && appliedNationId) {
-      setDraftFilters(prev => ({ 
-        ...prev, 
-        yourScore: data.attacker.score!.toString(),
-        scoreMode: 'yours'
-      }));
-    } else if (!appliedNationId && draftFilters.scoreMode === 'yours') {
-      // Reset to custom if nation ID is cleared
-      setDraftFilters(prev => ({ ...prev, scoreMode: 'custom' }));
+      const s = data.attacker.score.toString();
+      setDraftFilters((prev) => {
+        if (prev.scoreMode === 'yours' && prev.yourScore === s) return prev;
+        return { ...prev, yourScore: s, scoreMode: 'yours' };
+      });
+    } else if (!appliedNationId) {
+      setDraftFilters((prev) => {
+        if (prev.scoreMode !== 'yours') return prev;
+        return { ...prev, scoreMode: 'custom' };
+      });
     }
   }, [data?.attacker?.score, appliedNationId]);
 
@@ -385,6 +431,9 @@ export function RaidsPage() {
       return;
     }
 
+    const allianceCompareKey = (val: unknown) =>
+      JSON.stringify([...allianceNamesFromColumnFilterValue(val)].sort());
+
     const changedIds: string[] = [];
     const getVal = (filters: MRT_ColumnFiltersState, id: string) =>
       filters.find((f) => f.id === id)?.value;
@@ -392,20 +441,28 @@ export function RaidsPage() {
     MAPPED_COLUMN_IDS.forEach((id) => {
       const before = getVal(previousFilters, id);
       const after = getVal(columnFilters, id);
-      if (JSON.stringify(before) !== JSON.stringify(after)) {
-        changedIds.push(id);
+      if (id === 'allianceName') {
+        if (allianceCompareKey(before) === allianceCompareKey(after)) return;
+      } else if (JSON.stringify(before) === JSON.stringify(after)) {
+        return;
       }
+      changedIds.push(id);
     });
 
     if (changedIds.length) {
+      if (changedIds.includes('allianceName')) {
+        const names = allianceNamesFromColumnFilterValue(
+          columnFilters.find((f) => f.id === 'allianceName')?.value
+        );
+        setDraftFilters((prev) => ({ ...prev, alliance: names }));
+      }
+
       const resetDraft: Record<string, string | boolean> = {};
       const paramsToClear: string[] = [];
 
       changedIds.forEach((id) => {
         if (id === 'allianceName') {
-          resetDraft.alliance = '';
-          paramsToClear.push('alliance');
-          setAllianceQuery('');
+          return;
         }
         if (id === 'beigeTurns') {
           resetDraft.beige = 'all';
@@ -449,12 +506,10 @@ export function RaidsPage() {
     
     let filtered = [...data.targets];
 
-    // Alliance filter
-    if (activeFilters.alliance) {
-      const query = activeFilters.alliance.toLowerCase();
-      filtered = filtered.filter(nation => 
-        nation.allianceName.toLowerCase().includes(query)
-      );
+    // Alliance filter (exact names, same as table multi-select)
+    if (activeFilters.alliance.length > 0) {
+      const allow = new Set(activeFilters.alliance.map((a) => a.toLowerCase()));
+      filtered = filtered.filter((nation) => allow.has(nation.allianceName.toLowerCase()));
     }
 
     // Beige filter
@@ -518,8 +573,8 @@ export function RaidsPage() {
 
   const mappedColumnFiltersFromDraft = useCallback((): MRT_ColumnFiltersState => {
     const filters: MRT_ColumnFiltersState = [];
-    if (draftFilters.alliance) {
-      filters.push({ id: 'allianceName', value: [draftFilters.alliance] });
+    if (draftFilters.alliance.length > 0) {
+      filters.push({ id: 'allianceName', value: draftFilters.alliance });
     }
     if (data?.showBeige && (draftFilters.beige === 'only' || draftFilters.beige === 'hide')) {
       filters.push({ id: 'beigeTurns', value: draftFilters.beige });
@@ -550,10 +605,13 @@ export function RaidsPage() {
     });
   }, [mappedColumnFiltersFromDraft]);
 
+  const syncColumnFiltersFromDraftRef = useRef(syncColumnFiltersFromDraft);
+  syncColumnFiltersFromDraftRef.current = syncColumnFiltersFromDraft;
+
   const resetFilters = useCallback(() => {
     const nationScore = data?.attacker?.score?.toString() || '';
     setDraftFilters({
-      alliance: '',
+      alliance: [],
       beige: 'all',
       maxWars: 'all',
       inactiveMinDays: 'none',
@@ -565,7 +623,6 @@ export function RaidsPage() {
       minScore: '',
       maxScore: '',
     });
-    setAllianceQuery('');
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       ['alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'minBeigeLoot', 'performance', 'scoreMode', 'yourScore', 'minScore', 'maxScore'].forEach((k) =>
@@ -582,58 +639,80 @@ export function RaidsPage() {
     }
   }, [setSearchParams, data?.attacker?.score, appliedNationId]);
 
-  // Auto-apply filters when draft filters change (debounced)
+  // Keep URL + localStorage in sync with draft UI (no debounce — debounced URL lag caused scoreMode query to fight the visible filters).
   useEffect(() => {
     if (!filtersRestoredRef.current) return;
 
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
+      const preservedScore = {
+        scoreMode: next.get('scoreMode'),
+        yourScore: next.get('yourScore'),
+        minScore: next.get('minScore'),
+        maxScore: next.get('maxScore'),
+      };
 
       // Clear old filter params
       FILTER_QUERY_KEYS.forEach(k => next.delete(k));
 
       // Apply new filters
-      if (debouncedDraftFilters.alliance) next.set('alliance', debouncedDraftFilters.alliance);
+      for (const a of draftFilters.alliance) {
+        if (a.trim()) next.append('alliance', a.trim());
+      }
 
-      if (debouncedDraftFilters.beige === 'only') next.set('beige', 'true');
-      else if (debouncedDraftFilters.beige === 'hide') next.set('beige', 'false');
+      if (draftFilters.beige === 'only') next.set('beige', 'true');
+      else if (draftFilters.beige === 'hide') next.set('beige', 'false');
 
-      if (debouncedDraftFilters.maxWars !== 'all') next.set('maxWars', debouncedDraftFilters.maxWars);
+      if (draftFilters.maxWars !== 'all') next.set('maxWars', draftFilters.maxWars);
 
-      if (debouncedDraftFilters.inactiveMinDays !== 'none') next.set('inactiveMinDays', debouncedDraftFilters.inactiveMinDays);
+      if (draftFilters.inactiveMinDays !== 'none') next.set('inactiveMinDays', draftFilters.inactiveMinDays);
 
-      if (debouncedDraftFilters.scope !== 'all') next.set('scope', debouncedDraftFilters.scope);
+      if (draftFilters.scope !== 'all') next.set('scope', draftFilters.scope);
 
-      if (debouncedDraftFilters.minBeigeLoot !== '0') next.set('minBeigeLoot', debouncedDraftFilters.minBeigeLoot);
+      if (draftFilters.minBeigeLoot !== '0') next.set('minBeigeLoot', draftFilters.minBeigeLoot);
 
-      if (debouncedDraftFilters.performance) next.set('performance', 'true');
+      if (draftFilters.performance) next.set('performance', 'true');
 
       // Score handling
-      if (debouncedDraftFilters.scoreMode === 'yours' && debouncedDraftFilters.yourScore) {
-        const score = Number(debouncedDraftFilters.yourScore);
+      if (draftFilters.scoreMode === 'yours' && draftFilters.yourScore) {
+        const score = Number(draftFilters.yourScore);
         if (!Number.isNaN(score)) {
           next.set('minScore', String(Math.round(score * 0.75)));
           next.set('maxScore', String(Math.round(score * 2.5)));
           next.set('scoreMode', 'yours');
-          next.set('yourScore', debouncedDraftFilters.yourScore);
+          next.set('yourScore', draftFilters.yourScore);
+        } else if (preservedScore.scoreMode === 'yours' && preservedScore.yourScore) {
+          if (preservedScore.minScore) next.set('minScore', preservedScore.minScore);
+          if (preservedScore.maxScore) next.set('maxScore', preservedScore.maxScore);
+          next.set('scoreMode', preservedScore.scoreMode);
+          next.set('yourScore', preservedScore.yourScore);
         }
-      } else if (debouncedDraftFilters.scoreMode === 'custom') {
-        if (debouncedDraftFilters.minScore) next.set('minScore', debouncedDraftFilters.minScore);
-        if (debouncedDraftFilters.maxScore) next.set('maxScore', debouncedDraftFilters.maxScore);
+      } else if (draftFilters.scoreMode === 'yours') {
+        // "Yours" but empty score (e.g. NumberInput flicker): keep URL stable
+        if (preservedScore.scoreMode === 'yours' && preservedScore.yourScore) {
+          if (preservedScore.minScore) next.set('minScore', preservedScore.minScore);
+          if (preservedScore.maxScore) next.set('maxScore', preservedScore.maxScore);
+          next.set('scoreMode', preservedScore.scoreMode);
+          next.set('yourScore', preservedScore.yourScore);
+        }
+      } else if (draftFilters.scoreMode === 'custom') {
+        if (draftFilters.minScore) next.set('minScore', draftFilters.minScore);
+        if (draftFilters.maxScore) next.set('maxScore', draftFilters.maxScore);
         next.set('scoreMode', 'custom');
       }
 
+      if (next.toString() === prev.toString()) return prev;
       return next;
     }, { replace: true });
 
-    syncColumnFiltersFromDraft();
+    syncColumnFiltersFromDraftRef.current();
 
     try {
-      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(debouncedDraftFilters));
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(draftFilters));
     } catch (error) {
       console.warn('Failed to persist raids filters', error);
     }
-  }, [debouncedDraftFilters, syncColumnFiltersFromDraft, setSearchParams]);
+  }, [draftFilters, setSearchParams]);
 
   type ColumnFiltersUpdater = MRT_ColumnFiltersState | ((prev: MRT_ColumnFiltersState) => MRT_ColumnFiltersState);
 
@@ -760,32 +839,23 @@ export function RaidsPage() {
                   <Stack gap={6}>
                     <Group gap="xs" justify="space-between">
                       <Text size="sm" fw={600}>Alliance Name</Text>
-                      {draftFilters.alliance && (
-                        <Anchor size="xs" onClick={() => {
-                          setAllianceQuery('');
-                          setDraftFilters(prev => ({ ...prev, alliance: '' }));
-                        }}>
+                      {draftFilters.alliance.length > 0 && (
+                        <Anchor size="xs" onClick={() => setDraftFilters((prev) => ({ ...prev, alliance: [] }))}>
                           reset
                         </Anchor>
                       )}
                     </Group>
-                    <Text size="xs" c="dimmed">Search by name, acronym, or ID.</Text>
-                    <Autocomplete
+                    <Text size="xs" c="dimmed">Same list as the table column — pick one or more alliances.</Text>
+                    <MultiSelect
                       size="sm"
-                      placeholder="Search by name, acronym, or ID..."
-                      value={allianceQuery}
-                      onChange={(val) => {
-                        setAllianceQuery(val);
-                        setDraftFilters(prev => ({ ...prev, alliance: val }));
-                      }}
-                      data={allianceOptions.map(a => a.label)}
-                      limit={15}
-                      onOptionSubmit={(val) => {
-                        const match = val.match(/^(.+?)\s*\[/);
-                        const allianceName = match ? match[1] : val;
-                        setAllianceQuery(allianceName);
-                        setDraftFilters(prev => ({ ...prev, alliance: allianceName }));
-                      }}
+                      placeholder="Select alliances"
+                      data={allianceFilterOptions}
+                      value={draftFilters.alliance}
+                      onChange={(val) => setDraftFilters((prev) => ({ ...prev, alliance: val }))}
+                      searchable
+                      clearable
+                      hidePickedOptions
+                      maxDropdownHeight={280}
                     />
                   </Stack>
                 </Paper>
@@ -1101,6 +1171,7 @@ export function RaidsPage() {
           ) : (
             <RaidsTable
               data={filteredTargets}
+              allianceSelectOptions={allianceFilterOptions}
               token={token}
               showBeige={showBeige}
               discordLinked={discordLinked}

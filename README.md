@@ -2,6 +2,88 @@
 
 Autolycus is an open source bot for finding raid targets in PnW. It was initially developed for in-house usage, but I decided to make it public. As far as I am aware, no other public bots have extensive raid finding functionality. The lack of such functionality is what motivated me to make this public. Nonetheless, the fact that it was originally meant for in-house usage means multiple things. Firstly, it means that the code isn't pretty. Secondly, it means that it's not designed to be easy to self-host. 
 
+## Repository organization
+
+The codebase uses a layered structure:
+
+- `api/` - Flask delivery layer (HTTP routes, auth/security, request handling)
+- `bot/` - Discord process (`cogs/`, `discord_utils/`, `attachments/`; run with `uv run bot` or `python -m bot`)
+- `services/` - shared application orchestration (feature flows reused by API + bot)
+- `logic/` - domain/business logic (calculations and pure game rules)
+- `database/` - data-access modules (Mongo + SQLite cache access)
+- `infra/` - cross-cutting infrastructure (cache implementation)
+- `core/` - shared runtime configuration
+- `frontend/` - React/Vite web client
+- `scanner.py` - worker process that hydrates local SQLite cache data
+
+### Import rules
+
+- `logic` must not import from `api`.
+- `api` and `bot` can import from `services`, `logic`, `database`, `infra`, and `core`.
+- New SQLite cache imports should use `database.sqlite_cache`.
+- New cache imports should use `infra.cache`.
+- New config imports should use `core.config`.
+
+Compatibility re-export modules still exist for now (`api/cache.py`, `api/config.py`, `utils/db_utils.py`) to avoid breakage during migration, but new code should avoid them.
+
+## Local development with uv (non-Docker)
+
+This repository now supports `uv` as the primary Python workflow.
+
+### 1) Install dependencies
+
+From the repository root:
+
+```bash
+uv sync
+```
+
+This installs dependencies for API, scanner, and Discord bot in one environment.
+
+### 2) Run services
+
+Use separate terminals:
+
+```bash
+# API (http://localhost:5000)
+uv run api
+```
+
+```bash
+# API with hot reload (watch Python file changes)
+uv run watchfiles --filter python "uv run api" api logic database core infra services bot
+```
+
+```bash
+# Discord bot
+uv run bot
+```
+
+```bash
+# Scanner worker
+uv run python scanner.py
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 3) Environment variables
+
+Create a `.env` file at repository root with at least:
+
+- `api_key`
+- `bot_token`
+- `debug_channel`
+- `pymongolink`
+- `databaselink`
+- `version`
+- `SECRET_KEY` (recommended for stable auth tokens)
+
 ## Production Docker deployment (Oracle Linux)
 
 This project ships with a production-ready Docker setup that runs:

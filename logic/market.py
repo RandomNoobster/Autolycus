@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 import os
 
-import queries
-from api.cache import cache_prices
+from . import queries
+from infra.cache import cache_prices
 
 from .api_client import call
 from .common import RSS

@@ -7,33 +7,16 @@ protected resources without requiring pre-existing Discord bot interaction.
 import logging
 import secrets
 import time
-from typing import Any, Optional
+from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
-from pymongo import MongoClient
 
 from api.security import generate_token
+from database.mongo import get_sync_db
 
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
-
-_sync_client: Optional[MongoClient] = None
-_sync_db = None
-
-
-def _get_sync_mongo():
-    """Return a sync MongoDB database handle for auth routes."""
-    global _sync_client, _sync_db
-    if _sync_client is None:
-        mongo_uri = current_app.config.get('MONGO_URI')
-        if not mongo_uri:
-            return None
-        _sync_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-        db_name = current_app.config.get('MONGO_DB', 'autolycus')
-        _sync_db = _sync_client[db_name]
-    return _sync_db
-
 
 def _normalize_api_key(value: Any) -> str:
     """Normalize API key values for comparison.
@@ -47,25 +30,6 @@ def _normalize_api_key(value: Any) -> str:
     if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
         return text[1:-1].strip()
     return text
-
-
-def _is_local_request() -> bool:
-    """Return True if the request appears to originate from localhost."""
-    host = (request.host or "").split(":", 1)[0].lower()
-    origin = (request.headers.get("Origin") or "").lower()
-    referer = (request.headers.get("Referer") or "").lower()
-
-    localhost_hosts = {"localhost", "127.0.0.1"}
-    if host in localhost_hosts:
-        return True
-
-    for header_value in (origin, referer):
-        if header_value.startswith("http://localhost") or header_value.startswith(
-            "http://127.0.0.1"
-        ):
-            return True
-
-    return False
 
 
 @auth_bp.route('/token/generate', methods=['POST'])
@@ -260,7 +224,7 @@ def issue_discord_token_code() -> tuple[Any, int]:
                 'code': 'INVALID_PARAMETER'
             }), 400
 
-        mongo_db = _get_sync_mongo()
+        mongo_db = get_sync_db()
         if mongo_db is None:
             return jsonify({
                 'error': 'Database unavailable',
@@ -310,7 +274,7 @@ def exchange_token_code() -> tuple[Any, int]:
                 'code': 'VALIDATION_ERROR'
             }), 400
 
-        mongo_db = _get_sync_mongo()
+        mongo_db = get_sync_db()
         if mongo_db is None:
             return jsonify({
                 'error': 'Database unavailable',

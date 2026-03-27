@@ -32,8 +32,10 @@ import {
   IconSun,
   IconMoon,
 } from '@tabler/icons-react';
-import { useNationId } from '@/hooks';
+import { useNationId, useSidebarDiscordSession } from '@/hooks';
 import { NationIdField } from '@/components/common';
+import { DiscordSidebarCard } from '@/components/layout/DiscordSidebarCard';
+import { readStoredAccessToken } from '@/lib/accessTokenStorage';
 
 interface NavItem {
   label: string;
@@ -96,6 +98,7 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
   const navigate = useNavigate();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const { nationId, setNationId, clearNationId, parseNationId } = useNationId();
+  const discordSession = useSidebarDiscordSession();
   const [inputValue, setInputValue] = useState(nationId);
   const [error, setError] = useState('');
 
@@ -124,7 +127,8 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
 
     if (item.path === '/raids') {
       const searchParams = new URLSearchParams(location.search);
-      const hasToken = searchParams.has('token');
+      const hasToken =
+        searchParams.has('token') || readStoredAccessToken('raids') !== null;
       if (hasToken) {
         navigate(`${item.path}${location.search}`);
       } else {
@@ -199,6 +203,10 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
 
       {/* Spacer */}
       <div style={{ flexGrow: 1 }} />
+
+      <Divider my="xs" label="Discord" labelPosition="center" />
+
+      <DiscordSidebarCard session={discordSession} />
 
       <Divider my="xs" label="Your Nation" labelPosition="center" />
 

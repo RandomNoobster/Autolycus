@@ -14,14 +14,15 @@ import motor.motor_asyncio
 import pnwkit
 from dotenv import load_dotenv
 
-import queries
+from logic import queries
+from core.logging_config import setup_logging
+from database.sqlite_cache import (ensure_metadata_table, ensure_table_and_columns,
+                                   get_alliances_db_path, get_nations_db_path,
+                                   prune_missing_ids, row_to_db_values,
+                                   set_metadata, upsert)
 from logic.api_client import call
 from logic.common import compute_beige_loot
 from logic.merge_utils import get_query
-from utils.db_utils import (ensure_metadata_table, ensure_table_and_columns,
-                            get_alliances_db_path, get_nations_db_path,
-                            prune_missing_ids, row_to_db_values, set_metadata,
-                            upsert)
 
 load_dotenv()
 version = os.getenv("version")
@@ -32,8 +33,8 @@ call_api = partial(call, api_key=api_key)
 
 kit = pnwkit.QueryKit(api_key)
 
-logging.basicConfig(filename="logs.log", filemode='a', format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
-logger = logging.getLogger()
+setup_logging(process_name="scanner", level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger(__name__)
 
 
 def _build_nation_query(page: int, min_score: int | None, vmode: bool | None) -> str:

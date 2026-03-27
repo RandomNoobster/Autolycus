@@ -1,8 +1,8 @@
 """
-API Configuration Module
+Shared application configuration.
 
-This module contains configuration settings for the Flask API,
-including security settings for token-based authentication.
+This module is intentionally outside `api/` so domain/infrastructure layers
+can access environment-backed configuration without importing delivery code.
 """
 import os
 from typing import Optional
@@ -10,29 +10,29 @@ from typing import Optional
 
 class Config:
     """Base configuration class."""
-    
+
     # Flask settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", os.urandom(32).hex())
     DEBUG: bool = False
     TESTING: bool = False
-    
+
     # Token settings
     TOKEN_MAX_AGE: int = 3600 * 24 * 7  # 7 days in seconds
     TOKEN_SALT: str = "autolycus-ephemeral-link"
     AUTH_TOKEN_API_KEY: str = os.getenv("AUTH_TOKEN_API_KEY", "")
     DISCORD_BOT_API_KEY: str = os.getenv("DISCORD_BOT_API_KEY", "")
-    
+
     # CORS settings
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",  # Vite dev server
         "http://localhost:3000",
         "http://127.0.0.1:5173",
     ]
-    
+
     # MongoDB settings
     MONGO_URI: Optional[str] = os.getenv("pymongolink")
     MONGO_DB: str = os.getenv("version", "autolycus")
-    
+
     # Server settings
     HOST: str = "0.0.0.0"
     PORT: int = 5000
@@ -42,7 +42,6 @@ class Config:
 
     # Request limits (DoS protection)
     MAX_CONTENT_LENGTH: int = 1 * 1024 * 1024  # 1 MB max request body
-
 
     # Security headers
     SECURITY_HEADERS_ENABLED: bool = True
@@ -54,21 +53,24 @@ class Config:
     SESSION_COOKIE_SECURE: bool = True
     SESSION_COOKIE_SAMESITE: str = "Lax"
 
+    # Politics & War API key (raids revenue pre-calc, etc.)
+    API_KEY: str = os.getenv("api_key", "")
+
 
 class DevelopmentConfig(Config):
     """Development configuration."""
+
     DEBUG = True
     CORS_ORIGINS = ["*"]  # Allow all origins in development
 
 
 class ProductionConfig(Config):
     """Production configuration."""
+
     DEBUG = False
-    # In production, ensure SECRET_KEY is set via environment variable
     SECRET_KEY = os.getenv("SECRET_KEY", "")
-    # Require secure cookies in production; if behind HTTPS proxy, set TRUST_PROXY_HEADERS=true
     SESSION_COOKIE_SECURE = True
-    
+
     @classmethod
     def validate(cls) -> None:
         """Validate production configuration."""

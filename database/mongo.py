@@ -5,17 +5,32 @@ import re
 
 import motor.motor_asyncio
 from motor.core import AgnosticDatabase
+from pymongo import MongoClient
+from pymongo.database import Database as SyncDatabase
 
-from api.config import get_config
+from core.config import get_config
 
 _config = get_config()
 _client = motor.motor_asyncio.AsyncIOMotorClient(_config.MONGO_URI, serverSelectionTimeoutMS=5000)
 _db: AgnosticDatabase = _client[_config.MONGO_DB]
+_sync_client: Optional[MongoClient] = None
+_sync_db: Optional[SyncDatabase] = None
 
 # Data Access Layer: centralize Mongo queries. No discord imports.
 
 def get_db() -> AgnosticDatabase:
     return _db
+
+
+def get_sync_db() -> Optional[SyncDatabase]:
+    """Get a shared synchronous Mongo database handle."""
+    global _sync_client, _sync_db
+    if _config.MONGO_URI is None:
+        return None
+    if _sync_client is None:
+        _sync_client = MongoClient(_config.MONGO_URI, serverSelectionTimeoutMS=5000)
+        _sync_db = _sync_client[_config.MONGO_DB]
+    return _sync_db
 
 async def listify(cursor) -> list[dict[str, Any]]:
     new_list: list[dict[str, Any]] = []

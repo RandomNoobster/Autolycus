@@ -18,7 +18,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.python
-    command: python main.py
+    command: python -m bot
     env_file: .env
     volumes:
       - ./data:/app/data

@@ -1,9 +1,7 @@
-import asyncio
 import datetime
 import logging
 import os
 import pathlib
-from logging.handlers import RotatingFileHandler
 
 import discord
 import motor.motor_asyncio
@@ -11,6 +9,9 @@ import pnwkit
 import pymongo
 from discord.ext import commands
 from dotenv import load_dotenv
+
+from core.logging_config import setup_logging
+from logic import api_lookup
 
 intents = discord.Intents.default()
 intents.members = True
@@ -36,42 +37,15 @@ api_key = os.getenv("api_key")
 channel_id = int(os.getenv("debug_channel"))
 
 # logging
-logger = logging.getLogger("discord_bot")
-logger.setLevel(logging.DEBUG) # CRITICAL: The logger itself must allow the lowest level (DEBUG) to pass through.
-log_formatter = logging.Formatter(
-    '%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s', 
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-# maxBytes=5*1024*1024 means 5MB. 
-# backupCount=1 means it keeps 'debug.log' and 'debug.log.1'. When full, it deletes .1, moves .log to .1, and starts new.
-LOG_SIZE = 5 * 1024 * 1024 
-BACKUP_COUNT = 1
-debug_handler = RotatingFileHandler(
-    filename='debug.log', 
-    mode='a', 
-    maxBytes=LOG_SIZE, 
-    backupCount=BACKUP_COUNT, 
-    encoding='utf-8'
-)
-debug_handler.setFormatter(log_formatter)
-debug_handler.setLevel(logging.DEBUG) # Captures everything
-high_level_handler = RotatingFileHandler(
-    filename='important.log', 
-    mode='a', 
-    maxBytes=LOG_SIZE, 
-    backupCount=BACKUP_COUNT, 
-    encoding='utf-8'
-)
-high_level_handler.setFormatter(log_formatter)
-high_level_handler.setLevel(logging.WARNING) 
-logger.addHandler(debug_handler)
-logger.addHandler(high_level_handler)
+setup_logging(process_name="bot", level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger(__name__)
 
 # pnwkit
 kit = pnwkit.QueryKit(api_key)
 
 # discord bot
 bot = commands.Bot(intents=intents, command_prefix="!")
+bot.pnw_kit = kit
 
 # creating files if they do not exist
 cwd = pathlib.Path.cwd()
@@ -79,18 +53,17 @@ cwd = pathlib.Path.cwd()
 # Ensure data directory exists (no longer using data/web for file-based caching)
 for make_directory in [
     "data",
-    ]:
+]:
     pathlib.Path(f"{cwd}/{make_directory}").mkdir(exist_ok=True)
 
 # cogs
-for filename in os.listdir('./cogs'):
-    if filename.endswith('.py'):
-        bot.load_extension(f'cogs.{filename[:-3]}')
-
-# Initialize lookup module with async client
-from logic import api_lookup
+cogs_dir = pathlib.Path(__file__).resolve().parent / "cogs"
+for path in sorted(cogs_dir.glob("*.py")):
+    if path.name != "__init__.py":
+        bot.load_extension(f"bot.cogs.{path.stem}")
 
 api_lookup.set_async_client(async_client, str(version))
+
 
 @bot.event
 async def on_ready():
@@ -105,27 +78,29 @@ async def on_ready():
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     logger.info('We have logged in as {0.user}'.format(bot))
 
+
 @bot.event
 async def on_application_command(ctx: discord.ApplicationContext):
     channel = guild = None
     try:
         channel = {"name": ctx.channel.name, "id": ctx.channel_id}
-    except:
+    except Exception:
         try:
             channel = {"name": f"{ctx.author.name}'s DM's", "id": ctx.channel_id}
-        except:
+        except Exception:
             channel = {"name": "Unknown", "id": None}
             # it might be a PartialMessageable
     try:
         guild = {"name": ctx.guild.name, "id": ctx.guild_id}
-    except:
+    except Exception:
         try:
             guild = {"name": f"{ctx.author.name}'s DM's", "id": None}
-        except:
+        except Exception:
             guild = {"name": "Unknown", "id": None}
             # it might be a PartialMessageable
-            
+
     await async_mongo.commands.insert_one({"command": ctx.command.name, "time": round(datetime.datetime.utcnow().timestamp()), "user": {"name": ctx.author.name, "id": ctx.author.id}, "channel": channel, "guild": guild})
+
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
@@ -150,8 +125,15 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
         await ctx.send("Oh no! An unknown error occurred! Contact RandomNoobster#0093, and he might be able to help you out.")
         await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```'[:2000])
 
+
 @bot.slash_command(name="ping", description="Pong!")
 async def ping(ctx: discord.ApplicationContext):
     await ctx.respond(f'Pong! {round(bot.latency * 1000)}ms')
 
-bot.run(os.getenv("bot_token"))
+
+def run_bot():
+    bot.run(os.getenv("bot_token"))
+
+
+if __name__ == "__main__":
+    run_bot()

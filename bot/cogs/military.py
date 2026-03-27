@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import pathlib
@@ -14,18 +15,20 @@ import discord
 from discord.commands import Option, SlashCommandGroup, slash_command
 from discord.ext import commands
 
-import queries
+from logic import queries
 from database import mongo as db_mongo
 from database import users as db_users
-from discord_utils import helpers, views
+from bot.discord_utils import helpers, views
 # Import from new architecture layers
-from logic import api_client, common
+from logic import api_client
 from logic import military as military_logic
 from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
 from logic.revenue import pre_revenue_calc, revenue_calc
-from main import logger
-from utils.db_utils import get_all_nations, get_nations_db_path
+from database.sqlite_cache import get_all_nations, get_nations_db_path
+from services.raids_service import compute_beige_loot_or_zero
+
+logger = logging.getLogger(__name__)
 
 api_key = os.getenv("api_key")
 call_api = partial(api_client.call, api_key=api_key)
@@ -74,7 +77,12 @@ class TargetFinding(commands.Cog):
         score: Option(float, "Set a custom score range.") = None
         ):
         try:
-            await ctx.defer()
+            try:
+                await ctx.defer()
+            except discord.NotFound:
+                # Interaction already expired before we could acknowledge it.
+                logger.warning("Skipping /raids: interaction expired before defer.")
+                return
             
             when_to_timeout = datetime.utcnow() + timedelta(minutes=10)
 
@@ -145,7 +153,7 @@ class TargetFinding(commands.Cog):
                     await i.response.edit_message()
                     self.stop()
 
-                @discord.ui.button(label="As a webpage", style=discord.ButtonStyle.primary)
+                @discord.ui.button(label="As a webpage (recommended)", style=discord.ButtonStyle.primary)
                 async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
                     nonlocal webpage, discord_embed
                     webpage = True
@@ -432,10 +440,9 @@ class TargetFinding(commands.Cog):
                     beige = user['raids_config']['beige']
                     performace_filter = user['raids_config']['performace_filter']
                     # this was added later on when some people may not have it in their raid_config
-                    # which makes this check necessary 
-                    if "minimum_beige_loot" in user['raids_config']:
-                        minimum_beige_loot = user['raids_config']['minimum_beige_loot']
-                    else:
+                    # which makes this check necessary (null in DB must not become None here)
+                    minimum_beige_loot = user['raids_config'].get('minimum_beige_loot')
+                    if minimum_beige_loot is None:
                         minimum_beige_loot = 0
                     break
 
@@ -449,6 +456,9 @@ class TargetFinding(commands.Cog):
                     dnr_alliance_ids = []
             else:
                 dnr_alliance_ids = []
+
+            if minimum_beige_loot is None:
+                minimum_beige_loot = 0
             
             view = None
 
@@ -592,7 +602,10 @@ class TargetFinding(commands.Cog):
                     elif who == " alliance_id:0":
                         if x['alliance_id'] != "0":
                             continue
-                    if not minscore < x['score'] < maxscore:
+                    nation_score = x.get('score')
+                    if nation_score is None:
+                        continue
+                    if not minscore < nation_score < maxscore:
                         continue
                     if beige:
                         pass
@@ -603,7 +616,8 @@ class TargetFinding(commands.Cog):
                             pass
                     used_slots = 0
                     for war in x['wars']:
-                        if war['turnsleft'] > 0 and war['defid'] == x['id']:
+                        tl = war.get('turnsleft') or 0
+                        if tl > 0 and war['defid'] == x['id']:
                             used_slots += 1
                         for attack in war['attacks']:
                             if attack['loot_info']:
@@ -616,7 +630,6 @@ class TargetFinding(commands.Cog):
                         continue
 
                     # minimum loot filter start
-                    prev_nat_loot = False
                     x['def_slots'] = 0
                     x['time_since_war'] = "14+"
                     
@@ -625,7 +638,7 @@ class TargetFinding(commands.Cog):
                             if war['date'] == '-0001-11-30 00:00:00':
                                 x['wars'].remove(war)
                             elif war['defid'] == x['id']:
-                                if war['turnsleft'] > 0:
+                                if (war.get('turnsleft') or 0) > 0:
                                     x['def_slots'] += 1
                                 
                         wars = sorted(x['wars'], key=lambda k: k['date'], reverse=True)
@@ -635,41 +648,21 @@ class TargetFinding(commands.Cog):
                         else:
                             x['time_since_war'] = "Ongoing"
                         for war in wars:
-                            if war['turnsleft'] <= 0:
-                                nation_loot = 0
-                                for attack in war['attacks']:
-                                    if attack['victor'] == x['id']:
-                                        continue
-                                    if attack['loot_info']:
-                                        text = attack['loot_info']
-                                        if "won the war and looted" in text:
-                                            nation_loot += common.beige_loot_value(text, prices)
-                                        else:
-                                            continue
-                                try:
-                                    if war['attacker']['war_policy'] == "ATTRITION":
-                                        nation_loot = nation_loot / 80 * 100
-                                    elif war['attacker']['war_policy'] == "PIRATE":
-                                        nation_loot = nation_loot / 140 * 100
-                                    if war['attacker']['advanced_pirate_economy']:
-                                        nation_loot = nation_loot / 110 * 100 
-                                    if war['war_type'] == "ATTRITION":
-                                        nation_loot = nation_loot * 4
-                                    elif war['war_type'] == "ORDINARY":
-                                        nation_loot = nation_loot * 2
-                                    x['nation_loot'] = f"{round(nation_loot):,}"
-                                    x['nation_loot_value'] = nation_loot
-                                    prev_nat_loot = True
-                                except:
-                                    # if you are here, it is probably because the attacker has deleted their nation
-                                    pass
+                            if (war.get('turnsleft') or 0) <= 0:
+                                loot_value, loot_text = compute_beige_loot_or_zero(x, prices)
+                                x['nation_loot_value'] = loot_value
+                                x['nation_loot'] = loot_text
                                 break
 
-                    if prev_nat_loot == False:
+                    if "nation_loot_value" not in x:
                         x['nation_loot'] = "NaN"
                         x['nation_loot_value'] = 0
                     
-                    if x['nation_loot_value'] < minimum_beige_loot:
+                    nation_loot_value = x.get('nation_loot_value')
+                    if nation_loot_value is None:
+                        nation_loot_value = 0
+                    x['nation_loot_value'] = nation_loot_value
+                    if nation_loot_value < minimum_beige_loot:
                         continue
                     # minimum loot filter end
 
@@ -720,8 +713,12 @@ class TargetFinding(commands.Cog):
             for target in target_list:
                 embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
                 target['infrastructure'] = 0
+                target_loot = target.get("nation_loot")
+                if not target_loot:
+                    target_loot = "NaN"
+                    target["nation_loot"] = target_loot
                 
-                embed.add_field(name="Previous nation loot", value=target["nation_loot"])
+                embed.add_field(name="Previous nation loot", value=target_loot)
 
                 if target['alliance_id'] != "0":
                     try:

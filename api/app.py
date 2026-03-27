@@ -23,11 +23,12 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
+from core.logging_config import setup_logging
 
 # Load environment variables FIRST
 load_dotenv()
 
-from api.config import get_config
+from core.config import get_config
 from api.routes.auth import auth_bp
 from api.routes.builds import builds_bp
 from api.routes.damage import damage_bp
@@ -50,14 +51,11 @@ def create_app(config_object: Optional[object] = None) -> Flask:
     app = Flask(__name__)
     
     # Load configuration
-    config_name = None
     if config_object:
         app.config.from_object(config_object)
-        config_name = getattr(config_object, "__name__", config_object.__class__.__name__)
     else:
         config = get_config()
         app.config.from_object(config)
-        config_name = config.__class__.__name__
 
     
     # Ensure required config values are set
@@ -183,12 +181,7 @@ def run_api():
     
     This function is called when running the API standalone.
     """
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    setup_logging(process_name="api", level=os.getenv("LOG_LEVEL", "INFO"))
     
     try:
         from waitress import serve
@@ -222,9 +215,5 @@ def run_api():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(levelname)s %(asctime)s.%(msecs)d %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    setup_logging(process_name="api", level=os.getenv("LOG_LEVEL", "INFO"))
     run_api()

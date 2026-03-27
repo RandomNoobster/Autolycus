@@ -13,11 +13,12 @@ import json
 import logging
 import math
 from datetime import datetime
-from typing import Any, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
-import discord
+if TYPE_CHECKING:
+    import discord
 
-from api.cache import cache_game_context
+from infra.cache import cache_game_context
 
 from .common import weird_division
 

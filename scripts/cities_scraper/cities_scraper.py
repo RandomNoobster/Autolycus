@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from core.logging_config import setup_logging
 
 # --- CONFIGURATION ---
 BASE_URL = "https://politicsandwar.com/data/cities/"
@@ -21,12 +22,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "city_builds.db")
 LOG_PATH = os.path.join(SCRIPT_DIR, "scraper_errors.log")
 
-# Logging Configuration
-logging.basicConfig(
-    filename=LOG_PATH,
-    level=logging.ERROR,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Logging configuration
+setup_logging(process_name="cities_scraper", level=os.getenv("LOG_LEVEL", "INFO"))
 
 # Use 16 workers, or default to CPU count if detection fails
 MAX_WORKERS = os.cpu_count() or 16 

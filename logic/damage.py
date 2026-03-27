@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-import queries
+from . import queries
 from logic import economy as economy_logic
 from logic.common import weird_division
 from logic.merge_utils import get_query
