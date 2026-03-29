@@ -6,8 +6,7 @@ from typing import Any, Optional, Union
 import discord
 
 from database.mongo import find_nation as db_find_nation
-from database.mongo import get_global_user_by_any
-from logic import api_lookup
+from database.mongo import get_global_user_by_any, search_alliances_autocomplete
 
 
 async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str, Any]]:
@@ -68,6 +67,5 @@ async def find_user(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str
 
 
 async def autocomplete_alliances(ctx: discord.AutocompleteContext) -> list[str]:
-    """Autocomplete callback that proxies to logic.api_lookup."""
     search_value = ctx.value or ""
-    return await api_lookup.get_alliances(search_value)
+    return await search_alliances_autocomplete(search_value)

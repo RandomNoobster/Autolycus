@@ -30,8 +30,8 @@ class Config:
     ]
 
     # MongoDB settings
-    MONGO_URI: Optional[str] = os.getenv("pymongolink")
-    MONGO_DB: str = os.getenv("version", "autolycus")
+    MONGO_URI: Optional[str] = os.getenv("MONGO_URI")
+    MONGO_DB: str = os.getenv("MONGO_BD", "main")
 
     # Server settings
     HOST: str = "0.0.0.0"
@@ -54,7 +54,7 @@ class Config:
     SESSION_COOKIE_SAMESITE: str = "Lax"
 
     # Politics & War API key (raids revenue pre-calc, etc.)
-    API_KEY: str = os.getenv("api_key", "")
+    API_KEY: str = os.getenv("API_KEY", "")
 
 
 class DevelopmentConfig(Config):

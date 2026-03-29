@@ -86,3 +86,18 @@ async def get_target_alliances(guild_id: int, filter_value: str) -> list[str]:
     ids = config.get('targets_alliance_ids', [])
     alliances = await listify(_db.alliances.find({"id": {"$in": ids}}))
     return [f"{aa['name']} ({aa['id']})" for aa in alliances if (filter_value.lower()) in aa['id'] or (filter_value.lower()) in aa['name'].lower() or (filter_value.lower()) in aa['acronym'].lower()]
+
+
+async def search_alliances_autocomplete(search_value: str) -> list[str]:
+    """Alliance names formatted for slash autocomplete; substring match on id, name, acronym."""
+    needle = search_value.lower()
+    out: list[str] = []
+    async for aa in _db.alliances.find({}):
+        if needle in aa.get("id", "") or needle in aa.get("name", "").lower() or needle in aa.get("acronym", "").lower():
+            out.append(f"{aa['name']} ({aa['id']})")
+    return out
+
+
+async def record_slash_command(doc: dict[str, Any]) -> None:
+    """Append one slash command invocation document (analytics)."""
+    await _db.commands.insert_one(doc)

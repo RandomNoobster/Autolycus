@@ -4,37 +4,21 @@ import os
 import pathlib
 
 import discord
-import motor.motor_asyncio
 import pnwkit
-import pymongo
 from discord.ext import commands
 from dotenv import load_dotenv
 
 from core.logging_config import setup_logging
-from logic import api_lookup
+from database.mongo import record_slash_command
 
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
 # REMEMEBR: cannot import a file which is also imported by cogs
 
-# async mongo fuquiem
-client = pymongo.MongoClient(os.getenv("pymongolink"))
-version = os.getenv("version")
-mongo = client[str(version)]
-async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
-async_mongo = async_client[str(version)]
-
-# async mongo autolycus
-db_client = pymongo.MongoClient(os.getenv("databaselink"))
-db_version = os.getenv("version")
-db_async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("databaselink"), serverSelectionTimeoutMS=5000)
-main_async_db = db_async_client["main"]
-dependent_async_db = db_async_client[str(db_version)]
-
 # envs
-api_key = os.getenv("api_key")
-channel_id = int(os.getenv("debug_channel"))
+api_key = os.getenv("API_KEY")
+channel_id = int(os.getenv("DEBUG_CHANNEL"))
 
 # logging
 setup_logging(process_name="bot", level=os.getenv("LOG_LEVEL", "INFO"))
@@ -47,22 +31,11 @@ kit = pnwkit.QueryKit(api_key)
 bot = commands.Bot(intents=intents, command_prefix="!")
 bot.pnw_kit = kit
 
-# creating files if they do not exist
-cwd = pathlib.Path.cwd()
-
-# Ensure data directory exists (no longer using data/web for file-based caching)
-for make_directory in [
-    "data",
-]:
-    pathlib.Path(f"{cwd}/{make_directory}").mkdir(exist_ok=True)
-
 # cogs
 cogs_dir = pathlib.Path(__file__).resolve().parent / "cogs"
 for path in sorted(cogs_dir.glob("*.py")):
     if path.name != "__init__.py":
         bot.load_extension(f"bot.cogs.{path.stem}")
-
-api_lookup.set_async_client(async_client, str(version))
 
 
 @bot.event
@@ -99,7 +72,15 @@ async def on_application_command(ctx: discord.ApplicationContext):
             guild = {"name": "Unknown", "id": None}
             # it might be a PartialMessageable
 
-    await async_mongo.commands.insert_one({"command": ctx.command.name, "time": round(datetime.datetime.utcnow().timestamp()), "user": {"name": ctx.author.name, "id": ctx.author.id}, "channel": channel, "guild": guild})
+    await record_slash_command(
+        {
+            "command": ctx.command.name,
+            "time": round(datetime.datetime.utcnow().timestamp()),
+            "user": {"name": ctx.author.name, "id": ctx.author.id},
+            "channel": channel,
+            "guild": guild,
+        }
+    )
 
 
 @bot.event
@@ -132,7 +113,7 @@ async def ping(ctx: discord.ApplicationContext):
 
 
 def run_bot():
-    bot.run(os.getenv("bot_token"))
+    bot.run(os.getenv("BOT_TOKEN"))
 
 
 if __name__ == "__main__":

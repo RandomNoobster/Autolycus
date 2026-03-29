@@ -5,23 +5,17 @@
  * Handles continent-specific resource sorting and validation.
  */
 
-import { Badge, Group, SimpleGrid, Title, Text, Stack } from '@mantine/core';
+import { SimpleGrid, Stack } from '@mantine/core';
 
 import type { BuildData } from '@/types';
 import { BuildCard } from './BuildCard';
-import { formatNumber } from '@/utils';
 
 interface BuildsGridProps {
   builds: Record<string, BuildData>;
   resources: string[];
-  land: number;
 }
 
-export function BuildsGrid({
-  builds,
-  resources,
-  land,
-}: BuildsGridProps) {
+export function BuildsGrid({ builds, resources }: BuildsGridProps) {
   const netIncomeKey = resources.find((resource) => resource === 'net income') ?? 'net income';
   const netIncomeBuild = builds[netIncomeKey] ?? builds['net income'] ?? Object.values(builds)[0];
 

@@ -14,7 +14,7 @@ interface TokenErrorProps {
   redirectPath?: string;
 }
 
-export function TokenError({ type, message, dataType = 'raids' }: TokenErrorProps) {
+export function TokenError({ type, message }: TokenErrorProps) {
   
   const config = {
     missing: {

@@ -10,7 +10,7 @@ import {
   useMantineReactTable,
   type MRT_ColumnDef,
 } from 'mantine-react-table';
-import { Group, Paper, Text, Title } from '@mantine/core';
+import { Group, Text } from '@mantine/core';
 
 import type { AttackStats, ResourceType } from '@/types';
 import { useTablePersistence } from '@/hooks';
@@ -110,7 +110,8 @@ export function DamageTable({
     () => [
       {
         accessorKey: 'label',
-        header: (
+        header: 'Attack Type',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             Attack Type
           </Text>
@@ -119,7 +120,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerNetDamage',
-        header: (
+        header: 'Attacker net dealt',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {attackerName} Net Dealt
           </Text>
@@ -144,7 +146,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderNetDamage',
-        header: (
+        header: 'Defender net dealt',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {defenderName} Net Dealt
           </Text>
@@ -169,13 +172,14 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerDamageDealt',
-        header: (
+        header: 'Attacker total dealt',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {attackerName} Total Dealt
           </Text>
         ),
         size: 140,
-        mantineTableBodyCellProps: ({ cell }) => ({
+        mantineTableBodyCellProps: () => ({
           style: {
             textAlign: 'right',
             ...attackerCellStyle,
@@ -186,13 +190,14 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderDamageDealt',
-        header: (
+        header: 'Defender total dealt',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {defenderName} Total Dealt
           </Text>
         ),
         size: 140,
-        mantineTableBodyCellProps: ({ cell }) => ({
+        mantineTableBodyCellProps: () => ({
           style: {
             textAlign: 'right',
             ...defenderCellStyle,
@@ -203,13 +208,14 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerDamageReceived',
-        header: (
+        header: 'Attacker total received',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {attackerName} Total Received
           </Text>
         ),
         size: 130,
-        mantineTableBodyCellProps: ({ cell }) => ({
+        mantineTableBodyCellProps: () => ({
           style: {
             textAlign: 'right',
             ...attackerCellStyle,
@@ -220,13 +226,14 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderDamageReceived',
-        header: (
+        header: 'Defender total received',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {defenderName} Total Received
           </Text>
         ),
         size: 130,
-        mantineTableBodyCellProps: ({ cell }) => ({
+        mantineTableBodyCellProps: () => ({
           style: {
             textAlign: 'right',
             ...defenderCellStyle,
@@ -237,7 +244,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerGasConsumed',
-        header: renderResourceHeader(attackerName, 'gasoline', 'Consumed'),
+        header: 'Attacker gas consumed',
+        Header: () => renderResourceHeader(attackerName, 'gasoline', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
         mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
@@ -245,7 +253,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderGasConsumed',
-        header: renderResourceHeader(defenderName, 'gasoline', 'Consumed'),
+        header: 'Defender gas consumed',
+        Header: () => renderResourceHeader(defenderName, 'gasoline', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
         mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
@@ -253,7 +262,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerMunConsumed',
-        header: renderResourceHeader(attackerName, 'munitions', 'Consumed'),
+        header: 'Attacker munitions consumed',
+        Header: () => renderResourceHeader(attackerName, 'munitions', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
         mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
@@ -261,7 +271,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderMunConsumed',
-        header: renderResourceHeader(defenderName, 'munitions', 'Consumed'),
+        header: 'Defender munitions consumed',
+        Header: () => renderResourceHeader(defenderName, 'munitions', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
         mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
@@ -269,7 +280,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerSteelConsumed',
-        header: renderResourceHeader(attackerName, 'steel', 'Consumed'),
+        header: 'Attacker steel consumed',
+        Header: () => renderResourceHeader(attackerName, 'steel', 'Consumed'),
         size: 90,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
         mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
@@ -277,7 +289,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderSteelConsumed',
-        header: renderResourceHeader(defenderName, 'steel', 'Consumed'),
+        header: 'Defender steel consumed',
+        Header: () => renderResourceHeader(defenderName, 'steel', 'Consumed'),
         size: 90,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
         mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
@@ -285,7 +298,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerAlumConsumed',
-        header: renderResourceHeader(attackerName, 'aluminum', 'Consumed'),
+        header: 'Attacker aluminum consumed',
+        Header: () => renderResourceHeader(attackerName, 'aluminum', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
         mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
@@ -293,7 +307,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderAlumConsumed',
-        header: renderResourceHeader(defenderName, 'aluminum', 'Consumed'),
+        header: 'Defender aluminum consumed',
+        Header: () => renderResourceHeader(defenderName, 'aluminum', 'Consumed'),
         size: 80,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
         mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
@@ -301,7 +316,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerUraniumConsumed',
-        header: renderResourceHeader(attackerName, 'uranium', 'Consumed'),
+        header: 'Attacker uranium consumed',
+        Header: () => renderResourceHeader(attackerName, 'uranium', 'Consumed'),
         size: 110,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
         mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
@@ -309,7 +325,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderUraniumConsumed',
-        header: renderResourceHeader(defenderName, 'uranium', 'Consumed'),
+        header: 'Defender uranium consumed',
+        Header: () => renderResourceHeader(defenderName, 'uranium', 'Consumed'),
         size: 110,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
         mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
@@ -317,7 +334,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerMoneyUsed',
-        header: renderResourceHeader(attackerName, 'money', 'Consumed'),
+        header: 'Attacker money consumed',
+        Header: () => renderResourceHeader(attackerName, 'money', 'Consumed'),
         size: 100,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...attackerCellStyle } },
         mantineTableHeadCellProps: { style: { ...attackerCellStyle, whiteSpace: 'nowrap' } },
@@ -325,7 +343,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderMoneyUsed',
-        header: renderResourceHeader(defenderName, 'money', 'Consumed'),
+        header: 'Defender money consumed',
+        Header: () => renderResourceHeader(defenderName, 'money', 'Consumed'),
         size: 100,
         mantineTableBodyCellProps: { style: { textAlign: 'right', ...defenderCellStyle } },
         mantineTableHeadCellProps: { style: { ...defenderCellStyle, whiteSpace: 'nowrap' } },
@@ -333,7 +352,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'attackerInfraDestroyed',
-        header: (
+        header: 'Attacker infra damage dealt',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {attackerName} Infra Damage Dealt
           </Text>
@@ -345,7 +365,8 @@ export function DamageTable({
       },
       {
         accessorKey: 'defenderInfraDestroyed',
-        header: (
+        header: 'Defender infra damage dealt',
+        Header: () => (
           <Text size="xs" fw={600} component="div">
             {defenderName} Infra Damage Dealt
           </Text>

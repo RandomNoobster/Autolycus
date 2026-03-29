@@ -596,7 +596,6 @@ export function BuildsPage() {
                 <BuildsGrid
                   builds={buildsData.builds}
                   resources={buildsData.resources}
-                  land={buildsData.land}
                 />
               </Grid.Col>
               <Grid.Col span={{ base: 12, lg: 5, xl: 6 }}>
@@ -660,9 +659,6 @@ export function BuildsPage() {
                   food: sampleBuild.unitUpkeep.food,
                   breakdown: sampleBuild.unitUpkeep.breakdown,
                 };
-                const activeTotal = active.total ?? 0;
-                const activeFood = active.food ?? 0;
-                const netUpkeep = activeTotal + activeFood * foodPrice;
 
                 return (
                   <>
