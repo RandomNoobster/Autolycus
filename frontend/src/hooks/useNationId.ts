@@ -1,7 +1,7 @@
 /**
  * Custom hook for managing user's nation ID in localStorage
  */
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
 const NATION_ID_KEY = 'autolycus_nation_id';
 
@@ -15,7 +15,7 @@ export function useNationId() {
     }
   });
 
-  const setNationId = (id: string) => {
+  const setNationId = useCallback((id: string) => {
     try {
       const trimmed = id.trim();
       localStorage.setItem(NATION_ID_KEY, trimmed);
@@ -23,16 +23,16 @@ export function useNationId() {
     } catch (error) {
       console.error('Failed to save nation ID to localStorage:', error);
     }
-  };
+  }, []);
 
-  const clearNationId = () => {
+  const clearNationId = useCallback(() => {
     try {
       localStorage.removeItem(NATION_ID_KEY);
       setNationIdState('');
     } catch (error) {
       console.error('Failed to clear nation ID from localStorage:', error);
     }
-  };
+  }, []);
 
   /**
    * Extract nation ID from a Politics & War nation link or return the ID as-is
@@ -40,22 +40,22 @@ export function useNationId() {
    * - https://politicsandwar.com/nation/id=123456
    * - 123456
    */
-  const parseNationId = (input: string): string | null => {
+  const parseNationId = useCallback((input: string): string | null => {
     const trimmed = input.trim();
-    
+
     // Try to extract from URL
     const urlMatch = trimmed.match(/(?:nation\/id=|nation_id=)(\d+)/i);
     if (urlMatch) {
       return urlMatch[1];
     }
-    
+
     // Check if it's just a number
     if (/^\d+$/.test(trimmed)) {
       return trimmed;
     }
-    
+
     return null;
-  };
+  }, []);
 
   return {
     nationId,

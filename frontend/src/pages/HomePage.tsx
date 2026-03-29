@@ -20,7 +20,7 @@ import {
   IconShield,
   IconArrowRight,
 } from '@tabler/icons-react';
-import { readStoredAccessToken } from '@/lib/accessTokenStorage';
+import { internalNavPath } from '@/lib/internalNavPath';
 
 const features = [
   {
@@ -54,21 +54,7 @@ export function HomePage() {
   const location = useLocation();
 
   const handleNavigate = (path: string) => {
-    // Special handling for raids (requires token)
-    if (path === '/raids') {
-      const searchParams = new URLSearchParams(location.search);
-      const hasToken =
-        searchParams.has('token') || readStoredAccessToken('raids') !== null;
-
-      if (hasToken) {
-        navigate(`${path}${location.search}`);
-      } else {
-        navigate(`/token-request?type=raids&redirect=${path}&auto=true`);
-      }
-    } else {
-      // Preserve query params (token) when navigating
-      navigate(`${path}${location.search}`);
-    }
+    navigate(internalNavPath(path, location.search));
   };
 
   return (

@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useRaidsSearchParams } from './useRaidsSearchParams';
 import type { MRT_ColumnFiltersState, MRT_SortingState } from 'mantine-react-table';
 
 interface UseUrlParamsReturn {
@@ -119,7 +119,7 @@ function sortingToUrlParams(
 }
 
 export function useUrlParams(): UseUrlParamsReturn {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useRaidsSearchParams();
 
   // Extract token - always preserve this
   const token = useMemo(() => searchParams.get('token'), [searchParams]);

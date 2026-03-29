@@ -76,13 +76,19 @@ npm run dev
 
 Create a `.env` file at repository root with at least:
 
-- `api_key`
-- `bot_token`
-- `debug_channel`
-- `pymongolink`
-- `databaselink`
-- `version`
-- `SECRET_KEY` (recommended for stable auth tokens)
+- `api_key` (Politics & War API key)
+- `bot_token` (Discord bot token)
+- `debug_channel` (Discord channel ID for bot logging)
+- `pymongolink` (MongoDB connection URI)
+- `databaselink` (main MongoDB URI — often the same as `pymongolink`)
+- `version` (MongoDB database name)
+- `SECRET_KEY` (recommended for stable auth tokens across restarts)
+
+Optional but needed for some features:
+
+- `bot_key` — PnW **bot** key (separate from `api_key`); used for game API calls in builds/market/damage flows
+- `DISCORD_BOT_API_KEY` — shared secret the bot sends as `X-Bot-Token` to the API (e.g. `/api/auth/token/issue`); must match in API and bot `.env`
+- `AUTH_TOKEN_API_KEY` — shared secret for `POST /api/auth/token/generate` if you use that flow from the web app
 
 ## Production Docker deployment (Oracle Linux)
 
@@ -147,6 +153,16 @@ version=YOUR_MONGODB_DB_NAME
 # API config
 FLASK_ENV=production
 SECRET_KEY=CHANGE_ME_TO_A_LONG_RANDOM_VALUE
+# Recommended behind the bundled Nginx proxy (see frontend/nginx.conf)
+TRUST_PROXY_HEADERS=true
+
+# PnW bot key (not the same as api_key); omit only if you do not need bot-key game API calls
+bot_key=YOUR_PNW_BOT_KEY
+
+# Same value in both services: bot uses X-Bot-Token; API validates in /api/auth/token/issue
+DISCORD_BOT_API_KEY=CHANGE_ME_SHARED_SECRET_FOR_BOT_TO_API
+
+# Optional: POST /api/auth/token/generate; if set, use the same value for VITE_AUTH_TOKEN_API_KEY below
 AUTH_TOKEN_API_KEY=
 
 # Optional tuning
@@ -157,13 +173,19 @@ WAITRESS_CHANNEL_TIMEOUT=30
 # Frontend (build-time)
 # Leave VITE_API_URL empty to use same-domain /api via Nginx proxy
 VITE_API_URL=
+# If you set AUTH_TOKEN_API_KEY above, set the same secret here so the SPA can call token generation
 VITE_AUTH_TOKEN_API_KEY=
+
+# Optional: public URLs for Discord bot links (defaults in code are placeholders)
+# AUTOLYCUS_WEB_BASE_URL=https://your-host
+# AUTOLYCUS_API_BASE_URL=https://your-host/api
 ```
 
 Notes:
 
 - `databaselink` and `pymongolink` can be the same MongoDB URI if you use one cluster.
 - `SECRET_KEY` must be set in production, otherwise tokens invalidate on restart.
+- Docker images install Python deps from `requirements.txt` at the repo root. After changing dependencies in `pyproject.toml`, run `uv lock` and `uv export --format requirements-txt --no-dev --no-emit-project --no-hashes -o requirements.txt` before building.
 
 ### 4) Build and start the stack
 

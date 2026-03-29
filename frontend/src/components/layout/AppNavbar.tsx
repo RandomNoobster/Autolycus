@@ -35,7 +35,7 @@ import {
 import { useNationId, useSidebarDiscordSession } from '@/hooks';
 import { NationIdField } from '@/components/common';
 import { DiscordSidebarCard } from '@/components/layout/DiscordSidebarCard';
-import { readStoredAccessToken } from '@/lib/accessTokenStorage';
+import { internalNavPath } from '@/lib/internalNavPath';
 
 interface NavItem {
   label: string;
@@ -119,29 +119,16 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
     setError('');
   };
 
-  const handleNavClick = (item: NavItem) => {
-    if (item.external) {
-      window.open(item.path, '_blank');
-      return;
-    }
+  const handleExternalNav = (item: NavItem) => {
+    window.open(item.path, '_blank', 'noopener,noreferrer');
+    onNavigate?.();
+  };
 
-    if (item.path === '/raids') {
-      const searchParams = new URLSearchParams(location.search);
-      const hasToken =
-        searchParams.has('token') || readStoredAccessToken('raids') !== null;
-      if (hasToken) {
-        navigate(`${item.path}${location.search}`);
-      } else {
-        navigate(`/token-request?type=raids&redirect=${item.path}&auto=true`);
-      }
-    } else {
-      const searchParams = new URLSearchParams(location.search);
-      searchParams.delete('token');
-      searchParams.delete('code');
-      const query = searchParams.toString();
-      navigate(`${item.path}${query ? `?${query}` : ''}`);
-    }
-
+  const handleInternalNav = (event: React.MouseEvent, item: NavItem) => {
+    // Mantine NavLink renders an <a> without href; prevent the browser from
+    // handling the click so client-side routing is reliable.
+    event.preventDefault();
+    navigate(internalNavPath(item.path, location.search));
     onNavigate?.();
   };
 
@@ -179,7 +166,7 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
             description={item.description}
             leftSection={item.icon}
             active={location.pathname === item.path}
-            onClick={() => handleNavClick(item)}
+            onClick={(e) => handleInternalNav(e, item)}
             variant="light"
             style={{ borderRadius: 'var(--mantine-radius-md)' }}
           />
@@ -194,7 +181,7 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
             key={item.path}
             label={item.label}
             leftSection={item.icon}
-            onClick={() => handleNavClick(item)}
+            onClick={() => handleExternalNav(item)}
             variant="subtle"
             style={{ borderRadius: 'var(--mantine-radius-md)' }}
           />

@@ -1,4 +1,5 @@
 export { useUrlParams } from './useUrlParams';
+export { useRaidsSearchParams } from './useRaidsSearchParams';
 export {
   useTablePersistence,
   type TablePersistenceDefaults,

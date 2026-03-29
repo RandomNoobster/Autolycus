@@ -26,7 +26,6 @@ import {
 } from '@mantine/core';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
 import { IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
 import type {
   MRT_ColumnFiltersState,
@@ -42,6 +41,7 @@ import {
   useNationId,
   useTablePersistence,
   usePersistedAccessToken,
+  useRaidsSearchParams,
 } from '@/hooks';
 import { RaidsTable } from '@/components/raids';
 import { TokenError, ErrorState, NationIdField } from '@/components/common';
@@ -166,7 +166,7 @@ export function RaidsPage() {
   const { token: urlToken, initialColumnFilters, initialSorting } = useUrlParams();
   const { resolveToken } = usePersistedAccessToken('raids', urlToken);
   const { nationId: savedNationId, parseNationId, setNationId } = useNationId();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useRaidsSearchParams();
 
   // Handle Discord auth code → token exchange
   const code = searchParams.get('code');

@@ -38,7 +38,7 @@ import {
   IconArrowUpRight,
 } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
 import { fetchNationData, fetchBuilds, fetchGameData } from '@/api/builds';
 import { BuildsGrid } from '@/components/builds';
@@ -51,7 +51,7 @@ import { useNationId } from '@/hooks';
 
 export function BuildsPage() {
   const { nationId: savedNationId, setNationId, parseNationId } = useNationId();
-  const [searchParams] = useSearchParams();
+  const { search } = useLocation();
   const [showResults, setShowResults] = useState(false);
   const [buildsData, setBuildsData] = useState<BuildsResponse | null>(null);
   const [isLoadingNation, setIsLoadingNation] = useState(false);
@@ -96,9 +96,10 @@ export function BuildsPage() {
     },
   });
 
-  // Auto-load nation data from URL
+  // Auto-load nation data from URL when the query string changes.
   useEffect(() => {
-    const urlNationId = searchParams.get('nationId') || searchParams.get('nation_id');
+    const sp = new URLSearchParams(search);
+    const urlNationId = sp.get('nationId') || sp.get('nation_id');
     if (!urlNationId) return;
     const parsed = parseNationId(urlNationId);
     if (!parsed) return;
@@ -107,7 +108,7 @@ export function BuildsPage() {
     form.setFieldValue('nationId', parsedNum);
     setNationId(parsed);
     setAutoLoadNation(true);
-  }, [searchParams, parseNationId, setNationId]);
+  }, [search, parseNationId, setNationId]);
 
 
   const projectOptions = gameData
