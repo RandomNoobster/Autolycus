@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Union
@@ -19,6 +20,15 @@ def _coerce_level(level: Union[str, int]) -> int:
     if isinstance(maybe_level, int):
         return maybe_level
     return logging.INFO
+
+
+def _logs_base(logs_root: Union[str, Path, None]) -> Path:
+    if logs_root is not None:
+        return Path(logs_root)
+    env = (os.getenv("LOGS_ROOT") or "").strip()
+    if env:
+        return Path(env)
+    return Path.cwd() / "logs"
 
 
 def setup_logging(
@@ -41,8 +51,8 @@ def setup_logging(
         root_logger.removeHandler(handler)
         handler.close()
 
-    root_path = Path(logs_root) if logs_root is not None else Path.cwd() / "logs"
-    process_dir = root_path / process_name
+    base = _logs_base(logs_root)
+    process_dir = base / process_name
     process_dir.mkdir(parents=True, exist_ok=True)
 
     formatter = logging.Formatter(DEFAULT_FORMAT, datefmt=DEFAULT_DATEFMT)

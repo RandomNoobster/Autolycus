@@ -1,2 +1,5 @@
 # Track database files with Git LFS
 data/city_builds.db filter=lfs diff=lfs merge=lfs -text
+
+# Shell entrypoint must use LF so Linux containers run it correctly
+docker-entrypoint.sh text eol=lf
