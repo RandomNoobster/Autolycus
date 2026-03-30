@@ -25,7 +25,7 @@ export function AppHeader({ mobileOpened, toggleMobile }: AppHeaderProps) {
           alt="Autolycus"
           w={28}
           h={28}
-          fallbackSrc="/assets/icon.svg"
+          fallbackSrc="/assets/icon.png"
         />
         <Title order={4}>Autolycus</Title>
       </Group>

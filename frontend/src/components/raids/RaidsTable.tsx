@@ -343,7 +343,7 @@ export function RaidsTable({
       {
         accessorKey: 'id',
         header: 'ID',
-        size: 100, 
+        size: 70, 
       },
       {
         accessorKey: 'nationName',
@@ -382,7 +382,7 @@ export function RaidsTable({
       {
         accessorKey: 'alliancePosition',
         header: 'Position',
-        size: 130,
+        size: 110,
         filterVariant: 'multi-select',
         mantineFilterMultiSelectProps: {
           data: uniquePositions,
@@ -403,12 +403,12 @@ export function RaidsTable({
           step: 1,
           minRange: 0,
         },
-        size: 120, // Increased slightly to fit "Cities" + Icon
+        size: 90, // Increased slightly to fit "Cities" + Icon
       },
       {
         accessorKey: 'color',
         header: 'Color',
-        size: 120,
+        size: 110,
         filterVariant: 'multi-select',
         mantineFilterMultiSelectProps: {
           data: uniqueColors,
@@ -426,7 +426,7 @@ export function RaidsTable({
               accessorKey: 'beigeTurns',
               header: 'Beige Turns',
               Header: () => wrappedHeader('Beige Turns'), // Use custom wrapper
-              size: 120,
+              size: 90,
               filterFn: beigeFilter,
               filterVariant: 'select',
               mantineFilterSelectProps: {
@@ -440,7 +440,7 @@ export function RaidsTable({
             {
               id: 'reminder',
               header: 'Reminder', // Shortened text
-              size: 120,
+              size: 100,
               enableSorting: false,
               enableColumnFilter: false,
               Cell: ({ row }: { row: MRT_Row<RaidTarget> }) => {
@@ -484,7 +484,7 @@ export function RaidsTable({
         accessorKey: 'nationLoot',
         header: 'Beige Loot',
         Header: () => wrappedHeader('Beige Loot'),
-        size: 120,
+        size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: minOnlyFilter,
         Filter: MinOnlyFilterInput,
@@ -493,8 +493,8 @@ export function RaidsTable({
         accessorKey: 'daysInactive',
         header: 'Days Inactive',
         Header: () => wrappedHeader('Days Inactive'),
-        size: 130,
-        mantineTableBodyCellProps: { align: 'right' },
+        size: 105,
+        mantineTableBodyCellProps: { align: 'center' },
         filterFn: minOnlyFilter,
         Filter: MinOnlyFilterInput,
       },
@@ -502,7 +502,7 @@ export function RaidsTable({
         accessorKey: 'monetaryNetIncome',
         header: 'Net Income',
         Header: () => headerWithTooltip('Net Income', 'Total resource gain/loss valued at current prices (cash + resources).'),
-        size: 130,
+        size: 105,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
         filterFn: minOnlyFilter,
@@ -512,7 +512,7 @@ export function RaidsTable({
         accessorKey: 'netCashIncome',
         header: 'Cash Income',
         Header: () => headerWithTooltip('Cash Income', 'Net cash-only income (excludes the value of produced resources).'),
-        size: 130,
+        size: 105,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
         filterFn: minOnlyFilter,
@@ -521,9 +521,10 @@ export function RaidsTable({
       {
         accessorKey: 'taxable',
         header: 'Taxable', // Shortened
-        size: 130,
+        size: 105,
         filterVariant: 'select',
         filterFn: booleanFilter,
+        mantineTableBodyCellProps: { align: 'center' },
         mantineFilterSelectProps: {
           data: [
             { value: 'true', label: 'Yes' },
@@ -536,15 +537,15 @@ export function RaidsTable({
       {
         accessorKey: 'treasures',
         header: 'Treasures', // Abbreviated to fit
-        size: 140,
-        mantineTableBodyCellProps: { align: 'right' },
+        size: 120,
+        mantineTableBodyCellProps: { align: 'center' },
       },
       {
         accessorKey: 'defSlots',
         header: 'Used Defensive Slots',
         Header: () => wrappedHeader('Used Defensive Slots'),
-        size: 145,
-        mantineTableBodyCellProps: { align: 'right' },
+        size: 120,
+        mantineTableBodyCellProps: { align: 'center' },
         filterFn: maxOnlyFilter,
         Filter: DefSlotsMaxOnlyFilterInput,
       },
@@ -552,7 +553,7 @@ export function RaidsTable({
         accessorKey: 'timeSinceWar',
         header: 'Days Since War',
         Header: () => wrappedHeader('Days Since War'),
-        size: 130,
+        size: 90,
         filterFn: minOnlyFilter,
         Filter: NumericMinOnlyFilterInput,
       },
@@ -560,7 +561,7 @@ export function RaidsTable({
       {
         accessorKey: 'soldiers',
         header: 'Soldiers',
-        size: 130,
+        size: 105,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
         filterFn: maxOnlyFilter,
@@ -569,7 +570,7 @@ export function RaidsTable({
       {
         accessorKey: 'tanks',
         header: 'Tanks',
-        size: 120,
+        size: 90,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
         filterFn: maxOnlyFilter,
@@ -578,7 +579,7 @@ export function RaidsTable({
       {
         accessorKey: 'aircraft',
         header: 'Aircraft',
-        size: 130,
+        size: 105,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
         Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 2k)" />,
@@ -586,7 +587,7 @@ export function RaidsTable({
       {
         accessorKey: 'ships',
         header: 'Ships',
-        size: 120,
+        size: 90,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
         Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 400)" />,
@@ -594,7 +595,7 @@ export function RaidsTable({
       {
         accessorKey: 'missiles',
         header: 'Missiles',
-        size: 130,
+        size: 105,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
         Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 50)" />,
@@ -602,7 +603,7 @@ export function RaidsTable({
       {
         accessorKey: 'nukes',
         header: 'Nukes',
-        size: 120,
+        size: 95,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
         Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 20)" />,
@@ -611,7 +612,7 @@ export function RaidsTable({
         accessorKey: 'groundWin',
         header: 'Ground Win %',
         Header: () => wrappedHeader('Ground Win %'),
-        size: 130, // "Ground" needs ~50px + Icon ~20px + Padding
+        size: 105, // "Ground" needs ~50px + Icon ~20px + Padding
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
         filterFn: minOnlyFilter,
@@ -621,7 +622,7 @@ export function RaidsTable({
         accessorKey: 'airWin',
         header: 'Air Win %',
         Header: () => wrappedHeader('Air Win %'),
-        size: 120,
+        size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
         filterFn: minOnlyFilter,
@@ -631,7 +632,7 @@ export function RaidsTable({
         accessorKey: 'navalWin',
         header: 'Naval Win %',
         Header: () => wrappedHeader('Naval Win %'),
-        size: 130,
+        size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
         filterFn: minOnlyFilter,
@@ -641,7 +642,7 @@ export function RaidsTable({
         accessorKey: 'totalWin',
         header: 'Total Win %',
         Header: () => wrappedHeader('Total Win %'),
-        size: 130,
+        size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
         filterFn: minOnlyFilter,
@@ -657,11 +658,13 @@ export function RaidsTable({
     data,
     enableColumnResizing: true,
     enableColumnOrdering: true,
+    enableColumnDragging: false,
     enablePagination: true,
     enableStickyHeader: true,
     enableRowVirtualization: data.length > 50,
     enableColumnFilters: true,
     enableFilters: true,
+    enableDensityToggle: false,
 
     filterFns: {
       minOnly: minOnlyFilter,

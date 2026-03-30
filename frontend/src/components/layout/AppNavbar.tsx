@@ -141,7 +141,7 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
           alt="Autolycus"
           w={30}
           h={30}
-          fallbackSrc="/assets/icon.svg"
+          fallbackSrc="/assets/icon.png"
         />
         <Title order={4}>Autolycus</Title>
       </Group>

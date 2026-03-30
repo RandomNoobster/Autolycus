@@ -271,8 +271,6 @@ export function RaidsPage() {
     setColumnVisibility,
     columnOrder,
     setColumnOrder,
-    density,
-    setDensity,
   } = useTablePersistence('raids', RAIDS_TABLE_PERSISTENCE_DEFAULTS);
 
   const [columnFilters, setColumnFilters] = useState<MRT_ColumnFiltersState>(
@@ -1178,11 +1176,11 @@ export function RaidsPage() {
               initialSorting={initialSorting}
               columnVisibility={columnVisibility}
               columnOrder={columnOrder}
-              density={density}
+              density="xs"
               columnFilters={columnFilters}
               onColumnVisibilityChange={setColumnVisibility}
               onColumnOrderChange={setColumnOrder}
-              onDensityChange={setDensity}
+              onDensityChange={() => {}}
               onColumnFiltersChange={handleColumnFiltersChange}
             />
           )}

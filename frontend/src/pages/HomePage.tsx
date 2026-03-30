@@ -27,7 +27,7 @@ const features = [
     icon: IconSword,
     title: 'Raid Targets',
     description:
-      'Find profitable targets to raid based on loot value, military strength, and win probability.',
+      'Find profitable targets to raid based on loot value, military strength, and more.',
     path: '/raids',
     color: 'red',
   },
@@ -35,7 +35,7 @@ const features = [
     icon: IconBuildingFactory2,
     title: 'City Builds',
     description:
-      'Discover optimal city build templates for maximum resource production or income.',
+      'Discover optimal city build templates for maximum income.',
     path: '/builds',
     color: 'blue',
   },
@@ -67,7 +67,7 @@ export function HomePage() {
           <Title order={1}>Welcome to Autolycus</Title>
           <Text size="lg" c="dimmed" maw={600}>
             Your comprehensive toolkit for Politics & War. Access raid targets,
-            city builds, and damage calculations through Discord links.
+            city builds, and damage calculations.
           </Text>
         </Stack>
 
@@ -102,28 +102,6 @@ export function HomePage() {
             </Card>
           ))}
         </SimpleGrid>
-
-        <Card shadow="sm" padding="lg" radius="md" withBorder w="100%" maw={600}>
-          <Stack gap="md">
-            <Title order={4}>How to Use</Title>
-            <Text size="sm">
-              1. Use the Autolycus Discord bot in your server to generate a
-              link.
-            </Text>
-            <Text size="sm">
-              2. Click the link provided by the bot - it will open directly to the
-              relevant page.
-            </Text>
-            <Text size="sm">
-              3. Your data is loaded automatically. Use filters, sort columns, and
-              explore!
-            </Text>
-            <Text size="sm" c="dimmed">
-              Note: Links expire after 7 days. Request a new link anytime from
-              Discord.
-            </Text>
-          </Stack>
-        </Card>
       </Stack>
     </Container>
   );
