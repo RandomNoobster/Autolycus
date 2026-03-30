@@ -1,12 +1,27 @@
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
     build:
       context: .
       dockerfile: Dockerfile.python
     command: python -m api.app
     env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/api/health').read()"]
@@ -20,10 +35,15 @@ services:
       dockerfile: Dockerfile.python
     command: python -m bot
     env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_healthy
       api:
         condition: service_healthy
 
@@ -35,6 +55,7 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     restart: unless-stopped
 
   frontend:

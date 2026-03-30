@@ -42,9 +42,20 @@ SCAN_RETRY_BASE_SECONDS = 5
 SCAN_RETRY_MAX_SECONDS = 120
 SCAN_PAGE_REQUEST_DELAY_SECONDS = 2
 SCAN_NATION_FAILURE_BACKOFF_SECONDS = 30
+# After per-page retries exhaust, skip to next page: backoff grows with consecutive skips; then abort.
+SCAN_SKIP_BACKOFF_BASE_SECONDS = 30
+SCAN_SKIP_BACKOFF_MAX_SECONDS = 600
+SCAN_SKIP_MAX_CONSECUTIVE_PAGES = 15
 
 # Serialize SQLite writes to nations.db when incremental + full scans overlap.
 _nation_scan_write_lock = asyncio.Lock()
+
+
+def _skip_backoff_seconds(consecutive_page_failures: int) -> float:
+    return min(
+        SCAN_SKIP_BACKOFF_BASE_SECONDS * consecutive_page_failures,
+        SCAN_SKIP_BACKOFF_MAX_SECONDS,
+    )
 
 
 async def _fetch_with_retry(
@@ -133,16 +144,38 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
         table_ready = False
         more_pages = True
         n = 1
+        consecutive_page_failures = 0
         while more_pages:
             start = time.time()
+            await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
+            query = _build_nation_query(n, min_score=min_score, vmode=vmode)
             try:
-                await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
-                query = _build_nation_query(n, min_score=min_score, vmode=vmode)
                 resp = await _fetch_with_retry(query, scan_type="nation", page=n)
-                page_data = resp['data']['nations']['data']
             except Exception:
                 logger.error("[nation-scan] page fetch failed page=%s", n, exc_info=True)
-                raise
+                consecutive_page_failures += 1
+                if consecutive_page_failures >= SCAN_SKIP_MAX_CONSECUTIVE_PAGES:
+                    logger.error(
+                        "[nation-scan] giving up after consecutive_page_failures=%s (max=%s)",
+                        consecutive_page_failures,
+                        SCAN_SKIP_MAX_CONSECUTIVE_PAGES,
+                    )
+                    raise
+                skip_wait = _skip_backoff_seconds(consecutive_page_failures)
+                logger.warning(
+                    "[nation-scan] skipping to next page after failure page=%s "
+                    "consecutive_failures=%s/%s skip_backoff_s=%s",
+                    n,
+                    consecutive_page_failures,
+                    SCAN_SKIP_MAX_CONSECUTIVE_PAGES,
+                    skip_wait,
+                )
+                await asyncio.sleep(skip_wait)
+                n += 1
+                continue
+
+            consecutive_page_failures = 0
+            page_data = resp['data']['nations']['data']
 
             async with _nation_scan_write_lock:
                 if page_data and not table_ready:
@@ -238,20 +271,42 @@ async def alliance_scanner():
                 fetched_ids = []
                 rows_written = 0
                 table_ready = False
+                consecutive_page_failures = 0
                 while more_pages:
                     start = time.time()
+                    await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
                     try:
-                        await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
                         resp = await _fetch_with_retry(
                             f"{{alliances(page:{n} first:100 orderBy:{{column:ID order:ASC}})"
                             f"{{paginatorInfo{{hasMorePages}} data{get_query(queries.ALLIANCE_SCANNER)}}}}}",
                             scan_type="alliance",
                             page=n,
                         )
-                        page_data = resp['data']['alliances']['data']
                     except Exception:
                         logger.error("[alliance-scan] page fetch failed page=%s", n, exc_info=True)
-                        raise
+                        consecutive_page_failures += 1
+                        if consecutive_page_failures >= SCAN_SKIP_MAX_CONSECUTIVE_PAGES:
+                            logger.error(
+                                "[alliance-scan] giving up after consecutive_page_failures=%s (max=%s)",
+                                consecutive_page_failures,
+                                SCAN_SKIP_MAX_CONSECUTIVE_PAGES,
+                            )
+                            raise
+                        skip_wait = _skip_backoff_seconds(consecutive_page_failures)
+                        logger.warning(
+                            "[alliance-scan] skipping to next page after failure page=%s "
+                            "consecutive_failures=%s/%s skip_backoff_s=%s",
+                            n,
+                            consecutive_page_failures,
+                            SCAN_SKIP_MAX_CONSECUTIVE_PAGES,
+                            skip_wait,
+                        )
+                        await asyncio.sleep(skip_wait)
+                        n += 1
+                        continue
+
+                    consecutive_page_failures = 0
+                    page_data = resp['data']['alliances']['data']
 
                     if page_data and not table_ready:
                         ensure_table_and_columns(conn, 'alliances', page_data[0])

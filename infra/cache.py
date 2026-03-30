@@ -12,6 +12,7 @@ import logging
 import os
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar
+from urllib.parse import unquote, urlparse
 
 from aiocache import Cache, cached
 from aiocache.serializers import PickleSerializer
@@ -27,19 +28,36 @@ TTL_REVENUE_CONTEXT = 300 # 5 minutes - shared revenue calculation context
 TTL_BUILDS = 600          # 10 minutes - build optimizer results
 TTL_HISTORICAL_PRICES = 1800  # 30 minutes - historical price averages
 
-# Backend selection - can switch to Redis in production
-CACHE_BACKEND = Cache.MEMORY
+def _redis_kwargs_from_url(url: str) -> dict[str, Any]:
+    """Build aiocache Redis kwargs from redis:// or rediss:// URL."""
+    parsed = urlparse(url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 6379
+    config: dict[str, Any] = {"endpoint": host, "port": port}
+    if parsed.password is not None:
+        config["password"] = unquote(parsed.password)
+    path = (parsed.path or "").strip("/")
+    if path.isdigit():
+        config["db"] = int(path)
+    if parsed.scheme == "rediss":
+        config["ssl"] = True
+    return config
 
-# Optional Redis configuration (used when REDIS_URL is set)
+
+# Backend selection: unset REDIS_URL locally for in-memory; Docker sets redis://redis:6379/0
+CACHE_BACKEND = Cache.MEMORY
 REDIS_CONFIG: dict[str, Any] = {}
-if os.getenv("REDIS_URL"):
-    CACHE_BACKEND = Cache.REDIS
-    REDIS_CONFIG = {
-        "endpoint": os.getenv("REDIS_HOST", "localhost"),
-        "port": int(os.getenv("REDIS_PORT", 6379)),
-        "password": os.getenv("REDIS_PASSWORD"),
-    }
-    logger.info("Cache configured with Redis backend")
+_redis_url = (os.getenv("REDIS_URL") or "").strip()
+if _redis_url:
+    _parsed = urlparse(_redis_url)
+    if _parsed.scheme in ("redis", "rediss"):
+        CACHE_BACKEND = Cache.REDIS
+        REDIS_CONFIG = _redis_kwargs_from_url(_redis_url)
+        logger.info("Cache configured with Redis backend (%s:%s)", REDIS_CONFIG["endpoint"], REDIS_CONFIG["port"])
+    else:
+        logger.warning(
+            "REDIS_URL is set but is not redis:// or rediss://; using in-memory cache",
+        )
 else:
     logger.info("Cache configured with in-memory backend")
 
