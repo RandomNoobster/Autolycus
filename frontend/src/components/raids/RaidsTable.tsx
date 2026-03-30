@@ -798,7 +798,7 @@ export function RaidsTable({
       </Menu>
       <MantineReactTable table={table} />
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
-        Hide or show columns, reorder them, adjust density, and filter columns by using the controls in the top-right of the table.
+        Hide or show columns, reorder them and filter columns by using the controls in the top-right of the table.
         Right-click any row to open a context menu with quick links to the nation page, alliance page, declare war page, or to set a beige reminder.
       </Alert>
     </Stack>
