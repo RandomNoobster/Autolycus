@@ -16,8 +16,7 @@ from core.logging_config import setup_logging
 from database.mongo import get_db
 from database.sqlite_cache import (ensure_metadata_table, ensure_table_and_columns,
                                    get_alliances_db_path, get_nations_db_path,
-                                   prune_missing_ids, row_to_db_values,
-                                   set_metadata, upsert)
+                                   prune_missing_ids, set_metadata, upsert)
 from logic.api_client import call
 from logic.common import compute_beige_loot
 from logic.merge_utils import get_query
@@ -43,6 +42,9 @@ SCAN_RETRY_BASE_SECONDS = 5
 SCAN_RETRY_MAX_SECONDS = 120
 SCAN_PAGE_REQUEST_DELAY_SECONDS = 2
 SCAN_NATION_FAILURE_BACKOFF_SECONDS = 30
+
+# Serialize SQLite writes to nations.db when incremental + full scans overlap.
+_nation_scan_write_lock = asyncio.Lock()
 
 
 async def _fetch_with_retry(
@@ -111,32 +113,8 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
         prune,
         metadata_key,
     )
-    more_pages = True
-    n = 1
-    new_nations: dict[str, list[dict[str, Any]]] = {"nations": []}
-    fetched_ids: list[int] = []
-    while more_pages:
-        start = time.time()
-        try:
-            await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
-            query = _build_nation_query(n, min_score=min_score, vmode=vmode)
-            resp = await _fetch_with_retry(query, scan_type="nation", page=n)
-            page_data = resp['data']['nations']['data']
-            new_nations['nations'] += page_data
-            fetched_ids += [int(row.get('id')) for row in page_data if row.get('id') is not None]
-            more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
-        except Exception:
-            logger.error("[nation-scan] page fetch failed page=%s", n, exc_info=True)
-            raise
-        logger.debug("[nation-scan] fetched page=%s duration_s=%.2f", n, time.time() - start)
-        n += 1
-
     conn = sqlite3.connect(get_nations_db_path())
     try:
-        nations = new_nations['nations']
-
-        # Pre-compute beige loot values using current market prices.
-        # Gracefully skip if prices are unavailable.
         prices = None
         try:
             prices_query = get_query(queries.PRICES)
@@ -149,39 +127,72 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
         except Exception as exc:
             logger.warning("[nation-scan] failed to fetch prices for beige loot: %s", exc)
 
+        fetched_ids: list[int] = []
         loot_computed = 0
-        if nations:
-            ensure_table_and_columns(conn, 'nations', nations[0])
-            for row in nations:
-                # Compute beige loot from war data before persisting
-                if prices:
-                    try:
-                        loot = compute_beige_loot(row, prices)
-                        if loot is not None:
-                            row['nation_loot_value'] = loot
-                            loot_computed += 1
-                    except Exception as exc:
-                        logger.warning(
-                            "[nation-scan] beige loot computation failed nation_id=%s error=%s",
-                            row.get("id"),
-                            exc,
-                        )
-                ensure_table_and_columns(conn, 'nations', row)
-                upsert(conn, 'nations', row)
+        rows_written = 0
+        table_ready = False
+        more_pages = True
+        n = 1
+        while more_pages:
+            start = time.time()
+            try:
+                await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
+                query = _build_nation_query(n, min_score=min_score, vmode=vmode)
+                resp = await _fetch_with_retry(query, scan_type="nation", page=n)
+                page_data = resp['data']['nations']['data']
+            except Exception:
+                logger.error("[nation-scan] page fetch failed page=%s", n, exc_info=True)
+                raise
 
-        if prune and fetched_ids:
-            prune_missing_ids(conn, 'nations', fetched_ids)
-        elif prune:
-            logger.warning("[nation-scan] skipping prune because no fetched nation ids were collected")
+            async with _nation_scan_write_lock:
+                if page_data and not table_ready:
+                    ensure_table_and_columns(conn, 'nations', page_data[0])
+                    table_ready = True
 
-        ensure_metadata_table(conn)
-        last_ts = round(datetime.utcnow().timestamp())
-        set_metadata(conn, metadata_key, last_ts)
+                for row in page_data:
+                    if prices:
+                        try:
+                            loot = compute_beige_loot(row, prices)
+                            if loot is not None:
+                                row['nation_loot_value'] = loot
+                                loot_computed += 1
+                        except Exception as exc:
+                            logger.warning(
+                                "[nation-scan] beige loot computation failed nation_id=%s error=%s",
+                                row.get("id"),
+                                exc,
+                            )
+                    ensure_table_and_columns(conn, 'nations', row)
+                    upsert(conn, 'nations', row)
+                    rows_written += 1
+
+                fetched_ids += [
+                    int(row.get('id')) for row in page_data if row.get('id') is not None
+                ]
+
+            more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
+            logger.debug(
+                "[nation-scan] fetched and persisted page=%s rows_on_page=%s duration_s=%.2f",
+                n,
+                len(page_data),
+                time.time() - start,
+            )
+            n += 1
+
+        async with _nation_scan_write_lock:
+            if prune and fetched_ids:
+                prune_missing_ids(conn, 'nations', fetched_ids)
+            elif prune:
+                logger.warning("[nation-scan] skipping prune because no fetched nation ids were collected")
+
+            ensure_metadata_table(conn)
+            last_ts = round(datetime.utcnow().timestamp())
+            set_metadata(conn, metadata_key, last_ts)
         logger.info(
             "[nation-scan] completed pages=%s rows_saved=%s loot_precomputed=%s min_score=%s "
             "vmode=%s duration_min=%.2f",
             n - 1,
-            len(nations),
+            rows_written,
             loot_computed,
             min_score,
             vmode,
@@ -220,39 +231,49 @@ async def alliance_scanner():
         try:
             series_start = time.time()
             logger.info("[alliance-scan] start")
-            more_pages = True
-            n = 1
-            new_alliances = {"alliances": []}
-            fetched_ids = []
-            while more_pages:
-                start = time.time()
-                try:
-                    await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
-                    resp = await _fetch_with_retry(
-                        f"{{alliances(page:{n} first:100 orderBy:{{column:ID order:ASC}})"
-                        f"{{paginatorInfo{{hasMorePages}} data{get_query(queries.ALLIANCE_SCANNER)}}}}}",
-                        scan_type="alliance",
-                        page=n,
-                    )
-                    new_alliances['alliances'] += resp['data']['alliances']['data']
-                    fetched_ids += [int(a.get('id')) for a in resp['data']['alliances']['data'] if a.get('id') is not None]
-                    more_pages = resp['data']['alliances']['paginatorInfo']['hasMorePages']
-                except Exception:
-                    logger.error("[alliance-scan] page fetch failed page=%s", n, exc_info=True)
-                    raise
-                logger.debug("[alliance-scan] fetched page=%s duration_s=%.2f", n, time.time() - start)
-                n += 1
-
             conn = sqlite3.connect(get_alliances_db_path())
             try:
-                alliances = new_alliances['alliances']
-                if alliances:
-                    ensure_table_and_columns(conn, 'alliances', alliances[0])
-                    for row in alliances:
+                more_pages = True
+                n = 1
+                fetched_ids = []
+                rows_written = 0
+                table_ready = False
+                while more_pages:
+                    start = time.time()
+                    try:
+                        await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
+                        resp = await _fetch_with_retry(
+                            f"{{alliances(page:{n} first:100 orderBy:{{column:ID order:ASC}})"
+                            f"{{paginatorInfo{{hasMorePages}} data{get_query(queries.ALLIANCE_SCANNER)}}}}}",
+                            scan_type="alliance",
+                            page=n,
+                        )
+                        page_data = resp['data']['alliances']['data']
+                    except Exception:
+                        logger.error("[alliance-scan] page fetch failed page=%s", n, exc_info=True)
+                        raise
+
+                    if page_data and not table_ready:
+                        ensure_table_and_columns(conn, 'alliances', page_data[0])
+                        table_ready = True
+
+                    for row in page_data:
                         ensure_table_and_columns(conn, 'alliances', row)
                         upsert(conn, 'alliances', row)
+                        rows_written += 1
 
-                # Prune stale alliances only when fetch produced ids.
+                    fetched_ids += [
+                        int(a.get('id')) for a in page_data if a.get('id') is not None
+                    ]
+                    more_pages = resp['data']['alliances']['paginatorInfo']['hasMorePages']
+                    logger.debug(
+                        "[alliance-scan] fetched and persisted page=%s rows_on_page=%s duration_s=%.2f",
+                        n,
+                        len(page_data),
+                        time.time() - start,
+                    )
+                    n += 1
+
                 if fetched_ids:
                     prune_missing_ids(conn, 'alliances', fetched_ids)
                 else:
@@ -264,7 +285,7 @@ async def alliance_scanner():
                 logger.info(
                     "[alliance-scan] completed pages=%s rows_saved=%s duration_min=%.2f",
                     n - 1,
-                    len(alliances),
+                    rows_written,
                     (time.time() - series_start) / 60,
                 )
             finally:
