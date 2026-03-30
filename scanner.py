@@ -34,7 +34,7 @@ async def nation_scanner():
                 start = time.time()
                 try:
                     await asyncio.sleep(2)
-                    resp = await utils.call(f"{{nations(page:{n} first:100 vmode:false min_score:15 orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.BACKGROUND_SCANNER)}}}}}", api_key)
+                    resp = await utils.call(f"{{nations(page:{n} first:70 vmode:false min_score:15 orderBy:{{column:DATE order:ASC}}){{paginatorInfo{{hasMorePages}} data{utils.get_query(queries.BACKGROUND_SCANNER)}}}}}", api_key)
                     new_nations['nations'] += resp['data']['nations']['data']
                     more_pages = resp['data']['nations']['paginatorInfo']['hasMorePages']
                 except (aiohttp.client_exceptions.ContentTypeError, TypeError):
