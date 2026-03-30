@@ -101,6 +101,7 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
   const discordSession = useSidebarDiscordSession();
   const [inputValue, setInputValue] = useState(nationId);
   const [error, setError] = useState('');
+  const isLightMode = colorScheme === 'light';
 
   const handleSaveNationId = () => {
     const parsed = parseNationId(inputValue);
@@ -168,7 +169,36 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
             active={location.pathname === item.path}
             onClick={(e) => handleInternalNav(e, item)}
             variant="light"
-            style={{ borderRadius: 'var(--mantine-radius-md)' }}
+            style={{
+              borderRadius: 'var(--mantine-radius-md)',
+              textDecoration: 'none',
+              backgroundColor:
+                isLightMode && location.pathname === item.path
+                  ? 'var(--mantine-color-orange-0)'
+                  : undefined,
+              border:
+                isLightMode && location.pathname === item.path
+                  ? '1px solid var(--mantine-color-orange-2)'
+                  : undefined,
+            }}
+            styles={
+              isLightMode
+                ? {
+                    section: {
+                      color: 'var(--mantine-color-gray-7)',
+                    },
+                    label: {
+                      color: 'var(--mantine-color-black)',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    },
+                    description: {
+                      color: 'var(--mantine-color-gray-7)',
+                      textDecoration: 'none',
+                    },
+                  }
+                : undefined
+            }
           />
         ))}
       </Stack>
@@ -183,7 +213,21 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
             leftSection={item.icon}
             onClick={() => handleExternalNav(item)}
             variant="subtle"
-            style={{ borderRadius: 'var(--mantine-radius-md)' }}
+            style={{ borderRadius: 'var(--mantine-radius-md)', textDecoration: 'none' }}
+            styles={
+              isLightMode
+                ? {
+                    section: {
+                      color: 'var(--mantine-color-gray-7)',
+                    },
+                    label: {
+                      color: 'var(--mantine-color-black)',
+                      fontWeight: 500,
+                      textDecoration: 'none',
+                    },
+                  }
+                : undefined
+            }
           />
         ))}
       </Stack>

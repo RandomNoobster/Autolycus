@@ -3,16 +3,10 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Badge, Group, Skeleton, Stack, Text } from '@mantine/core';
+import { Badge, Group, Skeleton, Stack, Text, useMantineColorScheme } from '@mantine/core';
 import { IconBrandDiscord } from '@tabler/icons-react';
 
 import type { SidebarDiscordSession } from '@/hooks';
-
-const iconProps = {
-  size: 18,
-  stroke: 1.5,
-  style: { color: 'var(--mantine-color-white)', flexShrink: 0 } as const,
-};
 
 function formatTimeLeft(expiresAtSec: number): string {
   const now = Math.floor(Date.now() / 1000);
@@ -38,6 +32,18 @@ interface DiscordSidebarCardProps {
 }
 
 export function DiscordSidebarCard({ session }: DiscordSidebarCardProps) {
+  const { colorScheme } = useMantineColorScheme();
+  const iconProps = {
+    size: 18,
+    stroke: 1.5,
+    style: {
+      color:
+        colorScheme === 'light'
+          ? 'var(--mantine-color-black)'
+          : 'var(--mantine-color-white)',
+      flexShrink: 0,
+    } as const,
+  };
   const [, setTick] = useState(0);
   useEffect(() => {
     if (session.status !== 'signed_in') return;

@@ -807,9 +807,27 @@ export function RaidsTable({
 
 function getColorBadge(color: string): string {
   const colorMap: Record<string, string> = {
-    aqua: 'cyan', black: 'dark', blue: 'blue', brown: 'orange', green: 'green',
-    lime: 'lime', maroon: 'red', olive: 'yellow', orange: 'orange', pink: 'pink',
-    purple: 'grape', red: 'red', white: 'gray', yellow: 'yellow', beige: 'yellow', gray: 'gray',
+    aqua: 'cyan',
+    black: 'gray',
+    blue: 'blue',
+    brown: 'orange',
+    green: 'green',
+    lime: 'lime',
+    maroon: 'red',
+    olive: 'yellow',
+    orange: 'orange',
+    pink: 'pink',
+    purple: 'grape',
+    red: 'red',
+    white: 'gray',
+    yellow: 'yellow',
+    beige: 'yellow',
+    gray: 'gray',
+    grey: 'gray',
+    gold: 'yellow',
+    lavender: 'violet',
+    turquoise: 'cyan',
+    teal: 'teal',
   };
   return colorMap[color.toLowerCase()] || 'gray';
 }
