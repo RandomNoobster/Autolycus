@@ -23,6 +23,7 @@ from database import sqlite_cache as db_utils
 from database.users import (delete_verification, get_verification,
                             set_verification)
 from bot.discord_utils import help_data, helpers
+from bot.discord_utils import errors as err_util
 from bot.discord_utils.embeds import nation_overview_embed
 from logic.api_client import call, paginate_call
 from logic.builds import calculate_builds as calculate_builds_logic
@@ -31,6 +32,7 @@ from logic.common import str_to_int
 from logic.merge_utils import get_query
 from logic.military import militarization_checker
 from logic.revenue import pre_revenue_calc, revenue_calc
+from core.config import AUTOLYCUS_WEB_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +168,15 @@ class Background(commands.Cog):
                     mmr=mmr,
                 )
             except ValueError as exc:
-                await ctx.edit(content=str(exc))
+                reference = err_util.new_error_reference()
+                err_util.log_command_error(logger, exc, ctx=ctx, reference=reference)
+                embed = err_util.error_embed(
+                    "Builds request failed",
+                    "Could not run that builds query. Check **infrastructure** (multiple of 50), **land**, and **MMR** "
+                    "using `barracks/factory/hangar/drydock` or `any`, then try again.",
+                    reference=reference,
+                )
+                await ctx.edit(content="", embed=embed)
                 return
 
             unique_builds = results.get("uniqueBuilds", [])
@@ -186,7 +196,7 @@ class Background(commands.Cog):
 
             # Build URL parameters for the frontend builds page
             # The frontend will call the live API with these parameters
-            builds_url = f"http://132.145.71.195:3000/builds?nationId={db_nation['id']}"
+            builds_url = f"{AUTOLYCUS_WEB_BASE_URL}/builds?nationId={db_nation['id']}"
 
             embed = discord.Embed(
                 title=f"Optimal City Builds for {infra_level} Infrastructure",

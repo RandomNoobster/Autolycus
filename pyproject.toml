@@ -25,6 +25,7 @@ dependencies = [
   "aiocache[redis]==0.12.3",
   "py-cord==2.7.1",
   "watchfiles==1.1.1",
+  "xkcdpass==1.30.0",
 ]
 
 [project.optional-dependencies]

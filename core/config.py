@@ -7,6 +7,15 @@ can access environment-backed configuration without importing delivery code.
 import os
 from typing import Optional
 
+# Public URLs for Discord bot links and bot -> API HTTP calls.
+# No trailing slash. AUTOLYCUS_API_BASE_URL is origin only (not .../api); callers append /api/...
+AUTOLYCUS_WEB_BASE_URL: str = (
+    (os.getenv("AUTOLYCUS_WEB_BASE_URL") or "http://localhost:5173").rstrip("/")
+)
+AUTOLYCUS_API_BASE_URL: str = (
+    (os.getenv("AUTOLYCUS_API_BASE_URL") or "http://localhost:5000").rstrip("/")
+)
+
 
 class Config:
     """Base configuration class."""

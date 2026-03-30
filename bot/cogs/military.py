@@ -19,6 +19,7 @@ from logic import queries
 from database import mongo as db_mongo
 from database import users as db_users
 from bot.discord_utils import helpers, views
+from bot.discord_utils import errors as err_util
 # Import from new architecture layers
 from logic import api_client
 from logic import military as military_logic
@@ -27,14 +28,16 @@ from logic.merge_utils import get_query
 from logic.revenue import pre_revenue_calc, revenue_calc
 from database.sqlite_cache import get_all_nations, get_nations_db_path
 from logic.raids import compute_beige_loot_or_zero
+from core.config import (
+    AUTOLYCUS_API_BASE_URL as API_BASE_URL,
+    AUTOLYCUS_WEB_BASE_URL as WEB_BASE_URL,
+)
 
 logger = logging.getLogger(__name__)
 
 api_key = os.getenv("API_KEY")
 call_api = partial(api_client.call, api_key=api_key)
 
-WEB_BASE_URL = os.getenv("AUTOLYCUS_WEB_BASE_URL", "http://132.145.71.195:3000")
-API_BASE_URL = os.getenv("AUTOLYCUS_API_BASE_URL", "http://132.145.71.195:5000")
 DISCORD_BOT_API_KEY = os.getenv("DISCORD_BOT_API_KEY")
 
 # Get database instance for queries
@@ -407,7 +410,21 @@ class TargetFinding(commands.Cog):
                     pass
             
             if not last_fetched or not file_content:
-                await ctx.send("I ran into an issue when loading nations. Please try again in a few minutes. If this is a recurring issue, please contact RandomNoobster#0093.")
+                ref = err_util.new_error_reference()
+                logger.info(
+                    "raids_nations_db_unready reference=%r user_id=%s",
+                    ref,
+                    ctx.author.id,
+                    extra={"error_reference": ref},
+                )
+                embed = err_util.error_embed(
+                    "Nations data not ready",
+                    "I couldn't load nations yet. The scanner may still be filling the database. "
+                    "Please wait—this can take on the order of half an hour—then try again. "
+                    "If this keeps happening for hours, contact RandomNoobster#0093 with the reference below.",
+                    reference=ref,
+                )
+                await ctx.followup.send(embed=embed)
                 return
             new_turn: bool = datetime.fromtimestamp(last_fetched).hour % 2 != 0 and datetime.utcnow().hour % 2 == 0
                 
@@ -487,11 +504,18 @@ class TargetFinding(commands.Cog):
                 raids_redirect = f"/raids?{raids_query}"
                 raids_url = f"{WEB_BASE_URL}{raids_redirect}"
                 if not DISCORD_BOT_API_KEY:
-                    await ctx.edit(
-                        content="Secure token issuance is not configured. Please contact an admin.",
-                        embed=None,
-                        view=None,
+                    ref = err_util.new_error_reference()
+                    logger.error(
+                        "raids_token_config_missing reference=%r",
+                        ref,
+                        extra={"error_reference": ref},
                     )
+                    embed = err_util.error_embed(
+                        "Configuration error",
+                        "Secure token issuance is not configured. Please contact an admin.",
+                        reference=ref,
+                    )
+                    await ctx.edit(content="", embed=embed, view=None)
                     return
 
                 issue_url = f"{API_BASE_URL}/api/auth/token/issue"
@@ -511,30 +535,52 @@ class TargetFinding(commands.Cog):
                         ) as resp:
                             if resp.status != 200:
                                 error_text = await resp.text()
-                                logger.error(f"Failed to issue auth code: {resp.status} {error_text}")
-                                await ctx.edit(
-                                    content="I couldn't issue a secure web token. Please try again later.",
-                                    embed=None,
-                                    view=None,
+                                ref = err_util.new_error_reference()
+                                logger.error(
+                                    "raids_token_issue_http reference=%r status=%s body=%s",
+                                    ref,
+                                    resp.status,
+                                    error_text[:800],
+                                    extra={"error_reference": ref},
                                 )
+                                embed = err_util.error_embed(
+                                    "Web link unavailable",
+                                    "I couldn't issue a secure web token. Please try again later.",
+                                    reference=ref,
+                                )
+                                await ctx.edit(content="", embed=embed, view=None)
                                 return
                             data = await resp.json()
                 except Exception as exc:
-                    logger.error(f"Error issuing auth code: {exc}")
-                    await ctx.edit(
-                        content="I couldn't reach the auth service. Please try again later.",
-                        embed=None,
-                        view=None,
+                    ref = err_util.new_error_reference()
+                    logger.error(
+                        "raids_token_issue_exception reference=%r",
+                        ref,
+                        exc_info=exc,
+                        extra={"error_reference": ref},
                     )
+                    embed = err_util.error_embed(
+                        "Web link unavailable",
+                        "I couldn't reach the auth service. Please try again later.",
+                        reference=ref,
+                    )
+                    await ctx.edit(content="", embed=embed, view=None)
                     return
 
                 code = data.get("code")
                 if not code:
-                    await ctx.edit(
-                        content="I couldn't issue a secure web token. Please try again later.",
-                        embed=None,
-                        view=None,
+                    ref = err_util.new_error_reference()
+                    logger.error(
+                        "raids_token_issue_empty_code reference=%r",
+                        ref,
+                        extra={"error_reference": ref},
                     )
+                    embed = err_util.error_embed(
+                        "Web link unavailable",
+                        "I couldn't issue a secure web token. Please try again later.",
+                        reference=ref,
+                    )
+                    await ctx.edit(content="", embed=embed, view=None)
                     return
 
                 token_url = (
@@ -845,11 +891,18 @@ class TargetFinding(commands.Cog):
                 raids_redirect = f"/raids?{raids_query}"
                 raids_url = f"{WEB_BASE_URL}{raids_redirect}"
                 if not DISCORD_BOT_API_KEY:
-                    await ctx.edit(
-                        content="Secure token issuance is not configured. Please contact an admin.",
-                        embed=None,
-                        view=None,
+                    ref = err_util.new_error_reference()
+                    logger.error(
+                        "raids_token_config_missing reference=%r",
+                        ref,
+                        extra={"error_reference": ref},
                     )
+                    embed = err_util.error_embed(
+                        "Configuration error",
+                        "Secure token issuance is not configured. Please contact an admin.",
+                        reference=ref,
+                    )
+                    await ctx.edit(content="", embed=embed, view=None)
                     return
 
                 issue_url = f"{API_BASE_URL}/api/auth/token/issue"
@@ -869,30 +922,52 @@ class TargetFinding(commands.Cog):
                         ) as resp:
                             if resp.status != 200:
                                 error_text = await resp.text()
-                                logger.error(f"Failed to issue auth code: {resp.status} {error_text}")
-                                await ctx.edit(
-                                    content="I couldn't issue a secure web token. Please try again later.",
-                                    embed=None,
-                                    view=None,
+                                ref = err_util.new_error_reference()
+                                logger.error(
+                                    "raids_token_issue_http reference=%r status=%s body=%s",
+                                    ref,
+                                    resp.status,
+                                    error_text[:800],
+                                    extra={"error_reference": ref},
                                 )
+                                embed = err_util.error_embed(
+                                    "Web link unavailable",
+                                    "I couldn't issue a secure web token. Please try again later.",
+                                    reference=ref,
+                                )
+                                await ctx.edit(content="", embed=embed, view=None)
                                 return
                             data = await resp.json()
                 except Exception as exc:
-                    logger.error(f"Error issuing auth code: {exc}")
-                    await ctx.edit(
-                        content="I couldn't reach the auth service. Please try again later.",
-                        embed=None,
-                        view=None,
+                    ref = err_util.new_error_reference()
+                    logger.error(
+                        "raids_token_issue_exception reference=%r",
+                        ref,
+                        exc_info=exc,
+                        extra={"error_reference": ref},
                     )
+                    embed = err_util.error_embed(
+                        "Web link unavailable",
+                        "I couldn't reach the auth service. Please try again later.",
+                        reference=ref,
+                    )
+                    await ctx.edit(content="", embed=embed, view=None)
                     return
 
                 code = data.get("code")
                 if not code:
-                    await ctx.edit(
-                        content="I couldn't issue a secure web token. Please try again later.",
-                        embed=None,
-                        view=None,
+                    ref = err_util.new_error_reference()
+                    logger.error(
+                        "raids_token_issue_empty_code reference=%r",
+                        ref,
+                        extra={"error_reference": ref},
                     )
+                    embed = err_util.error_embed(
+                        "Web link unavailable",
+                        "I couldn't issue a secure web token. Please try again later.",
+                        reference=ref,
+                    )
+                    await ctx.edit(content="", embed=embed, view=None)
                     return
 
                 token_url = (
@@ -1328,7 +1403,7 @@ class TargetFinding(commands.Cog):
             # Build URL for the frontend damage page using live API
             nation1_id = results.get('nation1', {}).get('id', '')
             nation2_id = results.get('nation2', {}).get('id', '')
-            url = f"http://132.145.71.195:3000/damage?nation1={nation1_id}&nation2={nation2_id}"
+            url = f"{WEB_BASE_URL}/damage?nation1={nation1_id}&nation2={nation2_id}"
 
             class switch(discord.ui.View):
                 def __init__(self):
@@ -1352,7 +1427,13 @@ class TargetFinding(commands.Cog):
                         return True
                 
                 async def on_timeout(self):
-                    await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+                    ref = err_util.new_error_reference()
+                    to_embed = err_util.error_embed(
+                        "Timed out",
+                        f"<@{ctx.author.id}> You didn't respond in time, so this command closed.",
+                        reference=ref,
+                    )
+                    await ctx.edit(content="", embed=to_embed)
                     
             await ctx.respond(embed=embed, content="", view=switch())
         except Exception as e:
@@ -1736,7 +1817,7 @@ class TargetFinding(commands.Cog):
             results = await self.battle_calc(nation1_id, nation2_id)
 
             # Build URL for the frontend damage page using live API
-            damage_url = f"http://132.145.71.195:3000/damage?nation1={nation1_id}&nation2={nation2_id}"
+            damage_url = f"{WEB_BASE_URL}/damage?nation1={nation1_id}&nation2={nation2_id}"
 
             await ctx.respond(content=f"Go to {damage_url}")
         except Exception as e:

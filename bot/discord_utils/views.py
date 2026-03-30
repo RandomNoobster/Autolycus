@@ -5,17 +5,25 @@ from typing import Optional
 
 import discord
 
+from bot.discord_utils import errors as err_util
 from bot.discord_utils.modals import SimpleModal
 
 # Discord UI components only. No business logic here.
 
 async def run_timeout(ctx, view: Optional[discord.ui.View]) -> None:
     try:
-        await ctx.edit(content=f"<@{ctx.author.id}> The command timed out!")
+        ref = err_util.new_error_reference()
+        embed = err_util.error_embed(
+            "Timed out",
+            f"<@{ctx.author.id}> You didn't respond in time, so this command closed.",
+            reference=ref,
+        )
         if view:
             for x in view.children:
                 x.disabled = True
-            await ctx.edit(view=view)
+            await ctx.edit(content="", embed=embed, view=view)
+        else:
+            await ctx.edit(content="", embed=embed)
     except Exception:
         # Swallow timeout errors silently; logging handled by caller
         pass
@@ -132,5 +140,11 @@ async def reaction_checker(bot: discord.Bot, message: discord.Message, embeds: l
                 await message.edit(embed=embeds[int(str(reaction.emoji)[0])-1])
                 await message.remove_reaction(reaction, user)
         except asyncio.TimeoutError:
-            await message.edit(content="**Command timed out!**")
+            ref = err_util.new_error_reference()
+            to_embed = err_util.error_embed(
+                "Timed out",
+                "This command closed because nothing was selected in time.",
+                reference=ref,
+            )
+            await message.edit(content=None, embed=to_embed)
             break

@@ -35,6 +35,8 @@ RUN useradd -m -u 1000 appuser \
     && chown -R appuser:appuser /app
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Windows checkouts often use CRLF; Linux then treats shebang as /bin/sh\r → "no such file or directory"
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+# Invoke via sh so a stray CR on the shebang line cannot break exec
+ENTRYPOINT ["/bin/sh", "/docker-entrypoint.sh"]

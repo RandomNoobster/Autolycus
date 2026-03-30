@@ -3,17 +3,20 @@ import logging
 import os
 import pathlib
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import discord
 import pnwkit
 from discord.ext import commands
-from dotenv import load_dotenv
 
+from bot.discord_utils import errors as err_embeds
 from core.logging_config import setup_logging
 from database.mongo import record_slash_command
 
 intents = discord.Intents.default()
 intents.members = True
-load_dotenv()
 # REMEMEBR: cannot import a file which is also imported by cogs
 
 # envs
@@ -83,28 +86,79 @@ async def on_application_command(ctx: discord.ApplicationContext):
     )
 
 
+def _user_safe_permission_text(root: Exception) -> bool:
+    if isinstance(
+        root,
+        (
+            commands.MissingPermissions,
+            commands.BotMissingPermissions,
+            commands.MissingRole,
+            commands.MissingAnyRole,
+            commands.NoPrivateMessage,
+        ),
+    ):
+        return True
+    msg = str(root)
+    return "You are missing" in msg and "permission" in msg.lower() and "run this command" in msg
+
+
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error):
+    reference = err_embeds.new_error_reference()
+    root = err_embeds.unwrap_command_error(error)
+    err_embeds.log_command_error(logger, root, ctx=ctx, reference=reference)
     debug_channel = bot.get_channel(channel_id)
-    logger.error(error)
-    print(error)
-    print(type(error))
-    if "MissingPermissions" in str(error):
-        await ctx.respond(error.original)
-    elif "You are missing" in str(error) and "permission(s) to run this command" in str(error):
-        await ctx.respond(error.original)
-    elif "NoPrivateMessage" in str(error) or isinstance(error, commands.errors.NoPrivateMessage):
-        await ctx.respond(error)
-    elif "ValueError" in str(error) and str(ctx.command.full_parent_name) == "cost":
-        await ctx.respond(error.original)
-    elif "Unknown interaction" in str(error):
-        await ctx.respond(f"My bad <@{ctx.author.id}>! Discord claims I didn't respond fast enough, please try that again!")
-        await debug_channel.send(f'**Exception __caught__!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```'[:2000])
-    elif isinstance(error, (discord.HTTPException, discord.errors.NotFound)):
-        await debug_channel.send(f'**Exception __caught__!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```'[:2000])
-    else:
-        await ctx.send("Oh no! An unknown error occurred! Contact RandomNoobster#0093, and he might be able to help you out.")
-        await debug_channel.send(f'**Exception raised!**\nAuthor: {ctx.author}\nServer: {ctx.guild}\nCommand: {ctx.command}\nType: {type(error)}\n\nError:```{error}```'[:2000])
+
+    async def _debug():
+        await err_embeds.send_debug_channel_messages(debug_channel, ctx, error, reference, logger)
+
+    # --- User-facing branches (never expose raw trace or internal repr) ---
+    if _user_safe_permission_text(root):
+        desc = str(root)[:4096]
+        embed = err_embeds.error_embed("Cannot run command", desc, reference=reference)
+        await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
+        await _debug()
+        return
+
+    parent = getattr(ctx.command, "full_parent_name", None) or ""
+    if isinstance(root, ValueError) and str(parent) == "cost":
+        embed = err_embeds.error_embed(
+            "Invalid input",
+            "Those cost parameters could not be processed. Check the values you entered and try again.",
+            reference=reference,
+        )
+        await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
+        await _debug()
+        return
+
+    err_s = str(error)
+    if "Unknown interaction" in err_s:
+        embed = err_embeds.error_embed(
+            "Slow response",
+            f"My bad <@{ctx.author.id}>! Discord did not get a response in time. Please try again.",
+            reference=reference,
+        )
+        await err_embeds.safe_reply_error(ctx, embed, ephemeral=False, reference=reference, log=logger)
+        await _debug()
+        return
+
+    if isinstance(error, (discord.HTTPException, discord.NotFound)):
+        embed = err_embeds.error_embed(
+            "Discord error",
+            "Something went wrong talking to Discord. Please try again in a moment.",
+            reference=reference,
+        )
+        await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
+        await _debug()
+        return
+
+    embed = err_embeds.error_embed(
+        "Something went wrong",
+        "An unexpected error occurred. If it keeps happening, contact RandomNoobster#0093 with the reference below.",
+        reference=reference,
+    )
+    await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
+    await _debug()
 
 
 @bot.slash_command(name="ping", description="Pong!")

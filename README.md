@@ -176,9 +176,10 @@ VITE_API_URL=
 # If you set AUTH_TOKEN_API_KEY above, set the same secret here so the SPA can call token generation
 VITE_AUTH_TOKEN_API_KEY=
 
-# Optional: public URLs for Discord bot links (defaults in code are placeholders)
+# Optional: Discord bot links and bot -> API HTTP (defaults: localhost:5173 + :5000)
+# Production: same host as your site, origin only — no /api suffix (bot appends /api/...).
 # AUTOLYCUS_WEB_BASE_URL=https://your-host
-# AUTOLYCUS_API_BASE_URL=https://your-host/api
+# AUTOLYCUS_API_BASE_URL=https://your-host
 ```
 
 Notes:

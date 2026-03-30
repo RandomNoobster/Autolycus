@@ -1,0 +1,172 @@
+"""User-safe error embeds, memorable reference passphrases, and operator logging."""
+
+from __future__ import annotations
+
+import logging
+import traceback
+import discord
+import xkcdpass.xkcd_password as xp
+from discord.ext import commands
+
+ERROR_EMBED_COLOR = 0xED4245
+DEFAULT_CONTACT_FOOTER = "Contact RandomNoobster#0093 for help or bug reports"
+
+_wordfile = xp.locate_wordfile()
+_WORDLIST = xp.generate_wordlist(wordfile=_wordfile, min_length=3, max_length=9)
+
+
+def new_error_reference() -> str:
+    """Memorable hyphenated passphrase for correlating user, logs, and debug channel."""
+    return xp.generate_xkcdpassword(_WORDLIST, numwords=4, delimiter="-", interactive=False, acrostic=False)
+
+
+def unwrap_command_error(error: BaseException) -> BaseException:
+    if isinstance(error, discord.errors.ApplicationCommandInvokeError):
+        return error.original
+    if isinstance(error, commands.CommandInvokeError) and error.original:
+        return error.original
+    return error
+
+
+def error_embed(
+    title: str,
+    description: str,
+    *,
+    reference: str,
+    color: int = ERROR_EMBED_COLOR,
+    contact_footer: str | None = DEFAULT_CONTACT_FOOTER,
+) -> discord.Embed:
+    embed = discord.Embed(title=title, description=description, color=color)
+    footer = f"Reference: {reference}"
+    if contact_footer:
+        footer = f"{footer}\n{contact_footer}"
+    embed.set_footer(text=footer[:2048])
+    return embed
+
+
+def log_command_error(
+    logger: logging.Logger,
+    exc: BaseException,
+    *,
+    ctx: discord.ApplicationContext,
+    reference: str,
+    command_name: str | None = None,
+) -> None:
+    cmd = command_name
+    if cmd is None and ctx.command is not None:
+        cmd = getattr(ctx.command, "qualified_name", None) or ctx.command.name
+    cmd = cmd or "?"
+    guild_id = ctx.guild.id if ctx.guild else None
+    logger.error(
+        "command_error reference=%r command=%s user_id=%s guild_id=%s channel_id=%s",
+        reference,
+        cmd,
+        ctx.author.id,
+        guild_id,
+        ctx.channel_id,
+        exc_info=exc,
+        extra={"error_reference": reference},
+    )
+
+
+def _format_traceback_text(error: BaseException) -> str:
+    root = unwrap_command_error(error)
+    lines = traceback.format_exception(type(root), root, root.__traceback__)
+    return "".join(lines).replace("```", "'''")
+
+
+def build_debug_embed(
+    ctx: discord.ApplicationContext,
+    error: BaseException,
+    reference: str,
+) -> discord.Embed:
+    root = unwrap_command_error(error)
+    guild_label = f"{ctx.guild.name} ({ctx.guild.id})" if ctx.guild else "DM"
+    author_label = f"{ctx.author} ({ctx.author.id})"
+    cmd_label = str(ctx.command) if ctx.command else "?"
+    err_preview = repr(root)
+    if len(err_preview) > 900:
+        err_preview = err_preview[:897] + "..."
+
+    embed = discord.Embed(
+        title=f"Error — {reference}",
+        color=ERROR_EMBED_COLOR,
+    )
+    embed.add_field(name="Reference", value=reference[:1024], inline=False)
+    embed.add_field(name="Command", value=cmd_label[:1024], inline=False)
+    embed.add_field(name="User", value=author_label[:1024], inline=False)
+    embed.add_field(name="Guild", value=guild_label[:1024], inline=False)
+    embed.add_field(name="Type", value=type(root).__name__[:1024], inline=False)
+    embed.add_field(name="Summary", value=f"```{err_preview}```"[:1024], inline=False)
+    return embed
+
+
+def chunk_text_for_discord(text: str, max_len: int = 1900) -> list[str]:
+    """Split long text on newlines for ``` code blocks under message length limits."""
+    if len(text) <= max_len:
+        return [text]
+    chunks: list[str] = []
+    cur: list[str] = []
+    cur_len = 0
+    for line in text.split("\n"):
+        line_len = len(line) + 1
+        if cur_len + line_len > max_len and cur:
+            chunks.append("\n".join(cur))
+            cur = [line]
+            cur_len = line_len
+        else:
+            cur.append(line)
+            cur_len += line_len
+    if cur:
+        chunks.append("\n".join(cur))
+    return chunks
+
+
+async def safe_reply_error(
+    ctx: discord.ApplicationContext,
+    embed: discord.Embed,
+    *,
+    ephemeral: bool = True,
+    reference: str,
+    log: logging.Logger,
+) -> None:
+    try:
+        if ctx.interaction.response.is_done():
+            await ctx.followup.send(embed=embed, ephemeral=ephemeral)
+        else:
+            await ctx.respond(embed=embed, ephemeral=ephemeral)
+    except (discord.HTTPException, discord.NotFound) as send_exc:
+        log.error(
+            "failed_to_send_user_error reference=%r: %s",
+            reference,
+            send_exc,
+            exc_info=send_exc,
+            extra={"error_reference": reference},
+        )
+
+
+async def send_debug_channel_messages(
+    channel: discord.abc.Messageable | None,
+    ctx: discord.ApplicationContext,
+    error: BaseException,
+    reference: str,
+    log: logging.Logger,
+) -> None:
+    if channel is None:
+        return
+    try:
+        tb = _format_traceback_text(error)
+        await channel.send(embed=build_debug_embed(ctx, error, reference))
+        chunks = chunk_text_for_discord(tb, max_len=1700)
+        n = len(chunks)
+        for i, chunk in enumerate(chunks):
+            head = f"Traceback ({i + 1}/{n})\n" if n > 1 else "Traceback\n"
+            await channel.send(f"```{head}{chunk}\n```")
+    except (discord.HTTPException, discord.NotFound, TypeError) as e:
+        log.error(
+            "failed_debug_channel reference=%r: %s",
+            reference,
+            e,
+            exc_info=e,
+            extra={"error_reference": reference},
+        )
