@@ -31,7 +31,7 @@ class Config:
 
     # MongoDB settings
     MONGO_URI: Optional[str] = os.getenv("MONGO_URI")
-    MONGO_DB: str = os.getenv("MONGO_BD", "main")
+    MONGO_DB: str = os.getenv("MONGO_DB", "main")
 
     # Server settings
     HOST: str = "0.0.0.0"
