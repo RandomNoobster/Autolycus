@@ -10,12 +10,12 @@ from functools import partial
 from typing import Any
 
 import aiohttp
-import motor.motor_asyncio
 import pnwkit
 from dotenv import load_dotenv
 
 from logic import queries
 from core.logging_config import setup_logging
+from database.mongo import get_db
 from database.sqlite_cache import (ensure_metadata_table, ensure_table_and_columns,
                                    get_alliances_db_path, get_nations_db_path,
                                    prune_missing_ids, row_to_db_values,
@@ -25,9 +25,6 @@ from logic.common import compute_beige_loot
 from logic.merge_utils import get_query
 
 load_dotenv()
-version = os.getenv("version")
-async_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("pymongolink"), serverSelectionTimeoutMS=5000)
-async_mongo = async_client[str(version)]
 api_key = os.getenv("api_key")
 call_api = partial(call, api_key=api_key)
 
@@ -35,6 +32,10 @@ kit = pnwkit.QueryKit(api_key)
 
 setup_logging(process_name="scanner", level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
+
+# Shared DB layer handle (kept for consistency with app architecture).
+# Scanner currently persists into SQLite cache and does not write Mongo directly.
+db = get_db()
 
 
 def _build_nation_query(page: int, min_score: int | None, vmode: bool | None) -> str:
