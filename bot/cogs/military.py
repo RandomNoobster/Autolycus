@@ -26,7 +26,7 @@ from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
 from logic.revenue import pre_revenue_calc, revenue_calc
 from database.sqlite_cache import get_all_nations, get_nations_db_path
-from services.raids_service import compute_beige_loot_or_zero
+from logic.raids import compute_beige_loot_or_zero
 
 logger = logging.getLogger(__name__)
 

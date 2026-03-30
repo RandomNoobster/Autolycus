@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Union
 
 import aiohttp
@@ -9,6 +10,20 @@ import requests
 from .merge_utils import get_query, merge  # re-export convenience
 
 # External Politics & War GraphQL client. Pure logic, no Discord imports.
+logger = logging.getLogger(__name__)
+MAX_LOGGED_RESPONSE_BODY_CHARS = 2000
+MAX_LOGGED_QUERY_PREVIEW_CHARS = 10_000
+DIAGNOSTIC_RESPONSE_HEADERS = (
+    "Content-Type",
+    "Content-Length",
+    "Server",
+    "Via",
+    "CF-Ray",
+    "X-Cache",
+    "Retry-After",
+    "X-Ratelimit-Remaining",
+    "X-Ratelimit-Reset-After",
+)
 
 async def paginate_call(data: str, path: str, api_key: str, use_bot_key: bool = False) -> list[dict[str, Any]]:
     n = 0
@@ -40,7 +55,33 @@ async def call(data: str, api_key: str, retry_limit: int = 2, use_bot_key: bool 
                 try:
                     json_response = await response.json()
                 except aiohttp.ContentTypeError:
-                    raise Exception("Attempt to decode JSON with unexpected mimetype: " + await response.text())
+                    raw_body = await response.read()
+                    body_preview = raw_body[:MAX_LOGGED_RESPONSE_BODY_CHARS].decode("utf-8", errors="replace")
+                    sanitized_url = str(response.url).replace(api_key, "***")
+                    header_snapshot = {
+                        key: response.headers.get(key)
+                        for key in DIAGNOSTIC_RESPONSE_HEADERS
+                        if response.headers.get(key) is not None
+                    }
+                    logger.error(
+                        "Unexpected non-JSON API response method=POST url=%s status=%s reason=%s "
+                        "content_type=%s body_len=%s headers=%s query_len=%s query_preview=%r body_preview=%r",
+                        sanitized_url,
+                        response.status,
+                        response.reason,
+                        response.headers.get("Content-Type"),
+                        len(raw_body),
+                        header_snapshot,
+                        len(data),
+                        data[:MAX_LOGGED_QUERY_PREVIEW_CHARS],
+                        body_preview,
+                    )
+                    raise ValueError(
+                        "Attempt to decode JSON with unexpected mimetype: "
+                        f"status={response.status} reason={response.reason} "
+                        f"content_type={response.headers.get('Content-Type')} body_len={len(raw_body)} "
+                        f"query_len={len(data)} body_preview={body_preview!r}"
+                    )
                 if response.status == 401 and "error" in json_response:
                     if "invalid api_key" in json_response["error"]["errors"][0]["message"]:
                         raise ConnectionError("Invalid API key.")

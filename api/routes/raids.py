@@ -22,9 +22,9 @@ from logic import api_client, merge_utils
 from logic.common import compute_beige_loot
 from logic.military import calculate_win_chance_raw
 from logic.revenue import pre_revenue_calc, revenue_calc_sync
-from services.raids_service import (calculate_days_inactive,
-                                    derive_def_slots_and_time_since_war,
-                                    is_in_vacation_mode)
+from logic.raids import (calculate_days_inactive,
+                         derive_def_slots_and_time_since_war,
+                         is_in_vacation_mode)
 
 logger = logging.getLogger(__name__)
 
