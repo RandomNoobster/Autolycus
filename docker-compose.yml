@@ -12,6 +12,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.python
+      network: host
     command: python -m api.app
     env_file: .env
     environment:
@@ -33,6 +34,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.python
+      network: host
     command: python -m bot
     env_file: .env
     environment:
@@ -51,6 +53,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.python
+      network: host
     command: python scanner.py
     env_file: .env
     volumes:
@@ -62,6 +65,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      network: host
       args:
         VITE_API_URL: ${VITE_API_URL-}
         VITE_AUTH_TOKEN_API_KEY: ${VITE_AUTH_TOKEN_API_KEY-}
