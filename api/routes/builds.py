@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 
 builds_bp = Blueprint('builds', __name__, url_prefix='/api/builds')
 
-_API_KEY = os.getenv("api_key")
-_BOT_KEY = os.getenv("bot_key")
+_API_KEY = os.getenv("API_KEY")
+_BOT_KEY = os.getenv("BOT_KEY")
 
 
 async def _call_pnw(query: str, *, use_bot_key: bool = False) -> dict[str, Any]:
     """Call the Politics & War API with shared credentials."""
     if not _API_KEY:
-        raise RuntimeError("api_key environment variable must be set for builds routes")
+        raise RuntimeError("API_KEY environment variable must be set for builds routes")
     return await call_api(query, api_key=_API_KEY, use_bot_key=use_bot_key, bot_key=_BOT_KEY)
 
 # Resource keys used in builds

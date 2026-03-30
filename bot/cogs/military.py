@@ -30,7 +30,7 @@ from services.raids_service import compute_beige_loot_or_zero
 
 logger = logging.getLogger(__name__)
 
-api_key = os.getenv("api_key")
+api_key = os.getenv("API_KEY")
 call_api = partial(api_client.call, api_key=api_key)
 
 WEB_BASE_URL = os.getenv("AUTOLYCUS_WEB_BASE_URL", "http://132.145.71.195:3000")

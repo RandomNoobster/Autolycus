@@ -11,8 +11,8 @@ from .common import RSS
 from .merge_utils import get_query
 
 logger = logging.getLogger(__name__)
-_API_KEY = os.getenv("api_key")
-_BOT_KEY = os.getenv("bot_key")
+_API_KEY = os.getenv("API_KEY")
+_BOT_KEY = os.getenv("BOT_KEY")
 
 
 @cache_prices(ttl=300)  # Cache for 5 minutes - prices update ~hourly

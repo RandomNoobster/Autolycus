@@ -9,10 +9,16 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-COPY . /app
+COPY pyproject.toml README.md /app/
+COPY api /app/api
+COPY bot /app/bot
+COPY core /app/core
+COPY database /app/database
+COPY infra /app/infra
+COPY logic /app/logic
+COPY services /app/services
+COPY scanner.py /app/scanner.py
+RUN pip install --no-cache-dir .
 
 RUN useradd -m appuser \
     && chown -R appuser:appuser /app

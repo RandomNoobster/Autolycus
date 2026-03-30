@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 damage_bp = Blueprint('damage', __name__, url_prefix='/api/damage')
 
-_API_KEY = os.getenv("api_key")
-_BOT_KEY = os.getenv("bot_key")
+_API_KEY = os.getenv("API_KEY")
+_BOT_KEY = os.getenv("BOT_KEY")
 
 # Attack types configuration
 ATTACK_TYPES = [

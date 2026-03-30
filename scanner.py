@@ -25,7 +25,7 @@ from logic.common import compute_beige_loot
 from logic.merge_utils import get_query
 
 load_dotenv()
-api_key = os.getenv("api_key")
+api_key = os.getenv("API_KEY")
 call_api = partial(call, api_key=api_key)
 
 kit = pnwkit.QueryKit(api_key)

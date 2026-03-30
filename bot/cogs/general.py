@@ -34,7 +34,7 @@ from logic.revenue import pre_revenue_calc, revenue_calc
 
 logger = logging.getLogger(__name__)
 
-api_key = os.getenv("api_key")
+api_key = os.getenv("API_KEY")
 call_api = partial(call, api_key=api_key)
 
 class Background(commands.Cog):

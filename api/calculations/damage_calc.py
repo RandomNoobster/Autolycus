@@ -9,13 +9,13 @@ from logic.damage import calculate_damage as calculate_damage_logic
 
 logger = logging.getLogger(__name__)
 
-_API_KEY = os.getenv("api_key")
-_BOT_KEY = os.getenv("bot_key")
+_API_KEY = os.getenv("API_KEY")
+_BOT_KEY = os.getenv("BOT_KEY")
 
 
 async def _call_pnw(query: str, *, use_bot_key: bool = False) -> dict[str, Any]:
     if not _API_KEY:
-        raise RuntimeError("api_key environment variable must be set for damage calculations")
+        raise RuntimeError("API_KEY environment variable must be set for damage calculations")
     return await call_api(query, api_key=_API_KEY, use_bot_key=use_bot_key, bot_key=_BOT_KEY)
 
 

@@ -26,8 +26,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Configuration
-API_KEY = os.getenv("api_key")
-DEBUG_CHANNEL_ID = int(os.getenv("debug_channel"))
+API_KEY = os.getenv("API_KEY")
+DEBUG_CHANNEL_ID = int(os.getenv("DEBUG_CHANNEL"))
 SCAN_INTERVAL = 100  # seconds
 REMINDER_THRESHOLD = 50  # seconds
 
@@ -152,7 +152,7 @@ class General(commands.Cog):
         Returns:
             List of nation data dictionaries.
         """
-        api_key = os.getenv("api_key")
+        api_key = os.getenv("API_KEY")
         query = (
             f"{{nations(page:page_number first:500 "
             f"id:[{','.join(nation_ids)}])"
