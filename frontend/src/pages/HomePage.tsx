@@ -11,13 +11,13 @@ import {
   SimpleGrid,
   Group,
   ThemeIcon,
+  Image,
 } from '@mantine/core';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   IconSword,
   IconBuildingFactory2,
   IconBomb,
-  IconShield,
   IconArrowRight,
 } from '@tabler/icons-react';
 import { internalNavPath } from '@/lib/internalNavPath';
@@ -61,10 +61,26 @@ export function HomePage() {
     <Container size="lg" py="xl">
       <Stack gap="xl" align="center">
         <Stack gap="sm" align="center" ta="center">
-          <ThemeIcon size={80} radius="xl" variant="light">
-            <IconShield size={48} />
-          </ThemeIcon>
-          <Title order={1}>Welcome to Autolycus</Title>
+          <Text
+            size="xl"
+            fw={700}
+            style={{
+              fontFamily: "'Trebuchet MS', 'Segoe UI', 'Arial', sans-serif",
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: '#ffd38a',
+              textShadow:
+                '0 0 6px rgba(255, 171, 64, 0.45), 0 0 14px rgba(255, 109, 0, 0.35), 0 2px 10px rgba(120, 28, 0, 0.65)',
+            }}
+          >
+            Welcome to
+          </Text>
+          <Image
+            src="/splash.webp"
+            alt="Autolycus"
+            maw={620}
+            w="100%"
+          />
           <Text size="lg" c="dimmed" maw={600}>
             Your comprehensive toolkit for Politics & War. Access raid targets,
             city builds, and damage calculations.

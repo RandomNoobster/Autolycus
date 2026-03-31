@@ -18,7 +18,7 @@ from discord.commands import Option, SlashCommandGroup, slash_command
 from discord.ext import commands
 
 from logic import queries
-from database.mongo import find_nation, get_db, get_global_user_by_any, listify
+from database.mongo import get_db, get_global_user_by_any, listify
 from database import sqlite_cache as db_utils
 from database.users import (delete_verification, get_verification,
                             set_verification)
@@ -201,6 +201,8 @@ class Background(commands.Cog):
                 return
 
             unique_builds = results.get("uniqueBuilds", [])
+            total_unique_builds = results.get("totalUniqueBuilds", len(unique_builds))
+            displayed_unique_builds = results.get("displayedUniqueBuilds", len(unique_builds))
             resources = results.get("resources", [])
             builds = results.get("builds", {})
             top_unique_builds = results.get("topUniqueBuilds", [])
@@ -222,7 +224,7 @@ class Background(commands.Cog):
             embed = discord.Embed(
                 title=f"Optimal City Builds for {infra_level} Infrastructure",
                 url=builds_url,
-                description=f"Found **{len(unique_builds):,}** unique build configurations.",
+                description=f"Evaluated **{total_unique_builds:,}** valid builds. Showing top **{displayed_unique_builds:,}**.",
                 color=0xff5100,
             )
 
@@ -238,22 +240,19 @@ class Background(commands.Cog):
                 best_build = unique_builds[0]
                 revenue_text = f"> Net Income: `${best_build.get('net income', 0):,.2f}` per day"
                 embed.add_field(name="Best Overall Build", value=revenue_text, inline=False)
+                build_template = generate_build_template(best_build)
+                embed.add_field(
+                    name="Best Build Template",
+                    value=f"```json\n{build_template}\n```",
+                    inline=False,
+                )
 
             link_text = f"[Click here to see all builds]({builds_url})"
             embed.add_field(name="View Detailed Results", value=link_text, inline=False)
 
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
 
-            content = ""
-            if best_build:
-                net_income = best_build.get("net income", 0)
-                build_template = generate_build_template(best_build)
-                content = (
-                    f"Top build (net income: ${net_income:,.2f}/day)\n"
-                    f"```json\n{build_template}\n```"
-                )
-
-            await ctx.edit(content=content, embed=embed)
+            await ctx.edit(content="", embed=embed)
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="builds")
             return
@@ -283,7 +282,7 @@ class Background(commands.Cog):
             db_nation = await helpers.find_user(self.bot, person)
 
             if not db_nation:
-                db_nation = await find_nation(person)
+                db_nation = db_utils.find_nation(person)
                 if not db_nation:
                     await ctx.edit(content='I could not find that person!')
                     return
@@ -349,9 +348,10 @@ class Background(commands.Cog):
             await ctx.defer()
 
             alliance_id = None
-            for aa in await listify(get_db().alliances.find({})):
-                if alliance in (f"{aa['name']} ({aa['id']})", aa['id'], aa['name'], aa['acronym']):
-                    alliance_id = aa['id']
+            for aa in db_utils.list_all_alliances():
+                aa_id = str(aa['id'])
+                if alliance in (f"{aa['name']} ({aa_id})", aa_id, aa['name'], aa['acronym']):
+                    alliance_id = aa_id
                     break
                                 
             if alliance_id is None:

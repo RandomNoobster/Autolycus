@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Union, List
+from typing import Any, Optional, Union
 import re
 
 import motor.motor_asyncio
@@ -38,22 +38,6 @@ async def listify(cursor) -> list[dict[str, Any]]:
         new_list.append(x)
     return new_list
 
-async def find_nation(arg: Union[str, int]) -> Optional[dict[str, Any]]:
-    """Find a nation by id, name, leader, or discord field."""
-    if isinstance(arg, str):
-        arg = arg.strip()
-    new_arg = re.sub("[^0-9]", "", str(arg))
-    if result := await listify(_db.world_nations.find({"id": str(new_arg)}).collation({"locale": "en", "strength": 1})):
-        return result[0]
-    elif result := await listify(_db.world_nations.find({"nation_name": arg}).collation({"locale": "en", "strength": 1})):
-        return result[0]
-    elif result := await listify(_db.world_nations.find({"leader_name": arg}).collation({"locale": "en", "strength": 1})):
-        return result[0]
-    elif result := await listify(_db.world_nations.find({"discord": arg}).collation({"locale": "en", "strength": 1})):
-        return result[0]
-    else:
-        return None
-
 async def get_global_user_by_any(arg: Union[str, int]) -> Optional[dict[str, Any]]:
     """Lookup in global_users by 'id' (nation id) or 'user' (discord id)."""
     if isinstance(arg, str):
@@ -73,29 +57,8 @@ async def get_global_user_by_any(arg: Union[str, int]) -> Optional[dict[str, Any
                 return x
     return None
 
-async def get_all_alliances() -> list[dict[str, Any]]:
-    return await listify(_db.alliances.find({}))
-
 async def get_guild_config(guild_id: int) -> Optional[dict[str, Any]]:
     return await _db.guild_configs.find_one({"guild_id": guild_id})
-
-async def get_target_alliances(guild_id: int, filter_value: str) -> list[str]:
-    config = await get_guild_config(guild_id)
-    if config is None:
-        return []
-    ids = config.get('targets_alliance_ids', [])
-    alliances = await listify(_db.alliances.find({"id": {"$in": ids}}))
-    return [f"{aa['name']} ({aa['id']})" for aa in alliances if (filter_value.lower()) in aa['id'] or (filter_value.lower()) in aa['name'].lower() or (filter_value.lower()) in aa['acronym'].lower()]
-
-
-async def search_alliances_autocomplete(search_value: str) -> list[str]:
-    """Alliance names formatted for slash autocomplete; substring match on id, name, acronym."""
-    needle = search_value.lower()
-    out: list[str] = []
-    async for aa in _db.alliances.find({}):
-        if needle in aa.get("id", "") or needle in aa.get("name", "").lower() or needle in aa.get("acronym", "").lower():
-            out.append(f"{aa['name']} ({aa['id']})")
-    return out
 
 
 async def record_slash_command(doc: dict[str, Any]) -> None:

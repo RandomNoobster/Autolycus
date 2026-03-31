@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,18 @@ from typing import Any, Dict, List, Optional, Set
 _JSON_FIELDS: frozenset[str] = frozenset({
     'wars', 'alliance', 'treasures', 'cities', 'bounties', 'military_research',
 })
+
+
+def _decode_row(row: sqlite3.Row) -> Dict[str, Any]:
+    """Decode a sqlite row into a dict, parsing JSON-like string fields."""
+    decoded = dict(row)
+    for key, val in decoded.items():
+        if isinstance(val, str):
+            try:
+                decoded[key] = json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return decoded
 
 
 def get_nations_db_path() -> Path:
@@ -142,15 +155,7 @@ def get_all_nations(db_path: Path) -> Dict[str, Any]:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT * FROM nations")
-        nations = [dict(row) for row in cur.fetchall()]
-
-        for nation in nations:
-            for key, val in nation.items():
-                if isinstance(val, str):
-                    try:
-                        nation[key] = json.loads(val)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+        nations = [_decode_row(row) for row in cur.fetchall()]
 
         ensure_metadata_table(conn)
         last_fetched = get_metadata(conn, 'last_fetched')
@@ -235,13 +240,7 @@ def get_nation_by_id(db_path: Path, nation_id: int | str) -> Dict[str, Any]:
             cur.execute("SELECT * FROM nations WHERE id = ?", (nation_id_int,))
             row = cur.fetchone()
             if row:
-                nation = dict(row)
-                for key, val in nation.items():
-                    if isinstance(val, str):
-                        try:
-                            nation[key] = json.loads(val)
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+                nation = _decode_row(row)
 
         ensure_metadata_table(conn)
         last_fetched = get_metadata(conn, 'last_fetched')
@@ -263,14 +262,7 @@ def get_all_alliances(db_path: Path) -> Dict[str, Any]:
         alliances: List[Dict[str, Any]] = []
         if has_table:
             cur.execute("SELECT * FROM alliances")
-            alliances = [dict(row) for row in cur.fetchall()]
-            for alliance in alliances:
-                for key, val in alliance.items():
-                    if isinstance(val, str):
-                        try:
-                            alliance[key] = json.loads(val)
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+            alliances = [_decode_row(row) for row in cur.fetchall()]
 
         ensure_metadata_table(conn)
         last_fetched = get_metadata(conn, 'last_fetched')
@@ -278,6 +270,71 @@ def get_all_alliances(db_path: Path) -> Dict[str, Any]:
             'alliances': alliances,
             'last_fetched': last_fetched,
         }
+
+
+def find_nation(arg: str | int) -> Optional[Dict[str, Any]]:
+    """Find a nation in SQLite by id, nation_name, leader_name, or discord."""
+    if isinstance(arg, str):
+        arg = arg.strip()
+
+    numeric_arg = re.sub(r"[^0-9]", "", str(arg))
+    db_path = get_nations_db_path()
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        if numeric_arg:
+            cur.execute("SELECT * FROM nations WHERE id = ? LIMIT 1", (int(numeric_arg),))
+            row = cur.fetchone()
+            if row:
+                return _decode_row(row)
+
+        for field in ("nation_name", "leader_name", "discord"):
+            cur.execute(
+                f"SELECT * FROM nations WHERE {field} = ? COLLATE NOCASE LIMIT 1",
+                (str(arg),),
+            )
+            row = cur.fetchone()
+            if row:
+                return _decode_row(row)
+
+    return None
+
+
+def list_all_alliances() -> List[Dict[str, Any]]:
+    """Return all alliances from SQLite cache."""
+    return get_all_alliances(get_alliances_db_path()).get("alliances", [])
+
+
+def get_alliances_by_ids(alliance_ids: List[str]) -> List[Dict[str, Any]]:
+    """Return alliance rows whose ids are in alliance_ids."""
+    unique_ids = [str(x) for x in set(alliance_ids) if str(x)]
+    if not unique_ids:
+        return []
+    int_ids = [int(x) for x in unique_ids if str(x).isdigit()]
+    if not int_ids:
+        return []
+
+    db_path = get_alliances_db_path()
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        placeholders = ",".join(["?"] * len(int_ids))
+        cur.execute(f"SELECT * FROM alliances WHERE id IN ({placeholders})", int_ids)
+        return [_decode_row(row) for row in cur.fetchall()]
+
+
+def search_alliances_autocomplete(search_value: str) -> List[str]:
+    """Alliance names formatted for slash autocomplete; substring on id/name/acronym."""
+    needle = (search_value or "").lower()
+    out: List[str] = []
+    for aa in list_all_alliances():
+        aa_id = str(aa.get("id", ""))
+        aa_name = str(aa.get("name", ""))
+        aa_acronym = str(aa.get("acronym", ""))
+        if needle in aa_id.lower() or needle in aa_name.lower() or needle in aa_acronym.lower():
+            out.append(f"{aa_name} ({aa_id})")
+    return out
 
 
 IMPROVEMENT_FIELDS: List[str] = [

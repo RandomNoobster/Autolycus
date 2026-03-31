@@ -502,12 +502,17 @@ async def calculate_builds(
     radiation_multiplier = 1 + radiation_value * food_rad_effect_mod
     food_multiplier = radiation_multiplier * seasonal_value
 
+    total_unique_builds = len(unique_builds)
+    displayed_unique_builds = min(total_unique_builds, 100)
+
     return {
         "builds": builds,
         "resources": available_resources,
         "land": land,
         "infrastructure": infra,
         "uniqueBuilds": unique_builds[:100],
+        "totalUniqueBuilds": total_unique_builds,
+        "displayedUniqueBuilds": displayed_unique_builds,
         "topUniqueBuilds": top_unique_builds,
         "prices": {
             "mode": "live" if use_live_prices else "average",

@@ -45,16 +45,22 @@ IMPROVEMENTS = [
     'bank', 'mall', 'stadium', 'barracks', 'factory', 'airforcebase', 'drydock'
 ]
 
-# Project field mapping (from P&W API to display names)
-PROJECT_FIELDS = [
-    'ironw', 'bauxitew', 'armss', 'egr', 'massirr', 'itc', 
-    'recycling_initiative', 'telecom_satellite', 'green_tech', 
-    'clinical_research_center', 'specialized_police_training', 'uap',
-    'advanced_engineering_corps', 'center_for_civil_engineering',
-    'government_support_agency', 'propaganda_bureau', 'resource_production_center',
-    'cia', 'spy_satellite', 'urban_planning', 'advanced_urban_planning',
-    'metropolitan_planning', 'arable_land_agency'
-]
+# Canonical project keys used across API validation + frontend picker.
+CANONICAL_PROJECT_FIELDS = list(PROJECTS.keys())
+
+# P&W field aliases normalized into canonical keys used by this app.
+# NOTE: We keep internal canonical names aligned with existing logic constants.
+PROJECT_FIELD_ALIASES = {
+    'telecommunications_satellite': 'telecom_satellite',
+    'green_technologies': 'green_tech',
+    'specialized_police_training_program': 'specialized_police_training',
+}
+
+# Source field -> canonical key mapping for nation profile autofill extraction.
+PROJECT_SOURCE_TO_CANONICAL = {
+    **{key: key for key in CANONICAL_PROJECT_FIELDS},
+    **PROJECT_FIELD_ALIASES,
+}
 
 # Policy field mapping
 POLICY_FIELDS = ['warpolicy', 'dompolicy']
@@ -269,6 +275,8 @@ def get_builds() -> tuple[Any, int]:
             'land': results.get('land'),
             'infrastructure': results.get('infrastructure'),
             'uniqueBuilds': transformed_unique,
+            'totalUniqueBuilds': results.get('totalUniqueBuilds', len(transformed_unique)),
+            'displayedUniqueBuilds': results.get('displayedUniqueBuilds', len(transformed_unique)),
             'prices': results.get('prices', {}),
             'radiation': results.get('radiation'),
             'foodModifiers': results.get('foodModifiers'),
@@ -446,6 +454,9 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
     from logic import queries
 
     # GraphQL query for nation profile
+    project_fields_for_query = sorted(PROJECT_SOURCE_TO_CANONICAL.keys())
+    project_fields_block = "\n                ".join(project_fields_for_query)
+
     query = f"""{{
         nations(first:1 id:{nation_id}){{
             data{{
@@ -455,29 +466,7 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
                 continent
                 warpolicy
                 dompolicy
-                ironw
-                bauxitew
-                armss
-                egr
-                massirr
-                itc
-                recycling_initiative
-                telecom_satellite
-                green_tech
-                clinical_research_center
-                specialized_police_training
-                uap
-                advanced_engineering_corps
-                center_for_civil_engineering
-                government_support_agency
-                propaganda_bureau
-                resource_production_center
-                cia
-                spy_satellite
-                urban_planning
-                advanced_urban_planning
-                metropolitan_planning
-                arable_land_agency
+                {project_fields_block}
                 cities{{
                     id
                     infrastructure
@@ -511,13 +500,13 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
         'Antarctica': 'an',
     }
     
-    # Extract active projects
-    projects = []
-    for project_field in PROJECT_FIELDS:
-        if nation.get(project_field) == True:
-            # Convert field name to display name
-            display_name = project_field.replace('_', ' ').title()
-            projects.append(display_name)
+    # Extract active projects as canonical keys so frontend values always match
+    # game-data options and backend validation.
+    active_projects: set[str] = set()
+    for source_field, canonical_key in PROJECT_SOURCE_TO_CANONICAL.items():
+        if nation.get(source_field) is True and canonical_key in PROJECTS:
+            active_projects.add(canonical_key)
+    projects = [key for key in CANONICAL_PROJECT_FIELDS if key in active_projects]
     
     # Extract policies
     policies = {

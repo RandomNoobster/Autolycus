@@ -26,7 +26,12 @@ from logic import military as military_logic
 from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
 from logic.revenue import pre_revenue_calc, revenue_calc
-from database.sqlite_cache import get_all_nations, get_nations_db_path
+from database.sqlite_cache import (
+    find_nation as sqlite_find_nation,
+    get_all_nations,
+    get_alliances_by_ids,
+    get_nations_db_path,
+)
 from logic.raids import compute_beige_loot_or_zero
 from core.config import (
     AUTOLYCUS_API_BASE_URL as API_BASE_URL,
@@ -813,7 +818,10 @@ class TargetFinding(commands.Cog):
 
             await ctx.edit(content='Calculating best targets...')
 
-            alliances = {x['id']: x for x in await db_mongo.listify(db.alliances.find({"id": {"$in": [x['alliance_id'] for x in target_list]}}))}
+            alliances = {
+                str(x['id']): x
+                for x in get_alliances_by_ids([str(x['alliance_id']) for x in target_list])
+            }
 
             for target in target_list:
                 embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
@@ -1312,12 +1320,12 @@ class TargetFinding(commands.Cog):
             if person == None:
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
                 return
-            parsed_nation = await db_mongo.find_nation(nation)
+            parsed_nation = sqlite_find_nation(nation)
             if parsed_nation == None:
                 await ctx.respond("I could not find that nation!")
                 return
             else:
-                id = parsed_nation['id']
+                id = str(parsed_nation['id'])
 
             found = False
             for alert in person['beige_alerts']:
@@ -1348,7 +1356,7 @@ class TargetFinding(commands.Cog):
     ):
         try:
             await ctx.defer()
-            nation = await db_mongo.find_nation(nation)
+            nation = sqlite_find_nation(nation)
 
             if nation == None:
                 await ctx.respond(content='I could not find that nation!')
@@ -1360,7 +1368,7 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content="They are not in beige or vacation mode!")
                 return
 
-            reminder = nation['id']
+            reminder = str(nation['id'])
             user = await db.global_users.find_one({"user": ctx.author.id})
 
             if user == None:

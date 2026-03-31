@@ -5,8 +5,9 @@ from typing import Any, Optional, Union
 
 import discord
 
-from database.mongo import find_nation as db_find_nation
-from database.mongo import get_global_user_by_any, search_alliances_autocomplete
+from database.mongo import get_global_user_by_any
+from database.sqlite_cache import find_nation as db_find_nation
+from database.sqlite_cache import search_alliances_autocomplete
 
 
 async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str, Any]]:
@@ -15,7 +16,7 @@ async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[d
     """
     if isinstance(arg, str):
         arg = arg.strip()
-    nation = await db_find_nation(arg)
+    nation = db_find_nation(arg)
     if nation is None:
         user = await get_global_user_by_any(arg)
         if not user and isinstance(arg, str):
@@ -27,7 +28,7 @@ async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[d
                         break
         if not user:
             return None
-        nation = await db_find_nation(user['id'])
+        nation = db_find_nation(user['id'])
         if nation is None:
             return None
     return nation
@@ -68,4 +69,4 @@ async def find_user(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str
 
 async def autocomplete_alliances(ctx: discord.AutocompleteContext) -> list[str]:
     search_value = ctx.value or ""
-    return await search_alliances_autocomplete(search_value)
+    return search_alliances_autocomplete(search_value)

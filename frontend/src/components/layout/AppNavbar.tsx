@@ -15,7 +15,6 @@ import {
   Group,
   ActionIcon,
   Switch,
-  Title,
   Image,
   useMantineColorScheme,
 } from '@mantine/core';
@@ -136,15 +135,14 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
   return (
     <Stack gap="xs" h="100%">
       {/* Branding — visible in sidebar (desktop) */}
-      <Group gap="xs" py={4}>
+      <Group gap="xs" py={4} justify="center">
         <Image
-          src="/assets/icon.png"
+          src="/splash.webp"
           alt="Autolycus"
-          w={30}
-          h={30}
-          fallbackSrc="/assets/icon.png"
+          maw={180}
+          w="100%"
+          fallbackSrc="/splash.webp"
         />
-        <Title order={4}>Autolycus</Title>
       </Group>
 
       <Divider />

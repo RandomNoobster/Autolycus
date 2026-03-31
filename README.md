@@ -40,7 +40,32 @@ uv sync
 
 This installs dependencies for API, scanner, and Discord bot in one environment.
 
-### 2) Run services
+### 2) Environment variables
+
+Create a `.env` from `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+Minimum required values:
+
+- `API_KEY` (Politics & War API key)
+- `BOT_TOKEN` (Discord bot token)
+- `DEBUG_CHANNEL` (Discord channel ID for bot logging)
+- `MONGO_URI` (MongoDB connection URI)
+- `MONGO_DB` (MongoDB database name)
+- `SECRET_KEY` (recommended for stable auth tokens across restarts)
+
+Optional but needed for some features:
+
+- `BOT_KEY` — PnW **bot** key (separate from `API_KEY`); used for game API calls in builds/market/damage flows
+- `DISCORD_BOT_API_KEY` — shared secret the bot sends as `X-Bot-Token` to the API (e.g. `/api/auth/token/issue`); must match in API and bot `.env`
+- `AUTH_TOKEN_API_KEY` — shared secret for `POST /api/auth/token/generate` if you use that flow from the web app
+- `VITE_API_URL` / `VITE_AUTH_TOKEN_API_KEY` — frontend build-time values (usually left empty for same-origin `/api`)
+- `REDIS_URL` — optional Redis cache backend (leave unset for in-memory cache in local dev)
+
+### 3) Run services
 
 Use separate terminals:
 
@@ -71,24 +96,6 @@ cd frontend
 npm install
 npm run dev
 ```
-
-### 3) Environment variables
-
-Create a `.env` file at repository root with at least:
-
-- `api_key` (Politics & War API key)
-- `bot_token` (Discord bot token)
-- `debug_channel` (Discord channel ID for bot logging)
-- `pymongolink` (MongoDB connection URI)
-- `databaselink` (main MongoDB URI — often the same as `pymongolink`)
-- `version` (MongoDB database name)
-- `SECRET_KEY` (recommended for stable auth tokens across restarts)
-
-Optional but needed for some features:
-
-- `bot_key` — PnW **bot** key (separate from `api_key`); used for game API calls in builds/market/damage flows
-- `DISCORD_BOT_API_KEY` — shared secret the bot sends as `X-Bot-Token` to the API (e.g. `/api/auth/token/issue`); must match in API and bot `.env`
-- `AUTH_TOKEN_API_KEY` — shared secret for `POST /api/auth/token/generate` if you use that flow from the web app
 
 ## Production Docker deployment (Oracle Linux)
 
@@ -166,14 +173,13 @@ Create `/opt/autolycus/.env` with the following variables:
 
 ```
 # Required core settings
-api_key=YOUR_PNW_API_KEY
-bot_token=YOUR_DISCORD_BOT_TOKEN
-debug_channel=YOUR_DISCORD_CHANNEL_ID
+API_KEY=YOUR_PNW_API_KEY
+BOT_TOKEN=YOUR_DISCORD_BOT_TOKEN
+DEBUG_CHANNEL=YOUR_DISCORD_CHANNEL_ID
 
 # MongoDB
-pymongolink=YOUR_MONGODB_URI
-databaselink=YOUR_MONGODB_URI_FOR_MAIN_DB
-version=YOUR_MONGODB_DB_NAME
+MONGO_URI=YOUR_MONGODB_URI
+MONGO_DB=YOUR_MONGODB_DB_NAME
 
 # API config
 FLASK_ENV=production
@@ -181,8 +187,8 @@ SECRET_KEY=CHANGE_ME_TO_A_LONG_RANDOM_VALUE
 # Recommended when running behind a reverse proxy (Caddy profile or equivalent)
 TRUST_PROXY_HEADERS=true
 
-# PnW bot key (not the same as api_key); omit only if you do not need bot-key game API calls
-bot_key=YOUR_PNW_BOT_KEY
+# PnW bot key (not the same as API_KEY); omit only if you do not need bot-key game API calls
+BOT_KEY=YOUR_PNW_BOT_KEY
 
 # Same value in both services: bot uses X-Bot-Token; API validates in /api/auth/token/issue
 DISCORD_BOT_API_KEY=CHANGE_ME_SHARED_SECRET_FOR_BOT_TO_API
@@ -201,6 +207,10 @@ VITE_API_URL=
 # If you set AUTH_TOKEN_API_KEY above, set the same secret here so the SPA can call token generation
 VITE_AUTH_TOKEN_API_KEY=
 
+# Optional: Redis cache (aiocache / logic layer)
+# Docker Compose already sets REDIS_URL=redis://redis:6379/0 for api and bot.
+# REDIS_URL=redis://localhost:6379/0
+
 # Optional: Discord bot links and bot -> API HTTP (defaults: localhost:5173 + :5000)
 # Production: same host as your site, origin only — no /api suffix (bot appends /api/...).
 # AUTOLYCUS_WEB_BASE_URL=https://your-host
@@ -213,8 +223,8 @@ VITE_AUTH_TOKEN_API_KEY=
 
 Notes:
 
-- `databaselink` and `pymongolink` can be the same MongoDB URI if you use one cluster.
 - `SECRET_KEY` must be set in production, otherwise tokens invalidate on restart.
+- Docker Compose reads `.env.example` style uppercase keys (for example `MONGO_URI`, `MONGO_DB`, `BOT_TOKEN`).
 - Docker images install Python deps from `requirements.txt` at the repo root. After changing dependencies in `pyproject.toml`, run `uv lock` and `uv export --format requirements-txt --no-dev --no-emit-project --no-hashes -o requirements.txt` before building.
 
 ### 4) Build and start the stack
@@ -290,12 +300,16 @@ scripts/ops/update.sh
 You still need a MongoDB database. A guide on how to set one up can be found
 [here](https://docs.atlas.mongodb.com/getting-started/).
 
-If you use the optional database updater repl, it still requires:
+Collections currently used by the app:
 
-- `api_key`
-- `pymongolink`
-- `version`
-- `ip`
+- `global_users`
+- `guild_configs`
+- `commands`
+- `auth_codes`
+
+MongoDB collections are created automatically on first write, so users do not
+need to create them manually ahead of time. This means a fresh deployment may
+not show all collections immediately; they appear as related features are used.
 
 ### Helpful links
 
