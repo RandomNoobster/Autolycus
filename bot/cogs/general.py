@@ -50,6 +50,27 @@ class Background(commands.Cog):
         """
         self.bot = bot
 
+    async def _handle_command_exception(
+        self,
+        ctx: discord.ApplicationContext,
+        error: Exception,
+        *,
+        command_name: str,
+    ) -> None:
+        ref = await err_util.report_handled_exception(
+            self.bot,
+            ctx,
+            error,
+            logger,
+            command_name=command_name,
+        )
+        embed = err_util.error_embed(
+            "Command failed",
+            "I couldn't complete that request. Please try again in a moment.",
+            reference=ref,
+        )
+        await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
+
     @slash_command(
         name="who",
         description="Look up detailed information about any nation",
@@ -119,8 +140,8 @@ class Background(commands.Cog):
             embed = nation_overview_embed(nation, discord_info, alliance_info, military_info, military_info_2)
             await ctx.respond(embed=embed)
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="who")
+            return
 
     @slash_command(
         name="builds",
@@ -234,8 +255,8 @@ class Background(commands.Cog):
 
             await ctx.edit(content=content, embed=embed)
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="builds")
+            return
 
 
     revenue_group = SlashCommandGroup("revenue", "Revenue calculators for nations and alliances")
@@ -304,8 +325,8 @@ class Background(commands.Cog):
 
             await ctx.edit(content="", embed=embed)
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="revenue nation")
+            return
     
     @revenue_group.command(
         name="alliance",
@@ -375,7 +396,7 @@ class Background(commands.Cog):
                 for rs in RSS:
                     try:
                         income[rs] += rev_obj[rs]
-                    except:
+                    except KeyError:
                         pass
             
             if len(nations) == 0:
@@ -392,8 +413,8 @@ class Background(commands.Cog):
             
             await ctx.edit(content="", embed=embed)
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="revenue alliance")
+            return
 
     @slash_command(
         name="botinfo",
@@ -422,8 +443,8 @@ class Background(commands.Cog):
             embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
             await ctx.respond(embed=embed)
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="botinfo")
+            return
 
     @slash_command(
         name="verify",
@@ -462,8 +483,8 @@ class Background(commands.Cog):
             except (KeyError, IndexError):
                 await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="verify")
+            return
 
     @slash_command(
         name="unverify",
@@ -485,8 +506,8 @@ class Background(commands.Cog):
             else:
                 await ctx.respond("Your discord account was successfully unlinked from your nation.")
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="unverify")
+            return
 
     @staticmethod
     async def _autocomplete_commands(ctx: discord.AutocompleteContext) -> list[str]:
@@ -595,8 +616,8 @@ class Background(commands.Cog):
                 embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
                 await ctx.edit(content="", embed=embed)
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="help")
+            return
 
 def setup(bot: discord.Bot) -> None:
     """Register the Background cog with the bot.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import traceback
 import discord
 import xkcdpass.xkcd_password as xp
@@ -57,6 +58,8 @@ def log_command_error(
         cmd = getattr(ctx.command, "qualified_name", None) or ctx.command.name
     cmd = cmd or "?"
     guild_id = ctx.guild.id if ctx.guild else None
+    # Always pass the explicit traceback tuple so stack traces are preserved
+    # even when logging from handled paths (not just inside active except blocks).
     logger.error(
         "command_error reference=%r command=%s user_id=%s guild_id=%s channel_id=%s",
         reference,
@@ -64,7 +67,7 @@ def log_command_error(
         ctx.author.id,
         guild_id,
         ctx.channel_id,
-        exc_info=exc,
+        exc_info=(type(exc), exc, exc.__traceback__),
         extra={"error_reference": reference},
     )
 
@@ -170,3 +173,31 @@ async def send_debug_channel_messages(
             exc_info=e,
             extra={"error_reference": reference},
         )
+
+
+async def report_handled_exception(
+    bot: commands.Bot,
+    ctx: discord.ApplicationContext,
+    error: BaseException,
+    log: logging.Logger,
+    *,
+    reference: str | None = None,
+    command_name: str | None = None,
+) -> str:
+    """
+    Log and forward a handled exception to the configured debug channel.
+    Returns the reference used for this error.
+    """
+    ref = reference or new_error_reference()
+    root = unwrap_command_error(error)
+    log_command_error(log, root, ctx=ctx, reference=ref, command_name=command_name)
+
+    debug_channel = None
+    channel_id_raw = os.getenv("DEBUG_CHANNEL")
+    if channel_id_raw:
+        try:
+            debug_channel = bot.get_channel(int(channel_id_raw))
+        except (TypeError, ValueError):
+            debug_channel = None
+    await send_debug_channel_messages(debug_channel, ctx, error, ref, log)
+    return ref

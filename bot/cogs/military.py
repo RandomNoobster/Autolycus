@@ -49,6 +49,28 @@ class TargetFinding(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    async def _handle_command_exception(
+        self,
+        ctx: discord.ApplicationContext,
+        error: Exception,
+        *,
+        command_name: str,
+        user_message: str = "I couldn't complete that military command. Please try again.",
+    ) -> None:
+        ref = await err_util.report_handled_exception(
+            self.bot,
+            ctx,
+            error,
+            logger,
+            command_name=command_name,
+        )
+        embed = err_util.error_embed(
+            "Command failed",
+            user_message,
+            reference=ref,
+        )
+        await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
+
     def calculate_win_chance(self, attacker_value: float, defender_value: float) -> float:
         """
         Calculate the exact win probability based on the Uniform Distribution model.
@@ -400,6 +422,7 @@ class TargetFinding(commands.Cog):
             target_list = []
             
             file_content = last_fetched = None
+            last_load_exception = None
             for i in range(3):
                 try:
                     file_content = get_all_nations(get_nations_db_path())
@@ -407,7 +430,7 @@ class TargetFinding(commands.Cog):
                     break
                 except Exception as e:
                     logger.debug(f"Attempt {i + 1} to load nations failed: {e}")
-                    pass
+                    last_load_exception = e
             
             if not last_fetched or not file_content:
                 ref = err_util.new_error_reference()
@@ -417,6 +440,15 @@ class TargetFinding(commands.Cog):
                     ctx.author.id,
                     extra={"error_reference": ref},
                 )
+                if last_load_exception is not None:
+                    await err_util.report_handled_exception(
+                        self.bot,
+                        ctx,
+                        last_load_exception,
+                        logger,
+                        reference=ref,
+                        command_name="raids",
+                    )
                 embed = err_util.error_embed(
                     "Nations data not ready",
                     "I couldn't load nations yet. The scanner may still be filling the database. "
@@ -571,7 +603,7 @@ class TargetFinding(commands.Cog):
                                 await ctx.edit(content="", embed=embed, view=None)
                                 return
                             data = await resp.json()
-                except Exception:
+                except Exception as e:
                     ref = err_util.new_error_reference()
                     logger.error(
                         "raids_token_issue_exception reference=%r issue_url=%s",
@@ -579,6 +611,14 @@ class TargetFinding(commands.Cog):
                         issue_url,
                         exc_info=True,
                         extra={"error_reference": ref},
+                    )
+                    await err_util.report_handled_exception(
+                        self.bot,
+                        ctx,
+                        e,
+                        logger,
+                        reference=ref,
+                        command_name="raids",
                     )
                     embed = err_util.error_embed(
                         "Web link unavailable",
@@ -957,7 +997,7 @@ class TargetFinding(commands.Cog):
                                 await ctx.edit(content="", embed=embed, view=None)
                                 return
                             data = await resp.json()
-                except Exception:
+                except Exception as e:
                     ref = err_util.new_error_reference()
                     logger.error(
                         "raids_token_issue_exception reference=%r issue_url=%s",
@@ -965,6 +1005,14 @@ class TargetFinding(commands.Cog):
                         issue_url,
                         exc_info=True,
                         extra={"error_reference": ref},
+                    )
+                    await err_util.report_handled_exception(
+                        self.bot,
+                        ctx,
+                        e,
+                        logger,
+                        reference=ref,
+                        command_name="raids",
                     )
                     embed = err_util.error_embed(
                         "Web link unavailable",
@@ -1155,8 +1203,8 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(content="", embed=embed, attachments=[], view=None)
 
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="raids")
+            return
     
     reminder_group = SlashCommandGroup("reminders", "Manage beige exit reminder notifications")
 
@@ -1246,8 +1294,8 @@ class TargetFinding(commands.Cog):
                 await ctx.edit(view=view)
 
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="reminders show")
+            return
         
     @reminder_group.command(
         name="delete",
@@ -1286,8 +1334,8 @@ class TargetFinding(commands.Cog):
             await ctx.respond(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
 
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="reminders delete")
+            return
 
     @reminder_group.command(
         name="add",
@@ -1328,8 +1376,8 @@ class TargetFinding(commands.Cog):
             await ctx.respond(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
 
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="reminders add")
+            return
 
     @slash_command(
         name="battlesimulation",
@@ -1366,7 +1414,7 @@ class TargetFinding(commands.Cog):
                     chan = ctx.channel.name
                     nation2_id = str(chan[chan.index("(")+1:-1])
                     done = True
-                except:
+                except (ValueError, IndexError):
                     pass
 
             if not done:
@@ -1457,8 +1505,8 @@ class TargetFinding(commands.Cog):
                     
             await ctx.respond(embed=embed, content="", view=switch())
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="battlesimulation")
+            return
 
 
     @slash_command(
@@ -1479,7 +1527,7 @@ class TargetFinding(commands.Cog):
                 try:
                     person = await helpers.find_user(self.bot, ctx.author.id)
                     nation_id = person['id']
-                except:
+                except Exception:
                     await ctx.respond("I do not know who to find the war status of.")
                     return
         else:
@@ -1678,7 +1726,7 @@ class TargetFinding(commands.Cog):
                     alliance_ids = config['targets_alliance_ids']
                     if len(alliance_ids) == 0:
                         fail = True
-                except:
+                except (KeyError, TypeError):
                     fail = True
             if fail:
                 view = views.YesOrNoView(ctx=ctx)
@@ -1780,8 +1828,8 @@ class TargetFinding(commands.Cog):
             await ctx.edit(embed=embeds[0], content="", view=view)
 
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="nuketargets")
+            return
     
     @slash_command(
         name="damage",
@@ -1818,7 +1866,7 @@ class TargetFinding(commands.Cog):
                     chan = ctx.channel.name
                     nation2_id = str(chan[chan.index("(")+1:-1])
                     done = True
-                except:
+                except (ValueError, IndexError):
                     pass
 
             if not done:
@@ -1841,8 +1889,8 @@ class TargetFinding(commands.Cog):
 
             await ctx.respond(content=f"Go to {damage_url}")
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise e
+            await self._handle_command_exception(ctx, e, command_name="damage")
+            return
 
         
     async def battle_calc(

@@ -9,6 +9,7 @@ from discord.commands import Option, SlashCommandGroup
 from discord.ext import commands
 
 from database import mongo as db_mongo
+from bot.discord_utils import errors as err_util
 from bot.discord_utils import views
 from logic import common
 
@@ -25,6 +26,27 @@ class Config(commands.Cog):
             bot: The Discord bot instance.
         """
         self.bot = bot
+
+    async def _handle_command_exception(
+        self,
+        ctx: discord.ApplicationContext,
+        error: Exception,
+        *,
+        command_name: str,
+    ) -> None:
+        ref = await err_util.report_handled_exception(
+            self.bot,
+            ctx,
+            error,
+            logger,
+            command_name=command_name,
+        )
+        embed = err_util.error_embed(
+            "Configuration failed",
+            "I couldn't update or read that setting. Please try again.",
+            reference=ref,
+        )
+        await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
 
     config_group = SlashCommandGroup("config", "Server and personal configuration settings")
 
@@ -63,8 +85,8 @@ class Config(commands.Cog):
             )
             await ctx.respond(f"DNR set to `{id_str}`")
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise
+            await self._handle_command_exception(ctx, e, command_name="config dnr")
+            return
     
     
     @config_group.command(
@@ -98,8 +120,8 @@ class Config(commands.Cog):
                     content += f"{key}: {value}\n"
                 await ctx.edit(content=content + "```")
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise
+            await self._handle_command_exception(ctx, e, command_name="config view_current_settings")
+            return
         
     @config_group.command(
         name="reminders",
@@ -257,8 +279,8 @@ class Config(commands.Cog):
                     return
 
         except Exception as e:
-            logger.error(e, exc_info=True)
-            raise
+            await self._handle_command_exception(ctx, e, command_name="config reminders")
+            return
 
 def setup(bot: commands.Bot) -> None:
     """Load the Config cog into the bot.
