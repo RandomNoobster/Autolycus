@@ -6,7 +6,10 @@ services:
 
   # Keep frontend internal; Caddy handles public TLS.
   frontend:
-    ports: []
+    # Force override of base host port mapping so Caddy can bind :80/:443.
+    # Frontend remains reachable to Caddy via Docker network at frontend:80.
+    ports:
+      - "127.0.0.1:8080:80"
     expose:
       - "80"
 
