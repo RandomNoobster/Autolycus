@@ -5,11 +5,13 @@
 {$SITE_DOMAIN} {
     encode zstd gzip
 
-    # Frontend app
-    reverse_proxy frontend:80
-
     # API routes
-    handle_path /api/* {
+    handle /api/* {
         reverse_proxy api:5000
+    }
+
+    # Frontend app
+    handle {
+        reverse_proxy frontend:80
     }
 }
