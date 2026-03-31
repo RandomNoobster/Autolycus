@@ -102,6 +102,31 @@ This project ships with a production-ready Docker setup that runs:
 It also includes a systemd timer that regularly pulls the repo, rebuilds images,
 and restarts services, so the stack stays up-to-date and resilient on crashes.
 
+### Recommended TLS setup (Caddy + domain)
+
+Use a real domain and terminate HTTPS in Caddy. Keep API traffic inside Docker.
+
+- Public ingress: only `80/443` on the VM.
+- Internal service calls: `bot -> http://api:5000`.
+- Do not expose API port `5000` publicly.
+
+Additional `.env` values for Caddy:
+
+```
+SITE_DOMAIN=autolycus.your-domain.com
+ACME_EMAIL=you@your-domain.com
+```
+
+Production URL values:
+
+```
+# Public URL users click in Discord
+AUTOLYCUS_WEB_BASE_URL=https://autolycus.your-domain.com
+
+# Internal Docker URL for bot -> API calls
+AUTOLYCUS_API_BASE_URL=http://api:5000
+```
+
 ### 1) Prerequisites (Oracle Linux)
 
 Install Docker Engine and the Compose plugin. Example for Oracle Linux 8/9:
@@ -179,7 +204,11 @@ VITE_AUTH_TOKEN_API_KEY=
 # Optional: Discord bot links and bot -> API HTTP (defaults: localhost:5173 + :5000)
 # Production: same host as your site, origin only — no /api suffix (bot appends /api/...).
 # AUTOLYCUS_WEB_BASE_URL=https://your-host
-# AUTOLYCUS_API_BASE_URL=https://your-host
+# AUTOLYCUS_API_BASE_URL=http://api:5000
+
+# Optional: Caddy TLS (used by docker-compose.prod.yml)
+# SITE_DOMAIN=autolycus.your-domain.com
+# ACME_EMAIL=you@your-domain.com
 ```
 
 Notes:
@@ -193,6 +222,13 @@ Notes:
 ```
 docker compose build
 docker compose up -d
+```
+
+With HTTPS via Caddy (recommended for production):
+
+```
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 The frontend is served on port 80. The API is accessible only through the
@@ -216,10 +252,11 @@ the interval.
 
 ### 6) Firewall (Oracle Linux)
 
-Allow inbound HTTP access:
+Allow inbound HTTP + HTTPS access:
 
 ```
 sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
 sudo firewall-cmd --reload
 ```
 
