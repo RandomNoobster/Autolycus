@@ -276,6 +276,7 @@ docker compose logs -f api
 docker compose logs -f bot
 docker compose logs -f scanner
 docker compose logs -f frontend
+docker compose --profile prod logs -f caddy
 ```
 
 Manual update (equivalent to the timer):

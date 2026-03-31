@@ -7,8 +7,8 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/autolycus
-ExecStart=/usr/bin/docker compose up -d --remove-orphans
-ExecStop=/usr/bin/docker compose down
+ExecStart=/usr/bin/docker compose --profile prod up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --profile prod down
 TimeoutStartSec=0
 
 [Install]

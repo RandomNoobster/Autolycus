@@ -8,6 +8,6 @@ if [ -d .git ]; then
   git pull --rebase
 fi
 
-docker compose build --pull
+docker compose --profile prod build --pull
 
-docker compose up -d --remove-orphans
+docker compose --profile prod up -d --remove-orphans
