@@ -178,7 +178,7 @@ version=YOUR_MONGODB_DB_NAME
 # API config
 FLASK_ENV=production
 SECRET_KEY=CHANGE_ME_TO_A_LONG_RANDOM_VALUE
-# Recommended behind the bundled Nginx proxy (see frontend/nginx.conf)
+# Recommended when running behind a reverse proxy (Caddy profile or equivalent)
 TRUST_PROXY_HEADERS=true
 
 # PnW bot key (not the same as api_key); omit only if you do not need bot-key game API calls
@@ -196,7 +196,7 @@ WAITRESS_CONNECTION_LIMIT=200
 WAITRESS_CHANNEL_TIMEOUT=30
 
 # Frontend (build-time)
-# Leave VITE_API_URL empty to use same-domain /api via Nginx proxy
+# Leave VITE_API_URL empty to use same-domain /api via reverse proxy
 VITE_API_URL=
 # If you set AUTH_TOKEN_API_KEY above, set the same secret here so the SPA can call token generation
 VITE_AUTH_TOKEN_API_KEY=
@@ -219,11 +219,6 @@ Notes:
 
 ### 4) Build and start the stack
 
-```
-docker compose build
-docker compose up -d
-```
-
 For local Docker dev (frontend on `http://localhost:8080`):
 
 ```
@@ -236,7 +231,8 @@ With HTTPS via Caddy (recommended for production):
 docker compose --profile prod up -d --build
 ```
 
-In production (Docker `--profile prod`), Caddy serves the app publicly on `80/443` with TLS. In dev (default profile), frontend is served on `8080`. The API is accessible only through the
+In production (Docker `--profile prod`), Caddy serves the app publicly on `80/443` with TLS. In dev (default profile), frontend is served on `8080`.
+The API is accessible only through the
 frontend reverse proxy at `/api` (not exposed directly on the host).
 
 ### 5) Enable auto-update + auto-restart (systemd)

@@ -103,8 +103,10 @@ def create_app(config_object: Optional[object] = None) -> Flask:
             response.headers.setdefault("Pragma", "no-cache")
         return response
     
-    # Health check endpoint
+    # Health check endpoints for API clients and infrastructure probes.
     @app.route('/api/health')
+    @app.route('/health')
+    @app.route('/healthz')
     def health_check():
         """Health check endpoint for monitoring."""
         return jsonify({
