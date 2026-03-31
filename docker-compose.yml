@@ -71,9 +71,34 @@ services:
         VITE_AUTH_TOKEN_API_KEY: ${VITE_AUTH_TOKEN_API_KEY-}
     ports:
       - "8080:80"
+    expose:
+      - "80"
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
 
-volumes: {}
+  caddy:
+    image: caddy:2.8-alpine
+    profiles: ["prod"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    env_file: .env
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

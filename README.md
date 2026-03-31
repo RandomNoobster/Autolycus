@@ -206,7 +206,7 @@ VITE_AUTH_TOKEN_API_KEY=
 # AUTOLYCUS_WEB_BASE_URL=https://your-host
 # AUTOLYCUS_API_BASE_URL=http://api:5000
 
-# Optional: Caddy TLS (used by docker-compose.prod.yml)
+# Optional: Caddy TLS (used when running Docker with `--profile prod`)
 # SITE_DOMAIN=autolycus.your-domain.com
 # ACME_EMAIL=you@your-domain.com
 ```
@@ -224,14 +224,19 @@ docker compose build
 docker compose up -d
 ```
 
+For local Docker dev (frontend on `http://localhost:8080`):
+
+```
+docker compose up -d --build
+```
+
 With HTTPS via Caddy (recommended for production):
 
 ```
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose --profile prod up -d --build
 ```
 
-The frontend is served on port 80. The API is accessible only through the
+In production (Docker `--profile prod`), Caddy serves the app publicly on `80/443` with TLS. In dev (default profile), frontend is served on `8080`. The API is accessible only through the
 frontend reverse proxy at `/api` (not exposed directly on the host).
 
 ### 5) Enable auto-update + auto-restart (systemd)
