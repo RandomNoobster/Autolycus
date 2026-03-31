@@ -53,6 +53,40 @@ const parseNumericValue = (value: unknown): number => {
   return 0;
 };
 
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
+  numeric: 'auto',
+});
+
+const formatRelativeUpdatedAt = (unixSeconds: number): string => {
+  const nowMs = Date.now();
+  const tsMs = unixSeconds * 1000;
+  const diffSeconds = Math.round((tsMs - nowMs) / 1000);
+  const absSeconds = Math.abs(diffSeconds);
+
+  if (!Number.isFinite(diffSeconds)) return '—';
+  if (absSeconds < 5) return 'just now';
+  if (absSeconds < 60) return relativeTimeFormatter.format(diffSeconds, 'second');
+
+  const diffMinutes = Math.round(diffSeconds / 60);
+  const absMinutes = Math.abs(diffMinutes);
+  if (absMinutes < 60) return relativeTimeFormatter.format(diffMinutes, 'minute');
+
+  const diffHours = Math.round(diffMinutes / 60);
+  const absHours = Math.abs(diffHours);
+  if (absHours < 24) return relativeTimeFormatter.format(diffHours, 'hour');
+
+  const diffDays = Math.round(diffHours / 24);
+  const absDays = Math.abs(diffDays);
+  if (absDays < 30) return relativeTimeFormatter.format(diffDays, 'day');
+
+  const diffMonths = Math.round(diffDays / 30);
+  const absMonths = Math.abs(diffMonths);
+  if (absMonths < 12) return relativeTimeFormatter.format(diffMonths, 'month');
+
+  const diffYears = Math.round(diffDays / 365);
+  return relativeTimeFormatter.format(diffYears, 'year');
+};
+
 
 // Custom filter: min only
 const minOnlyFilter = (row: any, id: string, filterValue: any) => {
@@ -216,8 +250,8 @@ interface RaidsTableProps {
   data: RaidTarget[];
   /** Alliance names for the column multi-select (from parent: full target list + current picks). Keeps options when filtered rows are empty. */
   allianceSelectOptions?: string[];
-  token: string | null;
   showBeige: boolean;
+  discordAuthenticated: boolean;
   discordLinked: boolean;
   initialSorting?: { id: string; desc: boolean }[];
   columnVisibility: MRT_VisibilityState;
@@ -237,8 +271,8 @@ interface RaidsTableProps {
 export function RaidsTable({
   data,
   allianceSelectOptions,
-  token,
   showBeige,
+  discordAuthenticated,
   discordLinked,
   initialSorting = [],
   columnVisibility,
@@ -260,8 +294,8 @@ export function RaidsTable({
   // ... (Keep your mutations same as before) ...
   const addReminderMutation = useMutation({
     mutationFn: (nationId: number) => {
-      if (!token) return Promise.reject(new Error('Authentication required for reminders'));
-      return addReminder(token, { nationId });
+      if (!discordLinked) return Promise.reject(new Error('Login with Discord to use reminders'));
+      return addReminder({ nationId });
     },
     onSuccess: (_, nationId) => {
       notifications.show({ title: 'Reminder Set', message: `Nation ${nationId}`, color: 'green' });
@@ -275,8 +309,8 @@ export function RaidsTable({
 
   const removeReminderMutation = useMutation({
     mutationFn: (nationId: number) => {
-      if (!token) return Promise.reject(new Error('Authentication required for reminders'));
-      return removeReminder(token, nationId);
+      if (!discordLinked) return Promise.reject(new Error('Login with Discord to use reminders'));
+      return removeReminder(nationId);
     },
     onSuccess: (_, nationId) => {
       notifications.show({ title: 'Reminder Removed', message: `Nation ${nationId}`, color: 'blue' });
@@ -497,6 +531,26 @@ export function RaidsTable({
         mantineTableBodyCellProps: { align: 'center' },
         filterFn: minOnlyFilter,
         Filter: MinOnlyFilterInput,
+      },
+      {
+        accessorKey: 'updatedAt',
+        header: 'Nation Updated',
+        Header: () => headerWithTooltip('Nation Updated', 'How long since Autolycus last updated information for this nation.'),
+        size: 165,
+        mantineTableBodyCellProps: { align: 'center' },
+        Cell: ({ cell }) => {
+          const ts = cell.getValue<number | null | undefined>();
+          if (ts == null) return '—';
+          const ms = Number(ts) * 1000;
+          if (!Number.isFinite(ms) || ms <= 0) return '—';
+          const exact = new Date(ms).toLocaleString();
+          const relative = formatRelativeUpdatedAt(Number(ts));
+          return (
+            <Tooltip label={exact} withArrow withinPortal>
+              <Text span>{relative}</Text>
+            </Tooltip>
+          );
+        },
       },
       {
         accessorKey: 'monetaryNetIncome',
@@ -797,6 +851,12 @@ export function RaidsTable({
         </Menu.Dropdown>
       </Menu>
       <MantineReactTable table={table} />
+      {discordAuthenticated && !discordLinked && (
+        <Alert icon={<IconInfoCircle size={16} />} title="Reminder Setup Needed" color="yellow" variant="light">
+          Your Discord web session is active, but your Discord account is not linked to a nation profile yet.
+          Run <strong>/verify</strong> in the Discord bot to link your Discord and PnW accounts, then refresh this page to enable beige reminders.
+        </Alert>
+      )}
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
         Hide or show columns, reorder them and filter columns by using the controls in the top-right of the table.
         Right-click any row to open a context menu with quick links to the nation page, alliance page, declare war page, or to set a beige reminder.

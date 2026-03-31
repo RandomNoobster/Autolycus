@@ -2,7 +2,12 @@
  * Auth API Functions
  */
 
-import { apiPost } from './client';
+import { apiGet, apiPost } from './client';
+import type {
+  VerifyLinkRequest,
+  VerifyLinkResponse,
+  LinkedNationResponse,
+} from '@/types';
 
 interface TokenGenerateResponse {
   token: string;
@@ -25,6 +30,16 @@ interface TokenVerifyResponse {
 
 interface TokenExchangeRequest {
   code: string;
+}
+
+export interface DiscordSessionResponse {
+  authenticated: boolean;
+  discord_user_id?: number;
+  username?: string;
+  global_name?: string;
+  avatar?: string;
+  avatar_url?: string;
+  authenticated_at?: number;
 }
 
 /**
@@ -50,4 +65,27 @@ export function verifyToken(token: string): Promise<TokenVerifyResponse> {
     '/api/auth/token/verify',
     { token }
   );
+}
+
+export function getDiscordSession(): Promise<DiscordSessionResponse> {
+  return apiGet<DiscordSessionResponse>('/api/auth/me');
+}
+
+export function logoutDiscordSession(): Promise<{ success: boolean; message: string }> {
+  return apiPost<{ success: boolean; message: string }, Record<string, never>>(
+    '/api/auth/logout',
+    {}
+  );
+}
+
+export function getDiscordLoginUrl(redirectPath: string = '/raids'): string {
+  return `/api/auth/discord/start?redirect=${encodeURIComponent(redirectPath)}`;
+}
+
+export function verifyDiscordLink(data: VerifyLinkRequest): Promise<VerifyLinkResponse> {
+  return apiPost<VerifyLinkResponse, VerifyLinkRequest>('/api/auth/verify', data);
+}
+
+export function getLinkedNation(): Promise<LinkedNationResponse> {
+  return apiGet<LinkedNationResponse>('/api/auth/linked-nation');
 }

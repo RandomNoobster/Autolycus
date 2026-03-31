@@ -4,11 +4,11 @@ This module contains general-purpose commands including nation info,
 revenue calculations, builds optimizer, and user management.
 """
 
+import asyncio
 import json
 import logging
 import os
 import pathlib
-import re
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Any, Dict, List, Optional
@@ -20,11 +20,11 @@ from discord.ext import commands
 from logic import queries
 from database.mongo import get_db, get_global_user_by_any, listify
 from database import sqlite_cache as db_utils
-from database.users import (delete_verification, get_verification,
-                            set_verification)
+from database.users import delete_verification
 from bot.discord_utils import help_data, helpers
 from bot.discord_utils import errors as err_util
 from bot.discord_utils.embeds import nation_overview_embed
+from bot.discord_utils.loading_display import LoadingDisplay
 from logic.api_client import call, paginate_call
 from logic.builds import calculate_builds as calculate_builds_logic
 from logic.builds import generate_build_template
@@ -32,6 +32,7 @@ from logic.common import str_to_int
 from logic.merge_utils import get_query
 from logic.military import militarization_checker
 from logic.revenue import pre_revenue_calc, revenue_calc
+from logic.verification import verify_discord_nation_link
 from core.config import AUTOLYCUS_WEB_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,11 @@ class Background(commands.Cog):
         )
         embed = err_util.error_embed(
             "Command failed",
-            "I couldn't complete that request. Please try again in a moment.",
+            (
+                err_util.PNW_SERVER_USER_MESSAGE
+                if err_util.is_pnw_server_error(error)
+                else "I couldn't complete that request. Please try again in a moment."
+            ),
             reference=ref,
         )
         await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
@@ -164,18 +169,23 @@ class Background(commands.Cog):
             mmr: Military requirement (format: barracks/factory/hangar/drydock or "any").
             person: Discord ID or nation identifier (defaults to command author).
         """
+        loading: LoadingDisplay | None = None
         try:
             await ctx.respond("Let me think a bit...")
+            loading = LoadingDisplay(ctx, show_after=0)
+            await loading.start("Let me think a bit...")
 
             target = person or ctx.author.id
             db_nation = await helpers.find_nation_plus(self.bot, target)
             if not db_nation:
-                await ctx.edit(content="I could not find the specified person!")
+                await loading.clear()
+                await ctx.edit(content="I could not find the specified person!", attachments=[])
                 return
 
             infra_level = str_to_int(infra)
             if infra_level % 50 != 0:
-                await ctx.edit(content="The amount of infra must be a multiple of 50!")
+                await loading.clear()
+                await ctx.edit(content="The amount of infra must be a multiple of 50!", attachments=[])
                 return
 
             land_amount = str_to_int(land)
@@ -197,7 +207,8 @@ class Background(commands.Cog):
                     "using `barracks/factory/hangar/drydock` or `any`, then try again.",
                     reference=reference,
                 )
-                await ctx.edit(content="", embed=embed)
+                await loading.clear()
+                await ctx.edit(content="", embed=embed, attachments=[])
                 return
 
             unique_builds = results.get("uniqueBuilds", [])
@@ -250,10 +261,13 @@ class Background(commands.Cog):
             link_text = f"[Click here to see all builds]({builds_url})"
             embed.add_field(name="View Detailed Results", value=link_text, inline=False)
 
-            embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+            embed.set_footer(text="Contact randomnoobster for help or bug reports")
 
-            await ctx.edit(content="", embed=embed)
+            await loading.clear()
+            await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
+            if loading is not None:
+                await loading.clear()
             await self._handle_command_exception(ctx, e, command_name="builds")
             return
 
@@ -275,16 +289,20 @@ class Background(commands.Cog):
             ctx: Discord application context.
             person: Discord ID or nation identifier (defaults to command author).
         """
+        loading: LoadingDisplay | None = None
         try:
             await ctx.respond('Stay with me...')
+            loading = LoadingDisplay(ctx, show_after=0)
+            await loading.start("Stay with me...")
             if person is None:
                 person = ctx.author.id
             db_nation = await helpers.find_user(self.bot, person)
 
             if not db_nation:
-                db_nation = db_utils.find_nation(person)
+                db_nation = await asyncio.to_thread(db_utils.find_nation, person)
                 if not db_nation:
-                    await ctx.edit(content='I could not find that person!')
+                    await loading.clear()
+                    await ctx.edit(content='I could not find that person!', attachments=[])
                     return
                 db_nation['nationid'] = db_nation['id']
 
@@ -322,8 +340,11 @@ class Background(commands.Cog):
             embed.add_field(name="Monetary Net Income", inline=False, value=rev_obj['mon_net_txt'])
             embed.set_footer(text=rev_obj['footer'])
 
-            await ctx.edit(content="", embed=embed)
+            await loading.clear()
+            await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
+            if loading is not None:
+                await loading.clear()
             await self._handle_command_exception(ctx, e, command_name="revenue nation")
             return
     
@@ -344,11 +365,13 @@ class Background(commands.Cog):
             alliance: Alliance name, ID, or acronym.
             include_grey: Whether to include gray nations in calculation.
         """
+        loading: LoadingDisplay | None = None
         try:
             await ctx.defer()
 
             alliance_id = None
-            for aa in db_utils.list_all_alliances():
+            all_alliances = await asyncio.to_thread(db_utils.list_all_alliances)
+            for aa in all_alliances:
                 aa_id = str(aa['id'])
                 if alliance in (f"{aa['name']} ({aa_id})", aa_id, aa['name'], aa['acronym']):
                     alliance_id = aa_id
@@ -358,13 +381,15 @@ class Background(commands.Cog):
                 await ctx.respond(f"I could not find a match to `{alliance}` in the database!")
                 return
 
-            await ctx.respond('Calling the API...')
+            loading = LoadingDisplay(ctx, show_after=0)
+            await loading.start("Calling the API...")
 
             nations = await paginate_call(
                 f"{{nations(alliance_id:{alliance_id} page:page_number alliance_position:[2,3,4,5]){{paginatorInfo{{hasMorePages}} data{get_query(queries.REVENUE)}}}}}",
                 "nations",
                 api_key,
             )
+            await loading.update("Calculating alliance revenue...")
 
             nation, colors, prices, treasures, radiation, seasonal_mod = await pre_revenue_calc(
                 ctx,
@@ -400,6 +425,7 @@ class Background(commands.Cog):
                         pass
             
             if len(nations) == 0:
+                await loading.clear()
                 await ctx.respond(f"They have no valid members!")
                 return
                 
@@ -411,8 +437,11 @@ class Background(commands.Cog):
             embed.add_field(name="Money", value=f"{income[RSS[-2]]:,.2f}\n")
             embed.add_field(name="Net income", value=f"{income[RSS[-1]]:,.2f}\n")
             
-            await ctx.edit(content="", embed=embed)
+            await loading.clear()
+            await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
+            if loading is not None:
+                await loading.clear()
             await self._handle_command_exception(ctx, e, command_name="revenue alliance")
             return
 
@@ -433,14 +462,14 @@ class Background(commands.Cog):
                 f"{len(self.bot.users)} people across {len(self.bot.guilds)} servers have access to me, "
                 f"but only {verified_count} have verified themselves.\n\n"
                 "Here you can find the:\n"
-                "> [GitHub Repository](https://github.com/RandomNoobster/Autolycus/tree/oracle)\n"
+                "> [GitHub Repository](https://github.com/randomnoobster/Autolycus/tree/oracle)\n"
                 "> [Invite Link](https://discord.com/api/oauth2/authorize?client_id=946351598223888414&permissions=326417827840&scope=applications.commands%20bot)\n"
                 "> [Privacy Policy](https://docs.google.com/document/d/1SXfqzBq_UPuJpPyaXjGBE0UFSfplwMIbeSS6pO4e4f8/)\n"
                 "> [Terms of Service](https://docs.google.com/document/d/1sR398ZaqVb6YId7jKIyx0laTxbA14QP0GnwmjY74yWw/)\n"
                 "\u200b"
             )
             embed = discord.Embed(title="About me", description=content, color=0xff5100)
-            embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+            embed.set_footer(text="Contact randomnoobster for help or bug reports")
             await ctx.respond(embed=embed)
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="botinfo")
@@ -462,26 +491,41 @@ class Background(commands.Cog):
             nation_id: Nation ID or link from Politics & War.
         """
         try:
-            user = await get_verification(ctx.author.id)
-            if user is not None:
-                await ctx.respond("You are already verified!")
-                return
-            nation_id = re.sub("[^0-9]", "", nation_id)
-            res = await call_api(f'{{nations(first:1 id:{nation_id}){{data{get_query(queries.VERIFY)}}}}}')
-            try:
-                if str(ctx.author.name).lower() == res['data']['nations']['data'][0]['discord'].lower():
-                    await set_verification(ctx.author.id, nation_id)
-                    await ctx.respond("You have successfully verified your nation!")
+            result = await verify_discord_nation_link(
+                discord_user_id=ctx.author.id,
+                discord_username=str(ctx.author.name),
+                nation_input=nation_id,
+                call_func=call_api,
+            )
+
+            if result["ok"]:
+                if result["relinked"]:
+                    await ctx.respond("Verification updated! Your Discord account is now linked to the new nation.")
                 else:
-                    await ctx.respond(
-                        f'1. Go to <https://politicsandwar.com/nation/edit/>\n'
-                        f'2. Scroll down to where it says "Discord Username"\n'
-                        f'3. Type `{ctx.author.name}` in the adjacent field\n'
-                        f'4. Come back to discord\n'
-                        f'5. Type `/verify {nation_id}` again'
-                    )
-            except (KeyError, IndexError):
-                await ctx.respond(f"I could not find a nation with an id of `{nation_id}`")
+                    await ctx.respond("You have successfully verified your nation!")
+                return
+
+            code = result["code"]
+            resolved_nation_id = result["nation_id"] or nation_id
+            if code == "OWNERSHIP_MISMATCH":
+                await ctx.respond(
+                    f'1. Go to <https://politicsandwar.com/nation/edit/>\n'
+                    f'2. Scroll down to where it says "Discord Username"\n'
+                    f'3. Type `{ctx.author.name}` in the adjacent field\n'
+                    f'4. Come back to discord\n'
+                    f'5. Type `/verify {resolved_nation_id}` again'
+                )
+                return
+            if code == "NOT_FOUND":
+                await ctx.respond(f"I could not find a nation with an id of `{resolved_nation_id}`")
+                return
+            if code == "LINK_CONFLICT":
+                await ctx.respond("That nation is already linked to another Discord account.")
+                return
+            if code == "INVALID_NATION_ID":
+                await ctx.respond("Please provide a valid nation id or nation link.")
+                return
+            await ctx.respond("Verification failed. Please try again in a moment.")
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="verify")
             return
@@ -584,7 +628,7 @@ class Background(commands.Cog):
                         inline=False,
                     )
 
-                embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+                embed.set_footer(text="Contact randomnoobster for help or bug reports")
                 await ctx.edit(content="", embed=embed)
             else:
                 # ── Compact list of all commands ──
@@ -613,7 +657,7 @@ class Background(commands.Cog):
                         inline=False,
                     )
 
-                embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+                embed.set_footer(text="Contact randomnoobster for help or bug reports")
                 await ctx.edit(content="", embed=embed)
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="help")

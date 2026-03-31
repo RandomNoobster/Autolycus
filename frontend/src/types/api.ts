@@ -69,6 +69,7 @@ export interface RaidsResponse {
   beigeAlerts: string[];
   showBeige: boolean;
   generatedAt: string;
+  discordAuthenticated: boolean;
   discordLinked: boolean;
     warning?: string | null;
 }
@@ -82,6 +83,26 @@ export interface ReminderResponse {
   success: boolean;
   message: string;
   nationId: number;
+}
+
+export interface VerifyLinkRequest {
+  nationId: string;
+}
+
+export interface VerifyLinkResponse {
+  success: boolean;
+  code: string;
+  message: string;
+  nationId?: string | null;
+  relinked?: boolean;
+}
+
+export interface LinkedNationResponse {
+  authenticated: boolean;
+  linked: boolean;
+  nation_id?: string | null;
+  nation_name?: string | null;
+  flag_url?: string | null;
 }
 
 // ============================================================================

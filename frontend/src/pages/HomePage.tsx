@@ -12,6 +12,7 @@ import {
   Group,
   ThemeIcon,
   Image,
+  useMantineColorScheme,
 } from '@mantine/core';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -52,6 +53,8 @@ const features = [
 export function HomePage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { colorScheme } = useMantineColorScheme();
+  const isLightMode = colorScheme === 'light';
 
   const handleNavigate = (path: string) => {
     navigate(internalNavPath(path, location.search));
@@ -68,9 +71,11 @@ export function HomePage() {
               fontFamily: "'Trebuchet MS', 'Segoe UI', 'Arial', sans-serif",
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              color: '#ffd38a',
+              color: isLightMode ? '#b45309' : '#ffd38a',
               textShadow:
-                '0 0 6px rgba(255, 171, 64, 0.45), 0 0 14px rgba(255, 109, 0, 0.35), 0 2px 10px rgba(120, 28, 0, 0.65)',
+                isLightMode
+                  ? '0 1px 0 rgba(255, 255, 255, 0.8), 0 2px 6px rgba(120, 53, 15, 0.2)'
+                  : '0 0 6px rgba(255, 171, 64, 0.45), 0 0 14px rgba(255, 109, 0, 0.35), 0 2px 10px rgba(120, 28, 0, 0.65)',
             }}
           >
             Welcome to

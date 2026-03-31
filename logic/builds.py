@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from datetime import datetime, timedelta
@@ -356,7 +357,9 @@ async def calculate_builds(
             "drydock": mmr_values[3],
         }
 
-    rows = db_utils.fetch_build_rows(db_path, infra, mmr_dict, caps, restrictions["json_names"])
+    rows = await asyncio.to_thread(
+        db_utils.fetch_build_rows, db_path, infra, mmr_dict, caps, restrictions["json_names"]
+    )
     if not rows:
         raise ValueError(f"No builds found for infrastructure {infra} with the given criteria")
 

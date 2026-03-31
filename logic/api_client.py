@@ -25,6 +25,18 @@ DIAGNOSTIC_RESPONSE_HEADERS = (
     "X-Ratelimit-Reset-After",
 )
 
+
+class PnWServerError(RuntimeError):
+    """Politics & War server-side failure (5xx / internal errors)."""
+
+
+def _is_pnw_server_error_response(status: int, payload: Any) -> bool:
+    if status >= 500:
+        return True
+    text = str(payload).lower()
+    return "internal server error" in text
+
+
 async def paginate_call(data: str, path: str, api_key: str, use_bot_key: bool = False) -> list[dict[str, Any]]:
     n = 0
     has_more_pages = True
@@ -81,6 +93,10 @@ async def call(data: str, api_key: str, retry_limit: int = 2, use_bot_key: bool 
                         f"status={response.status} reason={response.reason} "
                         f"content_type={response.headers.get('Content-Type')} body_len={len(raw_body)} "
                         f"query_len={len(data)} body_preview={body_preview!r}"
+                    )
+                if _is_pnw_server_error_response(response.status, json_response):
+                    raise PnWServerError(
+                        f"PnW server error (status={response.status}, reason={response.reason})"
                     )
                 if response.status == 401 and "error" in json_response:
                     if "invalid api_key" in json_response["error"]["errors"][0]["message"]:
@@ -139,6 +155,10 @@ def query_sync(query_string: str, api_key: str, variables: dict[str, Any] | None
             json_response = response.json()
         except requests.exceptions.JSONDecodeError:
             raise Exception(f"Invalid JSON response: {response.text}")
+        if _is_pnw_server_error_response(response.status_code, json_response):
+            raise PnWServerError(
+                f"PnW server error (status={response.status_code}, reason={response.reason})"
+            )
         
         # Check for authentication errors
         if response.status_code == 401 and "error" in json_response:

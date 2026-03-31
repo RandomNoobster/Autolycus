@@ -34,7 +34,6 @@ export interface RaidFilterParams {
 }
 
 export function fetchRaids(
-  token?: string,
   filters: RaidFilterParams = {}
 ): Promise<RaidsResponse> {
   const params = new URLSearchParams();
@@ -52,7 +51,7 @@ export function fetchRaids(
   });
   const qs = params.toString();
   const endpoint = qs ? `/api/raids/?${qs}` : '/api/raids/';
-  return apiGet<RaidsResponse>(endpoint, token);
+  return apiGet<RaidsResponse>(endpoint);
 }
 
 /**
@@ -63,14 +62,9 @@ export function fetchRaids(
  * @returns Confirmation response
  */
 export function addReminder(
-  token: string,
   data: ReminderRequest
 ): Promise<ReminderResponse> {
-  return apiPost<ReminderResponse, ReminderRequest>(
-    '/api/raids/reminders',
-    data,
-    token
-  );
+  return apiPost<ReminderResponse, ReminderRequest>('/api/raids/reminders', data);
 }
 
 /**
@@ -81,13 +75,9 @@ export function addReminder(
  * @returns Confirmation response
  */
 export function removeReminder(
-  token: string,
   nationId: number
 ): Promise<ReminderResponse> {
-  return apiDelete<ReminderResponse>(
-    `/api/raids/reminders/${nationId}`,
-    token
-  );
+  return apiDelete<ReminderResponse>(`/api/raids/reminders/${nationId}`);
 }
 
 /**
@@ -109,15 +99,11 @@ export interface AllianceSearchResult {
  * @returns Array of matching alliances
  */
 export function searchAlliances(
-  token: string | undefined,
   query: string,
   limit: number = 10
 ): Promise<AllianceSearchResult[]> {
   const params = new URLSearchParams();
   params.set('q', query);
   params.set('limit', String(limit));
-  return apiGet<AllianceSearchResult[]>(
-    `/api/raids/alliances/search?${params.toString()}`,
-    token
-  );
+  return apiGet<AllianceSearchResult[]>(`/api/raids/alliances/search?${params.toString()}`);
 }

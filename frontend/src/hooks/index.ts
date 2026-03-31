@@ -10,3 +10,4 @@ export {
   type SidebarDiscordSession,
 } from './useSidebarDiscordSession';
 export { useNationId } from './useNationId';
+export { useDelayedFlag } from './useDelayedFlag';

@@ -31,6 +31,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 import { calculateDamage, fetchDamage, searchNations } from "@/api";
+import { getLinkedNation } from "@/api/auth";
 import { DamageDashboard } from "@/components/damage";
 import { LoadingState, ErrorState } from "@/components/common";
 import type {
@@ -866,6 +867,7 @@ export function DamagePage() {
   const [inputNation2, setInputNation2] = useState("");
   const [nation1Query, setNation1Query] = useState("");
   const [nation2Query, setNation2Query] = useState("");
+  const [hasTouchedNation1Input, setHasTouchedNation1Input] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [calculatedData, setCalculatedData] = useState<DamageResponse | null>(
@@ -899,6 +901,17 @@ export function DamagePage() {
         : Promise.resolve([]),
     enabled: debouncedInputNation2.length >= 1,
   });
+  const { data: linkedNationData } = useQuery({
+    queryKey: ["linkedNation"],
+    queryFn: async () => {
+      try {
+        return await getLinkedNation();
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
+  });
 
   const inputNation1OptionsData = useMemo(
     () =>
@@ -917,6 +930,28 @@ export function DamagePage() {
       })),
     [inputNation2Options],
   );
+
+  useEffect(() => {
+    if (nation1) return;
+    if (hasTouchedNation1Input) return;
+    const linkedNationId = linkedNationData?.linked
+      ? linkedNationData.nation_id || ""
+      : "";
+    if (!linkedNationId) return;
+    if (inputNation1.trim()) return;
+    const parsed = parseNationIdInput(linkedNationId);
+    if (!parsed) return;
+    setInputNation1(String(parsed));
+    setNation1Query(String(parsed));
+    form.setFieldValue("nation1Id", parsed);
+  }, [
+    nation1,
+    hasTouchedNation1Input,
+    linkedNationData?.linked,
+    linkedNationData?.nation_id,
+    inputNation1,
+    form,
+  ]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1031,11 +1066,17 @@ export function DamagePage() {
                     placeholder="Nation 1 ID, name, or leader"
                     size="sm"
                     value={inputNation1}
-                    onChange={setInputNation1}
+                    onChange={(value) => {
+                      setHasTouchedNation1Input(true);
+                      setInputNation1(value);
+                    }}
                     leftSection={<IconSearch size={16} />}
                     data={inputNation1OptionsData}
                     limit={6}
-                    onOptionSubmit={(value) => setInputNation1(value)}
+                    onOptionSubmit={(value) => {
+                      setHasTouchedNation1Input(true);
+                      setInputNation1(value);
+                    }}
                   />
                   <Autocomplete
                     placeholder="Nation 2 ID, name, or leader"
@@ -1146,7 +1187,10 @@ export function DamagePage() {
                     <NationAutocompleteField
                       label="Nation 1 ID, name, or leader"
                       value={nation1Query}
-                      onCommit={commitNation1Query}
+                      onCommit={(value) => {
+                        setHasTouchedNation1Input(true);
+                        commitNation1Query(value);
+                      }}
                     />
                     <NationAutocompleteField
                       label="Nation 2 ID, name, or leader"

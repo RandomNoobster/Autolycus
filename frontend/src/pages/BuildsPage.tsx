@@ -39,8 +39,10 @@ import {
 } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 
 import { fetchNationData, fetchBuilds, fetchGameData } from '@/api/builds';
+import { getLinkedNation } from '@/api/auth';
 import { BuildsGrid } from '@/components/builds';
 import { ResourceIcon, NationIdField } from '@/components/common';
 import type { BuildConfiguration, BuildsResponse, ResourceType, Continent } from '@/types';
@@ -61,6 +63,19 @@ export function BuildsPage() {
   const [nationSuccess, setNationSuccess] = useState<string | null>(null);
   const [gameData, setGameData] = useState<GameDataResponse | null>(null);
   const [autoLoadNation, setAutoLoadNation] = useState(false);
+  const [hasManualNationInput, setHasManualNationInput] = useState(false);
+  const { data: linkedNationData } = useQuery({
+    queryKey: ['linkedNation'],
+    queryFn: async () => {
+      try {
+        return await getLinkedNation();
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
+  });
+  const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || undefined : undefined;
 
   // Load projects and policies on mount
   useEffect(() => {
@@ -107,8 +122,20 @@ export function BuildsPage() {
     if (!Number.isFinite(parsedNum) || parsedNum <= 0) return;
     form.setFieldValue('nationId', parsedNum);
     setNationId(parsed);
+    setHasManualNationInput(true);
     setAutoLoadNation(true);
   }, [search, parseNationId, setNationId]);
+
+  useEffect(() => {
+    if (hasManualNationInput) return;
+    if (form.values.nationId) return;
+    if (!linkedNationId) return;
+    const linkedNum = Number(linkedNationId);
+    if (!Number.isFinite(linkedNum) || linkedNum <= 0) return;
+    form.setFieldValue('nationId', linkedNum);
+    setNationId(String(linkedNum));
+    setAutoLoadNation(true);
+  }, [hasManualNationInput, form.values.nationId, linkedNationId, setNationId]);
 
 
   const projectOptions = gameData
@@ -140,6 +167,7 @@ export function BuildsPage() {
   };
 
   const handleNationIdChange = (value: string) => {
+    setHasManualNationInput(true);
     const trimmed = value.trim();
     if (!trimmed) {
       form.setFieldValue('nationId', undefined);

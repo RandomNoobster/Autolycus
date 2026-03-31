@@ -36,6 +36,7 @@ export async function apiRequest<T>(
 
   const response = await fetch(url, {
     ...fetchOptions,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...fetchOptions.headers,

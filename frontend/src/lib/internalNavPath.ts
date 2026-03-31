@@ -3,18 +3,16 @@
  * Raid Targets uses many deep-link params; other pages ignore most of them.
  */
 
-import { readStoredAccessToken } from '@/lib/accessTokenStorage';
-
 export function internalNavPath(pathname: string, search: string): string {
   const sp = new URLSearchParams(search);
 
   if (pathname === '/raids') {
-    const hasToken =
-      sp.has('token') || readStoredAccessToken('raids') !== null;
-    if (hasToken) {
-      return `/raids${search}`;
-    }
-    return `/token-request?type=raids&redirect=/raids&auto=true`;
+    sp.delete('token');
+    sp.delete('code');
+    sp.delete('auto');
+    sp.delete('redirect');
+    const q = sp.toString();
+    return `/raids${q ? `?${q}` : ''}`;
   }
 
   sp.delete('token');

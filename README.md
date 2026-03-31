@@ -60,7 +60,9 @@ Minimum required values:
 Optional but needed for some features:
 
 - `BOT_KEY` — PnW **bot** key (separate from `API_KEY`); used for game API calls in builds/market/damage flows
-- `DISCORD_BOT_API_KEY` — shared secret the bot sends as `X-Bot-Token` to the API (e.g. `/api/auth/token/issue`); must match in API and bot `.env`
+- `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` — required for official web `Login with Discord` OAuth flow
+- `DISCORD_REDIRECT_URI` — optional override for OAuth callback URI; when omitted, API derives it from `AUTOLYCUS_WEB_BASE_URL` as `/api/auth/discord/callback` (or request host as fallback)
+- `DISCORD_BOT_API_KEY` — shared secret for bot-only auth endpoints (legacy token issuance; not required for website `/raids` login)
 - `AUTH_TOKEN_API_KEY` — shared secret for `POST /api/auth/token/generate` if you use that flow from the web app
 - `VITE_API_URL` / `VITE_AUTH_TOKEN_API_KEY` — frontend build-time values (usually left empty for same-origin `/api`)
 - `REDIS_URL` — optional Redis cache backend (leave unset for in-memory cache in local dev)
@@ -190,8 +192,15 @@ TRUST_PROXY_HEADERS=true
 # PnW bot key (not the same as API_KEY); omit only if you do not need bot-key game API calls
 BOT_KEY=YOUR_PNW_BOT_KEY
 
-# Same value in both services: bot uses X-Bot-Token; API validates in /api/auth/token/issue
+# Optional bot-only shared secret (legacy token issuance endpoints)
 DISCORD_BOT_API_KEY=CHANGE_ME_SHARED_SECRET_FOR_BOT_TO_API
+
+# Required for official web Login with Discord
+DISCORD_CLIENT_ID=YOUR_DISCORD_APP_CLIENT_ID
+DISCORD_CLIENT_SECRET=YOUR_DISCORD_APP_CLIENT_SECRET
+# Optional override. If omitted, API uses:
+# ${AUTOLYCUS_WEB_BASE_URL}/api/auth/discord/callback
+# DISCORD_REDIRECT_URI=https://autolycus.your-domain.com/api/auth/discord/callback
 
 # Optional: POST /api/auth/token/generate; if set, use the same value for VITE_AUTH_TOKEN_API_KEY below
 AUTH_TOKEN_API_KEY=
@@ -306,6 +315,7 @@ Collections currently used by the app:
 - `guild_configs`
 - `commands`
 - `auth_codes`
+- `interactive_sessions`
 
 MongoDB collections are created automatically on first write, so users do not
 need to create them manually ahead of time. This means a fresh deployment may

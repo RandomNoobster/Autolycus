@@ -1,7 +1,7 @@
 /**
  * Raids Page
  *
- * Displays raid targets with token authentication.
+ * Displays raid targets with Discord OAuth web sessions.
  */
 
 import {
@@ -26,7 +26,7 @@ import {
 } from '@mantine/core';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { IconX, IconAlertCircle, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
+import { IconX, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
 import type {
   MRT_ColumnFiltersState,
   MRT_ColumnOrderState,
@@ -34,17 +34,16 @@ import type {
   MRT_VisibilityState,
 } from 'mantine-react-table';
 
-import { fetchRaids, exchangeToken } from '@/api';
-import { persistAccessTokenFromExchange } from '@/lib/accessTokenStorage';
+import { fetchRaids } from '@/api';
+import { getDiscordLoginUrl, getLinkedNation } from '@/api/auth';
 import {
   useUrlParams,
   useNationId,
   useTablePersistence,
-  usePersistedAccessToken,
   useRaidsSearchParams,
 } from '@/hooks';
 import { RaidsTable } from '@/components/raids';
-import { TokenError, ErrorState, NationIdField } from '@/components/common';
+import { ErrorState, NationIdField, VerifyNationModal } from '@/components/common';
 import type { ApiError } from '@/types';
 
 type TableSettings = {
@@ -65,6 +64,7 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
     color: true,
     nationLoot: true,
     daysInactive: true,
+    updatedAt: true,
     monetaryNetIncome: false,
     netCashIncome: false,
     taxable: false,
@@ -92,6 +92,7 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
     'color',
     'nationLoot',
     'daysInactive',
+    'updatedAt',
     'monetaryNetIncome',
     'netCashIncome',
     'taxable',
@@ -163,54 +164,32 @@ function migrateStoredAlliance(value: unknown): string[] {
 
 
 export function RaidsPage() {
-  const { token: urlToken, initialColumnFilters, initialSorting } = useUrlParams();
-  const { resolveToken } = usePersistedAccessToken('raids', urlToken);
+  const { initialColumnFilters, initialSorting } = useUrlParams();
   const { nationId: savedNationId, parseNationId, setNationId } = useNationId();
   const [searchParams, setSearchParams] = useRaidsSearchParams();
-
-  // Handle Discord auth code → token exchange
-  const code = searchParams.get('code');
-  const [exchangedToken, setExchangedToken] = useState<string | null>(null);
-  const [exchangeError, setExchangeError] = useState<string | null>(null);
-  const awaitingFreshDiscordCode =
-    Boolean(code) && !urlToken && !exchangedToken && !exchangeError;
-  const token = awaitingFreshDiscordCode ? null : resolveToken(exchangedToken);
-  const isExchangingCode = !!code && !token && !exchangeError;
-  const exchangeInFlightRef = useRef(false);
-
-  useEffect(() => {
-    if (!code || urlToken || exchangeInFlightRef.current) return;
-    exchangeInFlightRef.current = true;
-    const doExchange = async () => {
-      try {
-        const response = await exchangeToken({ code });
-        await persistAccessTokenFromExchange(response);
-        setExchangedToken(response.token);
-        setSearchParams((prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete('code');
-          next.delete('auto');
-          next.delete('redirect');
-          next.set('token', response.token);
-          return next;
-        }, { replace: true });
-      } catch (err: any) {
-        setExchangeError(err.message || 'Failed to authenticate with Discord.');
-        exchangeInFlightRef.current = false;
-      }
-    };
-    doExchange();
-  }, [code, urlToken, setSearchParams]);
 
   const targetNationIds = searchParams.get('targetNationIds') || undefined;
   const attackerNationIdParam = searchParams.get('attackerNationId') || undefined;
   const useSavedTargets = searchParams.get('useSavedTargets') === 'true';
-  const resolvedNationId = attackerNationIdParam || savedNationId;
+  const { data: linkedNationData, refetch: refetchLinkedNation } = useQuery({
+    queryKey: ['linkedNation'],
+    queryFn: async () => {
+      try {
+        return await getLinkedNation();
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
+  });
+  const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || undefined : undefined;
+  const resolvedNationId = attackerNationIdParam || linkedNationId || savedNationId;
   const [appliedNationId, setAppliedNationId] = useState(resolvedNationId);
   const [draftNationId, setDraftNationId] = useState(resolvedNationId);
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
 
   useEffect(() => {
-    const nextNationId = attackerNationIdParam || savedNationId;
+    const nextNationId = attackerNationIdParam || linkedNationId || savedNationId;
     if (nextNationId && nextNationId !== appliedNationId) {
       setAppliedNationId(nextNationId);
       setDraftNationId(nextNationId);
@@ -221,7 +200,7 @@ export function RaidsPage() {
         setNationId(parsed);
       }
     }
-  }, [attackerNationIdParam, savedNationId, appliedNationId, parseNationId, setNationId]);
+  }, [attackerNationIdParam, linkedNationId, savedNationId, appliedNationId, parseNationId, setNationId]);
 
   const parseNumber = (key: string): number | undefined => {
     const val = searchParams.get(key);
@@ -305,7 +284,7 @@ export function RaidsPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['raids', token, appliedNationId, targetNationIds, useSavedTargets],
+    queryKey: ['raids', appliedNationId, targetNationIds, useSavedTargets],
     queryFn: () => {
       const filters: any = { minScore: 15, vmode: false };
       if (appliedNationId) {
@@ -317,10 +296,9 @@ export function RaidsPage() {
       if (useSavedTargets) {
         filters.useSavedTargets = true;
       }
-      return fetchRaids(token ?? undefined, filters);
+      return fetchRaids(filters);
     },
     retry: false,
-    enabled: !isExchangingCode,
   });
 
   /** Same option list for sidebar MultiSelect and table column (full API list + current picks). */
@@ -724,14 +702,7 @@ export function RaidsPage() {
 
   if (error) {
     const apiError = error as unknown as ApiError;
-    
-    if (apiError.code === 'TOKEN_EXPIRED') {
-      return <TokenError type="expired" message={apiError.message} dataType="raids" />;
-    }
-    if (apiError.code === 'TOKEN_INVALID') {
-      return <TokenError type="invalid" message={apiError.message} dataType="raids" />;
-    }
-    
+
     return (
       <ErrorState
         title="Failed to load raids"
@@ -746,6 +717,7 @@ export function RaidsPage() {
   }
 
   const isInitialLoading = isLoading && !data;
+  const discordAuthenticated = data?.discordAuthenticated ?? false;
   const discordLinked = data?.discordLinked ?? false;
   const showBeige = data?.showBeige ?? false;
 
@@ -784,6 +756,11 @@ export function RaidsPage() {
             inputProps={{ style: { maxWidth: 260 } }}
             warningMessage={data?.warning || null}
           />
+          {linkedNationId && appliedNationId && appliedNationId !== linkedNationId && (
+            <Alert color="yellow" variant="light" title="Temporary Override" mt="sm">
+              You are currently overriding your linked nation ({linkedNationId}) for this page.
+            </Alert>
+          )}
           
           {data?.attacker && appliedNationId && !isLoading && (
             <Group gap="xs" style={{ position: 'absolute', top: 16, right: 16 }}>
@@ -1097,7 +1074,7 @@ export function RaidsPage() {
         </Paper>
 
         {/* Discord Link Disclaimer */}
-        {!isLoading && !discordLinked && (
+        {!isLoading && !discordLinked && !discordAuthenticated && (
           <Alert
             icon={<IconBrandDiscord size={16} />}
             title="Beige Reminders"
@@ -1105,22 +1082,36 @@ export function RaidsPage() {
             variant="light"
           >
             <Text size="sm">
-              To set beige reminder notifications, access this page using a link from the Autolycus Discord bot.
-              Run <Text span c="blue" fw={600} ff="monospace">/raids</Text> in any server where the bot is present to get a personalized link with reminder access.
+              To set beige reminders, sign in on the website with Discord.
+              {' '}
+              <Text span component="a" href={getDiscordLoginUrl('/raids')} c="blue" fw={600}>
+                Login with Discord
+              </Text>
+              {' '}
+              to link your web session.
             </Text>
           </Alert>
         )}
-        {/* Auth code exchange error */}
-        {exchangeError && (
-          <Alert
-            icon={<IconAlertCircle size={16} />}
-            title="Authentication Error"
-            color="orange"
-            variant="light"
-          >
-            <Text size="sm">{exchangeError}</Text>
+        {!isLoading && discordAuthenticated && !discordLinked && (
+          <Alert color="yellow" variant="light" title="Nation not linked">
+            <Group justify="space-between" align="center">
+              <Text size="sm">
+                You are signed in with Discord, but your nation is not linked yet.
+              </Text>
+              <Button size="xs" onClick={() => setVerifyModalOpen(true)}>
+                Verify Nation
+              </Button>
+            </Group>
           </Alert>
         )}
+        <VerifyNationModal
+          opened={verifyModalOpen}
+          onClose={() => setVerifyModalOpen(false)}
+          onVerified={() => {
+            void refetchLinkedNation();
+            void refetch();
+          }}
+        />
 
         {/* Header */}
         <Stack gap="xs">
@@ -1170,8 +1161,8 @@ export function RaidsPage() {
             <RaidsTable
               data={filteredTargets}
               allianceSelectOptions={allianceFilterOptions}
-              token={token}
               showBeige={showBeige}
+              discordAuthenticated={discordAuthenticated}
               discordLinked={discordLinked}
               initialSorting={initialSorting}
               columnVisibility={columnVisibility}

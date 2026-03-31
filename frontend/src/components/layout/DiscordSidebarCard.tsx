@@ -3,29 +3,11 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Badge, Group, Skeleton, Stack, Text, useMantineColorScheme } from '@mantine/core';
-import { IconBrandDiscord } from '@tabler/icons-react';
+import { Avatar, Button, Group, Skeleton, Stack, Text, useMantineColorScheme } from '@mantine/core';
+import { IconBrandDiscord, IconLogout } from '@tabler/icons-react';
 
-import type { SidebarDiscordSession } from '@/hooks';
-
-function formatTimeLeft(expiresAtSec: number): string {
-  const now = Math.floor(Date.now() / 1000);
-  const sec = Math.max(0, expiresAtSec - now);
-  if (sec < 60) return 'less than a minute';
-  const days = Math.floor(sec / 86400);
-  if (days >= 1) return `${days} day${days === 1 ? '' : 's'}`;
-  const hours = Math.floor(sec / 3600);
-  if (hours >= 1) return `${hours} hour${hours === 1 ? '' : 's'}`;
-  const minutes = Math.floor(sec / 60);
-  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-}
-
-function formatExpiryTime(expiresAtSec: number): string {
-  return new Date(expiresAtSec * 1000).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-}
+import { useDelayedFlag, type SidebarDiscordSession } from '@/hooks';
+import { getDiscordLoginUrl, logoutDiscordSession } from '@/api/auth';
 
 interface DiscordSidebarCardProps {
   session: SidebarDiscordSession;
@@ -33,6 +15,7 @@ interface DiscordSidebarCardProps {
 
 export function DiscordSidebarCard({ session }: DiscordSidebarCardProps) {
   const { colorScheme } = useMantineColorScheme();
+  const showLoadingSkeleton = useDelayedFlag(session.status === 'loading', 150);
   const iconProps = {
     size: 18,
     stroke: 1.5,
@@ -45,62 +28,90 @@ export function DiscordSidebarCard({ session }: DiscordSidebarCardProps) {
     } as const,
   };
   const [, setTick] = useState(0);
+  const [loggingOut, setLoggingOut] = useState(false);
   useEffect(() => {
     if (session.status !== 'signed_in') return;
     const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(id);
   }, [session.status]);
 
-  if (session.status === 'loading') {
+  if (session.status === 'loading' && showLoadingSkeleton) {
     return <Skeleton height={52} radius="sm" />;
+  }
+
+  if (session.status === 'loading') {
+    // Reserve space during short gated loads to prevent layout jumps.
+    return <div style={{ height: 52 }} />;
   }
 
   if (session.status === 'guest') {
     return (
-      <Stack gap={4}>
-        <Group gap={6} wrap="nowrap" align="center">
-          <IconBrandDiscord {...iconProps} />
-          <Text size="sm" fw={600} lh={1.2}>
-            Discord
-          </Text>
-        </Group>
-        <Text size="xs" c="dimmed" lh={1.35}>
-          Not signed in. Use the link from the Autolycus Discord bot to open Raid Targets and
-          activate a session.
-        </Text>
+      <Stack gap={0}>
+        <Button
+          component="a"
+          href={getDiscordLoginUrl('/raids')}
+          size="md"
+          fullWidth
+          color="indigo"
+          variant="filled"
+          leftSection={<IconBrandDiscord size={14} />}
+          style={{ textDecoration: 'none' }}
+          styles={{
+            root: {
+              textDecoration: 'none',
+            },
+          }}
+        >
+          Login with Discord
+        </Button>
       </Stack>
     );
   }
 
-  const { discordUserId, expiresAtSec } = session;
+  const { username, displayName, avatarUrl } = session;
+  const shownName = displayName || username;
+  const titleName = shownName || 'Discord';
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logoutDiscordSession();
+    } finally {
+      // Force a full refresh so sidebar session state and protected UI update immediately.
+      window.location.reload();
+    }
+  };
 
   return (
     <Stack gap={4}>
       <Group gap={6} wrap="nowrap" align="center">
-        <IconBrandDiscord {...iconProps} />
-        <Group gap={6} wrap="wrap" align="center">
-          <Text size="sm" fw={600} lh={1.2}>
-            Discord
-          </Text>
-          <Badge size="xs" variant="light" color="green">
-            Signed in
-          </Badge>
-        </Group>
+        <Avatar
+          size={20}
+          src={avatarUrl}
+          radius="xl"
+          color="indigo"
+          styles={{ placeholder: { backgroundColor: 'var(--mantine-color-dark-5)' } }}
+        >
+          <IconBrandDiscord {...iconProps} />
+        </Avatar>
+        <Text size="sm" fw={600} lh={1.2}>
+          {titleName}
+        </Text>
       </Group>
       <Stack gap={2}>
-        <Text size="xs" c="dimmed" lh={1.35}>
-          Account:{' '}
-          <Text span size="xs" ff="monospace" c="var(--mantine-color-text)">
-            {discordUserId}
-          </Text>{' '}
-          <Text span size="xs" c="dimmed">
-            (Discord user ID)
-          </Text>
-        </Text>
-        <Text size="xs" c="dimmed" lh={1.35}>
-          Session ends in <strong>{formatTimeLeft(expiresAtSec)}</strong> (
-          {formatExpiryTime(expiresAtSec)}).
-        </Text>
+        <Group justify="flex-start" mt={4}>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            leftSection={<IconLogout size={12} />}
+            loading={loggingOut}
+            onClick={handleLogout}
+          >
+            Logout
+          </Button>
+        </Group>
       </Stack>
     </Stack>
   );

@@ -16,6 +16,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from bot.discord_utils import errors as err_util
 from database import mongo as db_mongo
 from database.sqlite_cache import get_nation_by_id, get_nations_db_path
 from bot.discord_utils.embeds import EMBED_COLOR
@@ -30,6 +31,12 @@ API_KEY = os.getenv("API_KEY")
 DEBUG_CHANNEL_ID = int(os.getenv("DEBUG_CHANNEL"))
 SCAN_INTERVAL = 100  # seconds
 REMINDER_THRESHOLD = 50  # seconds
+ENABLE_PNW_WS = os.getenv("ENABLE_PNW_WS", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 class General(commands.Cog):
@@ -55,11 +62,22 @@ class General(commands.Cog):
         alerts: list[dict] = []
         debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
 
-        # Subscribe to nation updates for real-time notifications
-        nation_updates = await self.bot.pnw_kit.subscribe("nation", "update")
-        asyncio.ensure_future(
-            self._handle_subscriptions(nation_updates, unique_ids, alerts)
-        )
+        # Keep websocket optional. Some pnwkit/runtime combinations emit malformed
+        # websocket payloads and spam logs; polling remains reliable.
+        if ENABLE_PNW_WS:
+            try:
+                nation_updates = await self.bot.pnw_kit.subscribe("nation", "update")
+                asyncio.ensure_future(
+                    self._handle_subscriptions(nation_updates, unique_ids, alerts)
+                )
+                logger.info("PNW websocket subscription enabled for nation updates")
+            except Exception as e:
+                logger.warning(
+                    "Failed to start PNW websocket subscription; using polling only: %s",
+                    e,
+                )
+        else:
+            logger.info("PNW websocket subscription disabled; using polling only")
 
         while True:
             try:
@@ -77,12 +95,21 @@ class General(commands.Cog):
             except Exception as e:
                 logger.error(f"Exception in alert scanner: {e}", exc_info=True)
                 if debug_channel:
-                    error_msg = common.cut_string(
-                        f"**Exception caught!**\n"
-                        f"Where: Scanning beige alerts\n\n"
-                        f"Error:```{traceback.format_exc()}```"
+                    embed = err_util.error_embed(
+                        "Background scanner failure",
+                        "An exception occurred while scanning beige alerts.",
+                        reference=None,
+                        color=err_util.ERROR_EMBED_COLOR,
+                        contact_footer=None,
                     )
-                    await debug_channel.send(error_msg)
+                    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+                    await err_util.send_embed_with_trace_thread(
+                        debug_channel,
+                        embed=embed,
+                        traceback_text=traceback.format_exc(),
+                        log=logger,
+                        thread_name=f"trace-scanning-beige-alerts-{timestamp}",
+                    )
 
             await asyncio.sleep(SCAN_INTERVAL)
 
@@ -299,7 +326,9 @@ class General(commands.Cog):
         """
         try:
             disc_user = await self.bot.fetch_user(user["user"])
-            nation_payload = get_nation_by_id(get_nations_db_path(), nation_id)
+            nation_payload = await asyncio.to_thread(
+                get_nation_by_id, get_nations_db_path(), nation_id
+            )
             nation = nation_payload.get("nation")
             data_timestamp = self._extract_data_timestamp(
                 nation,
@@ -332,14 +361,26 @@ class General(commands.Cog):
                     {"$pull": {"beige_alerts": nation_id}},
                 )
         except Exception as e:
-            logger.error(f"Error sending reminder: {e}")
+            logger.error(f"Error sending reminder: {e}", exc_info=True)
             debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
             if debug_channel:
-                await debug_channel.send(
-                    f"**Failed to send reminder**\n"
-                    f"User: {user['user']}\n"
-                    f"Nation: {nation_id}\n"
-                    f"Error: {e}"
+                embed = err_util.error_embed(
+                    "Failed to send reminder",
+                    (
+                        f"Could not DM user `{user['user']}` "
+                        f"for nation `{nation_id}`."
+                    ),
+                    reference=None,
+                    color=err_util.ERROR_EMBED_COLOR,
+                    contact_footer=None,
+                )
+                timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+                await err_util.send_embed_with_trace_thread(
+                    debug_channel,
+                    embed=embed,
+                    traceback_text=traceback.format_exc(),
+                    log=logger,
+                    thread_name=f"trace-reminder-send-{timestamp}",
                 )
 
     @staticmethod
@@ -530,7 +571,9 @@ class General(commands.Cog):
 
             try:
                 disc_user = await self.bot.fetch_user(user["user"])
-                nation_payload = get_nation_by_id(get_nations_db_path(), nation_id)
+                nation_payload = await asyncio.to_thread(
+                    get_nation_by_id, get_nations_db_path(), nation_id
+                )
                 nation = nation_payload.get("nation")
                 data_timestamp = self._extract_data_timestamp(
                     nation,
@@ -558,7 +601,27 @@ class General(commands.Cog):
                 )
 
             except Exception as e:
-                logger.error(f"Error sending preemptive reminder: {e}")
+                logger.error(f"Error sending preemptive reminder: {e}", exc_info=True)
+                debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
+                if debug_channel:
+                    embed = err_util.error_embed(
+                        "Failed to send preemptive reminder",
+                        (
+                            f"Could not DM user `{user['user']}` "
+                            f"for nation `{nation_id}`."
+                        ),
+                        reference=None,
+                        color=err_util.ERROR_EMBED_COLOR,
+                        contact_footer=None,
+                    )
+                    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+                    await err_util.send_embed_with_trace_thread(
+                        debug_channel,
+                        embed=embed,
+                        traceback_text=traceback.format_exc(),
+                        log=logger,
+                        thread_name=f"trace-preemptive-reminder-{timestamp}",
+                    )
                 break
 
 

@@ -30,6 +30,10 @@ class Config:
     TOKEN_SALT: str = "autolycus-ephemeral-link"
     AUTH_TOKEN_API_KEY: str = os.getenv("AUTH_TOKEN_API_KEY", "")
     DISCORD_BOT_API_KEY: str = os.getenv("DISCORD_BOT_API_KEY", "")
+    DISCORD_CLIENT_ID: str = os.getenv("DISCORD_CLIENT_ID", "")
+    DISCORD_CLIENT_SECRET: str = os.getenv("DISCORD_CLIENT_SECRET", "")
+    DISCORD_REDIRECT_URI: str = os.getenv("DISCORD_REDIRECT_URI", "")
+    AUTOLYCUS_WEB_BASE_URL: str = AUTOLYCUS_WEB_BASE_URL
 
     # CORS settings
     CORS_ORIGINS: list[str] = [
@@ -71,6 +75,7 @@ class DevelopmentConfig(Config):
 
     DEBUG = True
     CORS_ORIGINS = ["*"]  # Allow all origins in development
+    SESSION_COOKIE_SECURE = False
 
 
 class ProductionConfig(Config):

@@ -39,5 +39,5 @@ def nation_overview_embed(nation: dict, discord_info: str, alliance_info: str, m
     embed.add_field(name="Alliance Info", value=alliance_info, inline=False)
     embed.add_field(name="Military Info", value=military_info)
     embed.add_field(name="\u200b", value=military_info_2, inline=True)
-    embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+    embed.set_footer(text="Contact randomnoobster for help or bug reports")
     return embed

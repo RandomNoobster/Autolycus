@@ -15,7 +15,7 @@ import logging
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar, cast
 
-from flask import current_app, jsonify, request
+from flask import current_app, jsonify, request, session
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 logger = logging.getLogger(__name__)
@@ -205,4 +205,42 @@ def optional_token(f: F) -> F:
         
         return f(*args, **kwargs)
     
+    return cast(F, decorated)
+
+
+def _get_session_user_id() -> Optional[int]:
+    """Return authenticated Discord user ID from server session."""
+    raw = session.get("discord_user_id")
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def require_discord_session(f: F) -> F:
+    """Decorator requiring an authenticated Discord OAuth session."""
+
+    @wraps(f)
+    def decorated(*args: Any, **kwargs: Any) -> Any:
+        user_id = _get_session_user_id()
+        if user_id is None:
+            return jsonify({
+                'error': 'Authentication required',
+                'message': 'Please sign in with Discord to access this resource.',
+                'code': 'AUTH_REQUIRED'
+            }), 401
+        request.session_user_id = user_id  # type: ignore[attr-defined]
+        return f(*args, **kwargs)
+
+    return cast(F, decorated)
+
+
+def optional_discord_session(f: F) -> F:
+    """Decorator that attaches session user ID if present."""
+
+    @wraps(f)
+    def decorated(*args: Any, **kwargs: Any) -> Any:
+        request.session_user_id = _get_session_user_id()  # type: ignore[attr-defined]
+        return f(*args, **kwargs)
+
     return cast(F, decorated)

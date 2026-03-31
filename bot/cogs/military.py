@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import math
@@ -20,6 +21,7 @@ from database import mongo as db_mongo
 from database import users as db_users
 from bot.discord_utils import helpers, views
 from bot.discord_utils import errors as err_util
+from bot.discord_utils.loading_display import LoadingDisplay
 # Import from new architecture layers
 from logic import api_client
 from logic import military as military_logic
@@ -34,7 +36,6 @@ from database.sqlite_cache import (
 )
 from logic.raids import compute_beige_loot_or_zero
 from core.config import (
-    AUTOLYCUS_API_BASE_URL as API_BASE_URL,
     AUTOLYCUS_WEB_BASE_URL as WEB_BASE_URL,
 )
 
@@ -42,8 +43,6 @@ logger = logging.getLogger(__name__)
 
 api_key = os.getenv("API_KEY")
 call_api = partial(api_client.call, api_key=api_key)
-
-DISCORD_BOT_API_KEY = os.getenv("DISCORD_BOT_API_KEY")
 
 # Get database instance for queries
 db = db_mongo.get_db()
@@ -71,7 +70,11 @@ class TargetFinding(commands.Cog):
         )
         embed = err_util.error_embed(
             "Command failed",
-            user_message,
+            (
+                err_util.PNW_SERVER_USER_MESSAGE
+                if err_util.is_pnw_server_error(error)
+                else user_message
+            ),
             reference=ref,
         )
         await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
@@ -106,6 +109,7 @@ class TargetFinding(commands.Cog):
         ctx: discord.ApplicationContext,
         score: Option(float, "Set a custom score range.") = None
         ):
+        loading: LoadingDisplay | None = None
         try:
             try:
                 await ctx.defer()
@@ -114,356 +118,17 @@ class TargetFinding(commands.Cog):
                 logger.warning("Skipping /raids: interaction expired before defer.")
                 return
             
-            when_to_timeout = datetime.utcnow() + timedelta(minutes=10)
-
-            attacker = await helpers.find_nation_plus(self.bot, ctx.author.id)
-            if not attacker:
-                await ctx.edit(content='I could not find your nation, make sure that you are verified by using `/verify`!')
-                return
-            atck_ntn = (await api_client.call(f"{{nations(first:1 id:{attacker['id']}){{data{get_query(queries.WINRATE_CALC, {'nations': ['nation_name', 'score', 'id', 'population']})}}}}}", api_key))['data']['nations']['data'][0]
-            if atck_ntn == None:
-                await ctx.edit(content='I did not find that person!')
-                return
-            
-            if score:
-                minscore = round(score * 0.75)
-                maxscore = round(score * 2.5)
-            else:
-                minscore = round(atck_ntn['score'] * 0.75)
-                maxscore = round(atck_ntn['score'] * 2.5)
-            
-            use_same = None
-            class stage_one(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal use_same
-                    use_same = True
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal use_same
-                    use_same = False
-                    await i.response.edit_message()
-                    self.stop()
-
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)
-
+            use_same = False
             webpage = None
             discord_embed = None
-            class stage_two(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="Embed on discord", style=discord.ButtonStyle.primary)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal webpage, discord_embed
-                    webpage = False
-                    discord_embed = True
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="Message on discord", style=discord.ButtonStyle.primary)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal webpage, discord_embed
-                    webpage = False
-                    discord_embed = False
-                    await i.response.edit_message()
-                    self.stop()
-
-                @discord.ui.button(label="As a webpage (recommended)", style=discord.ButtonStyle.primary)
-                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal webpage, discord_embed
-                    webpage = True
-                    discord_embed = False
-                    await i.response.edit_message()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)
-            
             who = None
-            class stage_three(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="All nations", style=discord.ButtonStyle.primary)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal who
-                    who = ""
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="Applicants and nations not in alliances", style=discord.ButtonStyle.primary)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal who
-                    who = " alliance_position:[0,1]"
-                    await i.response.edit_message()
-                    self.stop()
-
-                @discord.ui.button(label="Nations not affiliated with any alliance", style=discord.ButtonStyle.primary)
-                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal who
-                    who = " alliance_id:0"
-                    await i.response.edit_message()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)               
-                
             max_wars = None
-            class stage_four(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="0", style=discord.ButtonStyle.primary)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal max_wars
-                    max_wars = 0
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="1 or less", style=discord.ButtonStyle.primary)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal max_wars
-                    max_wars = 1
-                    await i.response.edit_message()
-                    self.stop()
-
-                @discord.ui.button(label="2 or less", style=discord.ButtonStyle.primary)
-                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal max_wars
-                    max_wars = 2
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="3 or less", style=discord.ButtonStyle.primary)
-                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal max_wars
-                    max_wars = 3
-                    await i.response.edit_message()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)
-        
             inactive_limit = None
-            class stage_five(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="I don't care", style=discord.ButtonStyle.primary)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 0
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="7+ days inactive", style=discord.ButtonStyle.primary)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 7
-                    await i.response.edit_message()
-                    self.stop()
-
-                @discord.ui.button(label="14+ days inactive", style=discord.ButtonStyle.primary)
-                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 14
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="30+ days inactive", style=discord.ButtonStyle.primary)
-                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal inactive_limit
-                    inactive_limit = 30
-                    await i.response.edit_message()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)
-            
             beige = None
-            class stage_six(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal beige
-                    beige = True
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal beige
-                    beige = False
-                    await i.response.edit_message()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)
-                                
-            minimum_beige_loot = None
-            class stage_seven(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="No minimum", style=discord.ButtonStyle.primary)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal minimum_beige_loot
-                    minimum_beige_loot = 0
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="$5 million", style=discord.ButtonStyle.primary)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal minimum_beige_loot
-                    minimum_beige_loot = 5000000
-                    await i.response.edit_message()
-                    self.stop()
-
-                @discord.ui.button(label="$10 million", style=discord.ButtonStyle.primary)
-                async def tertiary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal minimum_beige_loot
-                    minimum_beige_loot = 10000000
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="$20 million", style=discord.ButtonStyle.primary)
-                async def quadrary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal minimum_beige_loot
-                    minimum_beige_loot = 20000000
-                    await i.response.edit_message()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)
-            
+            minimum_beige_loot = 0
             performace_filter = None
-            class stage_eight(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-                async def primary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal performace_filter
-                    performace_filter = True
-                    await i.response.edit_message()
-                    self.stop()
-                
-                @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
-                async def secondary_callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal performace_filter
-                    performace_filter = False
-                    await i.response.edit_message()
-                    self.stop()
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    await views.run_timeout(ctx, view)
 
             target_list = []
-            
-            file_content = last_fetched = None
-            last_load_exception = None
-            for i in range(3):
-                try:
-                    file_content = get_all_nations(get_nations_db_path())
-                    last_fetched = file_content['last_fetched']
-                    break
-                except Exception as e:
-                    logger.debug(f"Attempt {i + 1} to load nations failed: {e}")
-                    last_load_exception = e
-            
-            if not last_fetched or not file_content:
-                ref = err_util.new_error_reference()
-                logger.info(
-                    "raids_nations_db_unready reference=%r user_id=%s",
-                    ref,
-                    ctx.author.id,
-                    extra={"error_reference": ref},
-                )
-                if last_load_exception is not None:
-                    await err_util.report_handled_exception(
-                        self.bot,
-                        ctx,
-                        last_load_exception,
-                        logger,
-                        reference=ref,
-                        command_name="raids",
-                    )
-                embed = err_util.error_embed(
-                    "Nations data not ready",
-                    "I couldn't load nations yet. The scanner may still be filling the database. "
-                    "Please wait—this can take on the order of half an hour—then try again. "
-                    "If this keeps happening for hours, contact RandomNoobster#0093 with the reference below.",
-                    reference=ref,
-                )
-                await ctx.followup.send(embed=embed)
-                return
-            new_turn: bool = datetime.fromtimestamp(last_fetched).hour % 2 != 0 and datetime.utcnow().hour % 2 == 0
                 
             embed1 = discord.Embed(title=f"Configuration", description="Do you want to use the same configuration (presenatation & filters) that you used last time running this command?", color=0xff5100)
             embed2 = discord.Embed(title=f"Presentation", description="How do you want to get your targets?\n\nEmbed on discord returns a paginated embed with some information about each nation. Use this if you can't use the webpage for whatever reason.\n\nMessage on discord returns a small list of the nations with the highest recent beige loot. Use this if you are very lazy.\n\nAs a webpage returns a link to a webpage with a sortable table that has lots of important information about each nation. If used well, this gives you the best targets.", color=0xff5100)
@@ -474,33 +139,150 @@ class TargetFinding(commands.Cog):
             embed7 = discord.Embed(title=f"Filters (5/6)", description="Should there be a minimum previous beige loot?", color=0xff5100)
             embed8 = discord.Embed(title=f"Filters (6/6)", description='Do you want to improve performance by filtering out "bad" targets?\n\nMore specifically, this will omit nations with negative income, nations that have a stronger ground force than you, and nations that were previously beiged for $0.', color=0xff5100)
 
-            option_list = [(embed1, stage_one()), (embed2, stage_two()), (embed3, stage_three()), (embed4, stage_four()), (embed5, stage_five()), (embed6, stage_six()), (embed7, stage_seven()), (embed8, stage_eight())]
             db = db_mongo.get_db()
             user = await db.global_users.find_one({"user": ctx.author.id})
             saved_raids_cfg = user.get("raids_config") if user else None
-            if not isinstance(saved_raids_cfg, dict) or "webpage" not in saved_raids_cfg:
-                option_list.pop(0)
 
-            for embed, view in option_list:
-                await ctx.edit(content="", embed=embed, view=view)
-                timed_out = await view.wait()
-                if timed_out:
+            async def _ask_choice(embed: discord.Embed, choices: list[tuple[str, str, discord.ButtonStyle]]) -> str | None:
+                view, session_id = await views.create_persistent_choice_prompt(
+                    command="raids",
+                    ctx=ctx,
+                    choices=choices,
+                    disable_on_submit=False,
+                )
+                msg = await ctx.edit(content="", embed=embed, view=view)
+                if msg and getattr(msg, "id", None):
+                    await views.bind_persistent_prompt_message(session_id, msg.id)
+                return await views.wait_for_persistent_choice_result(session_id)
+
+            if isinstance(saved_raids_cfg, dict) and "webpage" in saved_raids_cfg:
+                same_result = await _ask_choice(
+                    embed1,
+                    [
+                        ("yes", "Yes", discord.ButtonStyle.success),
+                        ("no", "No", discord.ButtonStyle.danger),
+                    ],
+                )
+                if same_result is None:
                     return
-                if use_same == True:
-                    cfg = user["raids_config"]
-                    webpage = cfg["webpage"]
-                    discord_embed = cfg["discord_embed"]
-                    who = cfg["who"]
-                    max_wars = cfg["max_wars"]
-                    inactive_limit = cfg["inactive_limit"]
-                    beige = cfg["beige"]
-                    performace_filter = cfg["performace_filter"]
-                    # this was added later on when some people may not have it in their raid_config
-                    # which makes this check necessary (null in DB must not become None here)
-                    minimum_beige_loot = cfg.get("minimum_beige_loot")
-                    if minimum_beige_loot is None:
-                        minimum_beige_loot = 0
-                    break
+                use_same = same_result == "yes"
+
+            if use_same:
+                cfg = user["raids_config"]
+                webpage = cfg["webpage"]
+                discord_embed = cfg["discord_embed"]
+                who = cfg["who"]
+                max_wars = cfg["max_wars"]
+                inactive_limit = cfg["inactive_limit"]
+                beige = cfg["beige"]
+                performace_filter = cfg["performace_filter"]
+                minimum_beige_loot = cfg.get("minimum_beige_loot")
+                if minimum_beige_loot is None:
+                    minimum_beige_loot = 0
+            else:
+                presentation = await _ask_choice(
+                    embed2,
+                    [
+                        ("embed", "Embed on discord", discord.ButtonStyle.primary),
+                        ("message", "Message on discord", discord.ButtonStyle.primary),
+                        ("web", "As a webpage (recommended)", discord.ButtonStyle.primary),
+                    ],
+                )
+                if presentation is None:
+                    return
+                webpage = presentation == "web"
+                discord_embed = presentation == "embed"
+
+                if webpage:
+                    # Webpage mode should return the link immediately without the filter wizard.
+                    who = ""
+                    max_wars = 3
+                    inactive_limit = 0
+                    beige = True
+                    minimum_beige_loot = 0
+                    performace_filter = False
+                else:
+                    who_result = await _ask_choice(
+                        embed3,
+                        [
+                            ("all", "All nations", discord.ButtonStyle.primary),
+                            ("apps", "Applicants and nations not in alliances", discord.ButtonStyle.primary),
+                            ("none", "Nations not affiliated with any alliance", discord.ButtonStyle.primary),
+                        ],
+                    )
+                    if who_result is None:
+                        return
+                    who_map = {
+                        "all": "",
+                        "apps": " alliance_position:[0,1]",
+                        "none": " alliance_id:0",
+                    }
+                    who = who_map[who_result]
+
+                    wars_result = await _ask_choice(
+                        embed4,
+                        [
+                            ("w0", "0", discord.ButtonStyle.primary),
+                            ("w1", "1 or less", discord.ButtonStyle.primary),
+                            ("w2", "2 or less", discord.ButtonStyle.primary),
+                            ("w3", "3 or less", discord.ButtonStyle.primary),
+                        ],
+                    )
+                    if wars_result is None:
+                        return
+                    max_wars = {"w0": 0, "w1": 1, "w2": 2, "w3": 3}[wars_result]
+
+                    inactive_result = await _ask_choice(
+                        embed5,
+                        [
+                            ("i0", "I don't care", discord.ButtonStyle.primary),
+                            ("i7", "7+ days inactive", discord.ButtonStyle.primary),
+                            ("i14", "14+ days inactive", discord.ButtonStyle.primary),
+                            ("i30", "30+ days inactive", discord.ButtonStyle.primary),
+                        ],
+                    )
+                    if inactive_result is None:
+                        return
+                    inactive_limit = {"i0": 0, "i7": 7, "i14": 14, "i30": 30}[inactive_result]
+
+                    beige_result = await _ask_choice(
+                        embed6,
+                        [
+                            ("yes", "Yes", discord.ButtonStyle.success),
+                            ("no", "No", discord.ButtonStyle.danger),
+                        ],
+                    )
+                    if beige_result is None:
+                        return
+                    beige = beige_result == "yes"
+
+                    loot_result = await _ask_choice(
+                        embed7,
+                        [
+                            ("l0", "No minimum", discord.ButtonStyle.primary),
+                            ("l5", "$5 million", discord.ButtonStyle.primary),
+                            ("l10", "$10 million", discord.ButtonStyle.primary),
+                            ("l20", "$20 million", discord.ButtonStyle.primary),
+                        ],
+                    )
+                    if loot_result is None:
+                        return
+                    minimum_beige_loot = {"l0": 0, "l5": 5000000, "l10": 10000000, "l20": 20000000}[loot_result]
+
+                    perf_result = await _ask_choice(
+                        embed8,
+                        [
+                            ("yes", "Yes", discord.ButtonStyle.success),
+                            ("no", "No", discord.ButtonStyle.danger),
+                        ],
+                    )
+                    if perf_result is None:
+                        return
+                    performace_filter = perf_result == "yes"
+
+            if not webpage:
+                loading = LoadingDisplay(ctx, show_after=0)
+                await loading.start("Loading targets now... this can take a little while.")
 
             if ctx.guild:
                 if guild_config := await db.guild_configs.find_one({"guild_id": ctx.guild.id}):
@@ -537,167 +319,118 @@ class TargetFinding(commands.Cog):
             view = None
 
             if webpage:
-                scope_param = None
-                if who == " alliance_position:[0,1]":
-                    scope_param = "apps_or_none"
-                elif who == " alliance_id:0":
-                    scope_param = "no_alliance"
-
-                params = {
-                    "attackerNationId": atck_ntn.get("id", ""),
-                    "maxWars": max_wars if max_wars != 3 else None,
-                    "inactiveMinDays": inactive_limit if inactive_limit else None,
-                    "scope": scope_param,
-                    "minBeigeLoot": minimum_beige_loot if minimum_beige_loot else None,
-                    "performance": True if performace_filter else None,
-                    "minScore": int(minscore) if minscore is not None else None,
-                    "maxScore": int(maxscore) if maxscore is not None else None,
-                }
-                if beige is False:
-                    params["beige"] = "false"
-
-                clean_params = {k: v for k, v in params.items() if v is not None and v != ""}
-                raids_query = urllib.parse.urlencode(clean_params)
-                raids_redirect = f"/raids?{raids_query}"
-                raids_url = f"{WEB_BASE_URL}{raids_redirect}"
-                if not DISCORD_BOT_API_KEY:
-                    ref = err_util.new_error_reference()
-                    logger.error(
-                        "raids_token_config_missing reference=%r",
-                        ref,
-                        extra={"error_reference": ref},
-                    )
-                    embed = err_util.error_embed(
-                        "Configuration error",
-                        "Secure token issuance is not configured. Please contact an admin.",
-                        reference=ref,
-                    )
-                    await ctx.edit(content="", embed=embed, view=None)
-                    return
-
-                issue_url = f"{API_BASE_URL}/api/auth/token/issue"
-                payload = {
-                    "user_id": ctx.author.id,
-                    "data_type": "raids",
-                    "expires_in": 3600,
-                }
-
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(
-                            issue_url,
-                            json=payload,
-                            headers={"X-Bot-Token": DISCORD_BOT_API_KEY},
-                            timeout=aiohttp.ClientTimeout(total=10),
-                        ) as resp:
-                            if resp.status != 200:
-                                error_text = await resp.text()
-                                ref = err_util.new_error_reference()
-                                logger.error(
-                                    "raids_token_issue_http reference=%r status=%s body=%s",
-                                    ref,
-                                    resp.status,
-                                    error_text[:800],
-                                    extra={"error_reference": ref},
-                                )
-                                embed = err_util.error_embed(
-                                    "Web link unavailable",
-                                    "I couldn't issue a secure web token. Please try again later.",
-                                    reference=ref,
-                                )
-                                await ctx.edit(content="", embed=embed, view=None)
-                                return
-                            data = await resp.json()
-                except Exception as e:
-                    ref = err_util.new_error_reference()
-                    logger.error(
-                        "raids_token_issue_exception reference=%r issue_url=%s",
-                        ref,
-                        issue_url,
-                        exc_info=True,
-                        extra={"error_reference": ref},
-                    )
-                    await err_util.report_handled_exception(
-                        self.bot,
-                        ctx,
-                        e,
-                        logger,
-                        reference=ref,
-                        command_name="raids",
-                    )
-                    embed = err_util.error_embed(
-                        "Web link unavailable",
-                        "I couldn't reach the auth service. Please try again later.",
-                        reference=ref,
-                    )
-                    await ctx.edit(content="", embed=embed, view=None)
-                    return
-
-                code = data.get("code")
-                if not code:
-                    ref = err_util.new_error_reference()
-                    logger.error(
-                        "raids_token_issue_empty_code reference=%r",
-                        ref,
-                        extra={"error_reference": ref},
-                    )
-                    embed = err_util.error_embed(
-                        "Web link unavailable",
-                        "I couldn't issue a secure web token. Please try again later.",
-                        reference=ref,
-                    )
-                    await ctx.edit(content="", embed=embed, view=None)
-                    return
-
-                token_url = (
-                    f"{WEB_BASE_URL}/token-request?type=raids"
-                    f"&redirect={urllib.parse.quote(raids_redirect)}"
-                    "&auto=true"
-                    f"&code={urllib.parse.quote(code)}"
-                )
+                raids_url = f"{WEB_BASE_URL}/raids"
 
                 webpage_embed = discord.Embed(
-                    title="Targets ready",
+                    title="Open Raid Targets",
                     description=(
-                        "Your configuration has been sent to the raids page. "
-                        "Click the button below to get your personal link."
+                        "Open Raid Targets in your browser. "
+                        "Use Login with Discord on the website to enable reminders."
                     ),
                     color=0xff5100,
                 )
 
                 class webpage_view(discord.ui.View):
                     def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+                        super().__init__(timeout=None)
                         btn = discord.ui.Button(
-                            label="Get your link",
-                            style=discord.ButtonStyle.primary,
+                            label="Open Raid Targets",
+                            style=discord.ButtonStyle.link,
+                            url=raids_url,
                         )
-                        btn.callback = self.send_link
                         self.add_item(btn)
-
-                    async def send_link(self, interaction: discord.Interaction):
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message(
-                                "This button is reserved for the person who ran the command!",
-                                ephemeral=True,
-                            )
-                            return
-                        await interaction.response.send_message(
-                            f"Here is your personal link (do not share it):\n{token_url}",
-                            ephemeral=True,
-                        )
-
-                    async def on_timeout(self):
-                        await views.run_timeout(ctx, view)
 
                 view = webpage_view()
                 await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
                 return
 
-            await ctx.edit(content="Getting targets...", view=view, embed=None)
+            await loading.update("Filters saved. Loading targets now... this can take a little while.")
+
+            attacker = await helpers.find_nation_plus(self.bot, ctx.author.id)
+            if not attacker:
+                await loading.clear()
+                await ctx.edit(
+                    content='I could not find your nation, make sure that you are verified by using `/verify`!',
+                    attachments=[],
+                )
+                return
+            # Prefer cached nation data from SQLite to avoid extra P&W API latency.
+            atck_ntn = attacker
+            required_attacker_fields = (
+                "id",
+                "nation_name",
+                "score",
+                "population",
+                "soldiers",
+                "tanks",
+                "aircraft",
+                "ships",
+            )
+            if any(atck_ntn.get(field) is None for field in required_attacker_fields):
+                attacker_res = await api_client.call(
+                    f"{{nations(first:1 id:{attacker['id']}){{data{{id nation_name score population soldiers tanks aircraft ships}}}}}}",
+                    api_key,
+                )
+                attacker_data = attacker_res.get("data", {}).get("nations", {}).get("data", [])
+                atck_ntn = attacker_data[0] if attacker_data else None
+                if atck_ntn is None:
+                    await loading.clear()
+                    await ctx.edit(content='I did not find that person!', attachments=[])
+                    return
+
+            if score:
+                minscore = round(score * 0.75)
+                maxscore = round(score * 2.5)
+            else:
+                minscore = round(atck_ntn['score'] * 0.75)
+                maxscore = round(atck_ntn['score'] * 2.5)
+
+            file_content = last_fetched = None
+            last_load_exception = None
+            for i in range(3):
+                try:
+                    file_content = await asyncio.to_thread(
+                        get_all_nations, get_nations_db_path()
+                    )
+                    last_fetched = file_content['last_fetched']
+                    break
+                except Exception as e:
+                    logger.debug(f"Attempt {i + 1} to load nations failed: {e}")
+                    last_load_exception = e
+
+            if not last_fetched or not file_content:
+                ref = err_util.new_error_reference()
+                logger.info(
+                    "raids_nations_db_unready reference=%r user_id=%s",
+                    ref,
+                    ctx.author.id,
+                    extra={"error_reference": ref},
+                )
+                if last_load_exception is not None:
+                    await err_util.report_handled_exception(
+                        self.bot,
+                        ctx,
+                        last_load_exception,
+                        logger,
+                        reference=ref,
+                        command_name="raids",
+                    )
+                embed = err_util.error_embed(
+                    "Nations data not ready",
+                    "I couldn't load nations yet. The scanner may still be filling the database. "
+                    "Please wait—this can take on the order of half an hour—then try again. "
+                    "If this keeps happening for hours, contact randomnoobster with the reference below.",
+                    reference=ref,
+                )
+                await loading.clear()
+                await ctx.followup.send(embed=embed)
+                return
+            new_turn: bool = datetime.fromtimestamp(last_fetched).hour % 2 != 0 and datetime.utcnow().hour % 2 == 0
+
+            await loading.update("Getting targets...")
             done_jobs = [{"data": {"nations": {"data": file_content['nations']}}}]
 
-            await ctx.edit(content="Caching targets...")
+            await loading.update("Caching targets...")
             temp, colors, prices, treasures, radiation, seasonal_mod = await pre_revenue_calc(
                 ctx,
                 query_for_nation=False,
@@ -785,13 +518,28 @@ class TargetFinding(commands.Cog):
 
                     
             if len(target_list) == 0:
+                await loading.clear()
                 await ctx.edit(content="No targets matched your criteria!", attachments=[])
                 return
 
-            filters = f"Nation information was fetched <t:{last_fetched}:R>\n"
+            def cached_ts_for_target(target: dict) -> int | None:
+                for key in ("_created_at", "updatedAt"):
+                    value = target.get(key)
+                    if value is None:
+                        continue
+                    try:
+                        return int(value)
+                    except (TypeError, ValueError):
+                        continue
+                try:
+                    return int(last_fetched) if last_fetched is not None else None
+                except (TypeError, ValueError):
+                    return None
+
+            filters = ""
             filter_list = []
             if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0 or minimum_beige_loot != 0 or dnr_alliance_ids != []:
-                filters += "Active filters: "
+                filters = "Active filters: "
                 if not beige:
                     filter_list.append("hide beige nations")
                 if who != "":
@@ -814,21 +562,36 @@ class TargetFinding(commands.Cog):
                     filter_list.append(f"hide {len(dnr_alliance_ids)} alliances marked as do not raid")
                 filters = filters + ", ".join(filter_list)
             else:
-                filters += "No active filters"
+                filters = "No active filters"
 
-            await ctx.edit(content='Calculating best targets...')
+            await loading.update("Calculating best targets...")
 
-            alliances = {
-                str(x['id']): x
-                for x in get_alliances_by_ids([str(x['alliance_id']) for x in target_list])
-            }
+            alliance_rows = await asyncio.to_thread(
+                get_alliances_by_ids,
+                [str(x["alliance_id"]) for x in target_list],
+            )
+            alliances = {str(x["id"]): x for x in alliance_rows}
 
             for target in target_list:
-                embed = discord.Embed(title=f"{target['nation_name']}", url=f"https://politicsandwar.com/nation/id={target['id']}", description=f"{filters}\n\u200b", color=0xff5100)
+                target_cached_ts = cached_ts_for_target(target)
+                cache_line = (
+                    f"Nation updated <t:{target_cached_ts}:R>"
+                    if target_cached_ts is not None
+                    else "Nation updated (unknown)"
+                )
+                embed = discord.Embed(
+                    title=f"{target['nation_name']}",
+                    url=f"https://politicsandwar.com/nation/id={target['id']}",
+                    description=f"{cache_line}\n{filters}\n\u200b",
+                    color=0xff5100,
+                )
                 target['infrastructure'] = 0
                 target_loot = target.get("nation_loot")
                 if not target_loot:
                     target_loot = "NaN"
+                    target["nation_loot"] = target_loot
+                elif target_loot != "NaN" and not str(target_loot).startswith("$"):
+                    target_loot = f"${target_loot}"
                     target["nation_loot"] = target_loot
                 
                 embed.add_field(name="Previous nation loot", value=target_loot)
@@ -931,6 +694,7 @@ class TargetFinding(commands.Cog):
                         return True
                 target_list[:] = [target for target in target_list if determine(target)]
                 if len(target_list) == 0:
+                    await loading.clear()
                     await ctx.edit(content="No targets matched your criteria!", attachments=[])
                     no_timeout = True
                     return
@@ -939,7 +703,6 @@ class TargetFinding(commands.Cog):
 
             if webpage:
                 # Build URL for the frontend raids page using live API
-                # The frontend will call the API with the user's token
                 target_ids = [
                     int(target.get('id'))
                     for target in best_targets
@@ -954,263 +717,75 @@ class TargetFinding(commands.Cog):
                     upsert=True,
                 )
 
-                raids_query = f"attackerNationId={atck_ntn.get('id', '')}&useSavedTargets=true"
-                raids_redirect = f"/raids?{raids_query}"
-                raids_url = f"{WEB_BASE_URL}{raids_redirect}"
-                if not DISCORD_BOT_API_KEY:
-                    ref = err_util.new_error_reference()
-                    logger.error(
-                        "raids_token_config_missing reference=%r",
-                        ref,
-                        extra={"error_reference": ref},
-                    )
-                    embed = err_util.error_embed(
-                        "Configuration error",
-                        "Secure token issuance is not configured. Please contact an admin.",
-                        reference=ref,
-                    )
-                    await ctx.edit(content="", embed=embed, view=None)
-                    return
-
-                issue_url = f"{API_BASE_URL}/api/auth/token/issue"
-                payload = {
-                    "user_id": ctx.author.id,
-                    "data_type": "raids",
-                    "expires_in": 3600,
-                }
-
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(
-                            issue_url,
-                            json=payload,
-                            headers={"X-Bot-Token": DISCORD_BOT_API_KEY},
-                            timeout=aiohttp.ClientTimeout(total=10),
-                        ) as resp:
-                            if resp.status != 200:
-                                error_text = await resp.text()
-                                ref = err_util.new_error_reference()
-                                logger.error(
-                                    "raids_token_issue_http reference=%r status=%s body=%s",
-                                    ref,
-                                    resp.status,
-                                    error_text[:800],
-                                    extra={"error_reference": ref},
-                                )
-                                embed = err_util.error_embed(
-                                    "Web link unavailable",
-                                    "I couldn't issue a secure web token. Please try again later.",
-                                    reference=ref,
-                                )
-                                await ctx.edit(content="", embed=embed, view=None)
-                                return
-                            data = await resp.json()
-                except Exception as e:
-                    ref = err_util.new_error_reference()
-                    logger.error(
-                        "raids_token_issue_exception reference=%r issue_url=%s",
-                        ref,
-                        issue_url,
-                        exc_info=True,
-                        extra={"error_reference": ref},
-                    )
-                    await err_util.report_handled_exception(
-                        self.bot,
-                        ctx,
-                        e,
-                        logger,
-                        reference=ref,
-                        command_name="raids",
-                    )
-                    embed = err_util.error_embed(
-                        "Web link unavailable",
-                        "I couldn't reach the auth service. Please try again later.",
-                        reference=ref,
-                    )
-                    await ctx.edit(content="", embed=embed, view=None)
-                    return
-
-                code = data.get("code")
-                if not code:
-                    ref = err_util.new_error_reference()
-                    logger.error(
-                        "raids_token_issue_empty_code reference=%r",
-                        ref,
-                        extra={"error_reference": ref},
-                    )
-                    embed = err_util.error_embed(
-                        "Web link unavailable",
-                        "I couldn't issue a secure web token. Please try again later.",
-                        reference=ref,
-                    )
-                    await ctx.edit(content="", embed=embed, view=None)
-                    return
-
-                token_url = (
-                    f"{WEB_BASE_URL}/token-request?type=raids"
-                    f"&redirect={urllib.parse.quote(raids_redirect)}"
-                    "&auto=true"
-                    f"&code={urllib.parse.quote(code)}"
-                )
+                raids_url = f"{WEB_BASE_URL}/raids"
                 
-                webpage_embed = discord.Embed(title=f"Targets successfully gathered", description=f"{filters}\n\nYou can view your targets by pressing the button below.", color=0xff5100)
+                webpage_embed = discord.Embed(
+                    title="Open Raid Targets",
+                    description=(
+                        f"{filters}\n\nOpen the raids page and sign in with Discord on the website. "
+                        "Each nation row shows when that nation was last updated. Load your targets and manage reminders."
+                    ),
+                    color=0xff5100,
+                )
                 class webpage_view(discord.ui.View):
                     def __init__(self):
-                        super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
+                        super().__init__(timeout=None)
                         self.add_item(
                             discord.ui.Button(
-                                label="See your targets",
+                                label="Open Raid Targets",
                                 style=discord.ButtonStyle.link,
-                                url=token_url,
+                                url=raids_url,
                             )
                         )
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await views.run_timeout(ctx, view)
 
                 view = webpage_view()
+                await loading.clear()
                 await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
                 return
 
             elif discord_embed:
-                pages = len(target_list)
-                cur_page = 1
-
-                def get_embed(nation):
-                    nonlocal pages, cur_page
-                    embed = nation['embed']
-                    if "*" in nation['money_txt']:
-                        embed.set_footer(text=f"Page {cur_page}/{pages}  |  * the income if the nation is out of food.")
+                pages = len(best_targets)
+                embeds = []
+                for idx, nation in enumerate(best_targets, start=1):
+                    embed = nation["embed"]
+                    if "*" in nation["money_txt"]:
+                        embed.set_footer(
+                            text=f"Page {idx}/{pages}  |  * the income if the nation is out of food."
+                        )
                     else:
-                        embed.set_footer(text=f"Page {cur_page}/{pages}")
-                    return embed
+                        embed.set_footer(text=f"Page {idx}/{pages}")
+                    embeds.append(embed)
 
-                msg_embd = get_embed(best_targets[0])
-                timed_out = False
-
-                class embed_paginator(discord.ui.View):
-                    def __init__(self):
-                            super().__init__(timeout=(when_to_timeout - datetime.utcnow()).total_seconds())
-
-                    async def button_check(self, x):
-                        beige_button = [x for x in self.children if x.custom_id == "beige"][0]
-                        user = await db.global_users.find_one({"user": ctx.author.id})
-                        for entry in user['beige_alerts']:
-                            if x['id'] == entry:
-                                beige_button.disabled = True
-                                return
-                        if x['beige_turns'] > 0:
-                            beige_button.disabled = False
-                        else:
-                            beige_button.disabled = True
-                    
-                    @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
-                    async def far_left_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal cur_page
-                        cur_page = 1
-                        msg_embd = get_embed(best_targets[cur_page-1])
-                        await self.button_check(best_targets[cur_page-1])
-                        await i.response.edit_message(content="", embed=msg_embd, view=view)
-
-                    @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
-                    async def left_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal cur_page
-                        if cur_page > 1:
-                            cur_page -= 1
-                            msg_embd = get_embed(best_targets[cur_page-1])
-                            await self.button_check(best_targets[cur_page-1])
-                            await i.response.edit_message(content="", embed=msg_embd, view=view)
-                        else:
-                            cur_page = pages
-                            msg_embd = get_embed(best_targets[cur_page-1])
-                            await self.button_check(best_targets[cur_page-1])
-                            await i.response.edit_message(content="", embed=msg_embd, view=view)
-                    
-                    @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
-                    async def right_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal cur_page
-                        if cur_page != pages:
-                            cur_page += 1
-                            msg_embd = get_embed(best_targets[cur_page-1])
-                            await self.button_check(best_targets[cur_page-1])
-                            await i.response.edit_message(content="", embed=msg_embd, view=view)
-                        else:
-                            cur_page = 1
-                            msg_embd = get_embed(best_targets[cur_page-1])
-                            await self.button_check(best_targets[cur_page-1])
-                            await i.response.edit_message(content="", embed=msg_embd, view=view)
-
-                    @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
-                    async def far_right_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal cur_page
-                        cur_page = pages
-                        msg_embd = get_embed(best_targets[cur_page-1])
-                        await self.button_check(best_targets[cur_page-1])
-                        await i.response.edit_message(content="", embed=msg_embd, view=view)
-                
-                    if best_targets[0]['beige_turns'] > 0:
-                        disabled = False
-                    else:
-                        disabled = True
-
-                    @discord.ui.button(label="Beige reminder", style=discord.ButtonStyle.primary, disabled=disabled, custom_id="beige")
-                    async def beige_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal cur_page
-                        beige_button = [x for x in self.children if x.custom_id == "beige"][0]
-                        cur_embed = best_targets[cur_page-1]
-                        turns = cur_embed['beige_turns']
-                        if turns == 0:
-                            beige_button.disabled = True
-                            await ctx.edit(view=view)
-                            await i.response.send_message(content=f"They are not in beige!", ephemeral=True)
-                            return
-                        reminder = cur_embed['id']
-                        user = await db.global_users.find_one({"user": ctx.author.id})
-                        if user == None:
-                            await i.response.send_message(content=f"I didn't find you in the database! Make sure to `/verify`!", ephemeral=True)
-                            return
-                        for entry in user['beige_alerts']:
-                            if reminder == entry:
-                                beige_button.disabled = True
-                                await ctx.edit(view=view)
-                                await i.response.send_message(content=f"You already have a beige reminder for this nation!", ephemeral=True)
-                                return
-                        await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
-                        beige_button.disabled = True
-                        await ctx.edit(view=view)
-                        await i.response.send_message(content=f"A beige reminder for <https://politicsandwar.com/nation/id={cur_embed['id']}> was added!", ephemeral=True)
-
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await views.run_timeout(ctx, view)
-                    
-                view = embed_paginator()
-                await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
+                target_ids = [str(nation["id"]) for nation in best_targets]
+                beige_turns = [int(nation.get("beige_turns") or 0) for nation in best_targets]
+                view, session_id, active_embed = await views.create_persistent_raids_pager_prompt(
+                    ctx=ctx,
+                    embeds=embeds,
+                    target_ids=target_ids,
+                    beige_turns=beige_turns,
+                    ttl_seconds=3600,
+                )
+                await loading.clear()
+                msg = await ctx.edit(content="", embed=active_embed, attachments=[], view=view)
+                if msg and getattr(msg, "id", None):
+                    await views.bind_persistent_prompt_message(session_id, msg.id)
 
             else:
                 targets = sorted(best_targets, key=lambda k: k['nation_loot_value'], reverse=True)
                 desc = filters
                 for n in range(min(20, len(targets))):
                     target = targets[n]
-                    desc += f"\n\n**Last beige: ${target['nation_loot']}**\n[{target['nation_name']}](https://politicsandwar.com/nation/id={target['id']}) | Active: <t:{round(datetime.strptime(target['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R> | Ground IT: {round(100*target['groundwin']**3)}%"
+                    target_cached_ts = cached_ts_for_target(target)
+                    cache_age = f"<t:{target_cached_ts}:R>" if target_cached_ts is not None else "unknown"
+                    desc += f"\n\n**Last beige: ${target['nation_loot']}**\n[{target['nation_name']}](https://politicsandwar.com/nation/id={target['id']}) | Active: <t:{round(datetime.strptime(target['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R> | Updated: {cache_age} | Ground IT: {round(100*target['groundwin']**3)}%"
                 embed = discord.Embed(title="Top nations by beige loot", description=desc, color=0xff5100)
-                embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
+                embed.set_footer(text="Contact randomnoobster for help or bug reports")
+                await loading.clear()
                 await ctx.edit(content="", embed=embed, attachments=[], view=None)
 
         except Exception as e:
+            if loading is not None:
+                await loading.clear()
             await self._handle_command_exception(ctx, e, command_name="raids")
             return
     
@@ -1260,40 +835,7 @@ class TargetFinding(commands.Cog):
                 embeds.append(embed)
 
             if len(embeds) > 1:
-                cur_page = 0
-                pages = len(embeds)
-                class switch(discord.ui.View):
-                    @discord.ui.button(label="<", style=discord.ButtonStyle.primary)
-                    async def left_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal cur_page
-                        if cur_page == 0:
-                            cur_page = pages - 1
-                            await i.response.edit_message(embed=embeds[cur_page])
-                        else:
-                            cur_page -= 1
-                            await i.response.edit_message(embed=embeds[cur_page])
-                    
-                    @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
-                    async def right_callback(self, b: discord.Button, i: discord.Interaction):
-                        nonlocal cur_page
-                        if cur_page == pages - 1:
-                            cur_page = 0
-                            await i.response.edit_message(embed=embeds[cur_page])
-                        else:
-                            cur_page += 1
-                            await i.response.edit_message(embed=embeds[cur_page])
-                    
-                    async def interaction_check(self, interaction) -> bool:
-                        if interaction.user != ctx.author:
-                            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                            return False
-                        else:
-                            return True
-                    
-                    async def on_timeout(self):
-                        await views.run_timeout(ctx, view)
-                
-                view = switch()
+                view = views.Switch(ctx=ctx, embeds=embeds, max_page=len(embeds), timeout=3600)
             else:
                 view = None
 
@@ -1320,7 +862,7 @@ class TargetFinding(commands.Cog):
             if person == None:
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
                 return
-            parsed_nation = sqlite_find_nation(nation)
+            parsed_nation = await asyncio.to_thread(sqlite_find_nation, nation)
             if parsed_nation == None:
                 await ctx.respond("I could not find that nation!")
                 return
@@ -1356,7 +898,7 @@ class TargetFinding(commands.Cog):
     ):
         try:
             await ctx.defer()
-            nation = sqlite_find_nation(nation)
+            nation = await asyncio.to_thread(sqlite_find_nation, nation)
 
             if nation == None:
                 await ctx.respond(content='I could not find that nation!')
@@ -1474,44 +1016,27 @@ class TargetFinding(commands.Cog):
             embed.add_field(name="Casualties", value=f"*Targeting other:*\nAtt. Ships: {results['nation1_navalvinfra_nation1_avg']:,} ± {results['nation1_navalvinfra_nation1_diff']:,}\nDef. Ships: {results['nation1_navalvinfra_nation2_avg']:,} ± {results['nation1_navalvinfra_nation2_diff']:,}\n\n*Targeting ships:*\nAtt. Ships: {results['nation1_navalvships_nation1_avg']:,} ± {results['nation1_navalvships_nation1_diff']:,}\nDef. Ships: {results['nation1_navalvships_nation2_avg']:,} ± {results['nation1_navalvships_nation2_diff']:,}")        
             embed1.add_field(name="Casualties", value=f"*Targeting other:*\nAtt. Ships: {results['nation2_navalvinfra_nation2_avg']:,} ± {results['nation2_navalvinfra_nation2_diff']:,}\nDef. Ships: {results['nation2_navalvinfra_nation1_avg']:,} ± {results['nation2_navalvinfra_nation1_diff']:,}\n\n*Targeting ships:*\nAtt. Ships: {results['nation2_navalvships_nation2_avg']:,} ± {results['nation2_navalvships_nation2_diff']:,}\nDef. Ships: {results['nation2_navalvships_nation1_avg']:,} ± {results['nation2_navalvships_nation1_diff']:,}")        
 
-            cur_page = 1
-
             # Build URL for the frontend damage page using live API
             nation1_id = results.get('nation1', {}).get('id', '')
             nation2_id = results.get('nation2', {}).get('id', '')
             url = f"{WEB_BASE_URL}/damage?nation1={nation1_id}&nation2={nation2_id}"
-
-            class switch(discord.ui.View):
-                def __init__(self):
-                    super().__init__(discord.ui.Button(label="Damage sheet", url=url))
-
-                @discord.ui.button(label="Switch attacker/defender", style=discord.ButtonStyle.primary)
-                async def callback(self, b: discord.Button, i: discord.Interaction):
-                    nonlocal cur_page
-                    if cur_page == 1:
-                        cur_page = 2
-                        await i.response.edit_message(embed=embed1)
-                    else:
-                        cur_page = 1
-                        await i.response.edit_message(embed=embed)
-                
-                async def interaction_check(self, interaction) -> bool:
-                    if interaction.user != ctx.author:
-                        await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-                        return False
-                    else:
-                        return True
-                
-                async def on_timeout(self):
-                    ref = err_util.new_error_reference()
-                    to_embed = err_util.error_embed(
-                        "Timed out",
-                        f"<@{ctx.author.id}> You didn't respond in time, so this command closed.",
-                        reference=ref,
-                    )
-                    await ctx.edit(content="", embed=to_embed)
-                    
-            await ctx.respond(embed=embed, content="", view=switch())
+            view, session_id, active_embed = await views.create_persistent_tabs_prompt(
+                command="battlesimulation",
+                ctx=ctx,
+                tabs=[("Attacker", embed), ("Defender", embed1)],
+                initial_index=0,
+                ttl_seconds=3600,
+                link_label="Damage sheet",
+                link_url=url,
+            )
+            msg = await ctx.respond(embed=active_embed, content="", view=view)
+            if not msg:
+                try:
+                    msg = await ctx.interaction.original_response()
+                except Exception:
+                    msg = None
+            if msg and getattr(msg, "id", None):
+                await views.bind_persistent_prompt_message(session_id, msg.id)
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="battlesimulation")
             return
@@ -1667,42 +1192,21 @@ class TargetFinding(commands.Cog):
             embed1.add_field(name=f"{x['nation_name']} ({x['id']})", value=f"{vmstart}[War timeline](https://politicsandwar.com/nation/war/timeline/war={war['id']}) | {alliance}\n\n{war_emoji_1} **[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})**{result['nation1_append']}\n{war_emoji_2} **[{x['nation_name']}](https://politicsandwar.com/nation/id={x['id']})**{result['nation2_append']}\n\nOffensive wars: {len(x['offensive_wars'])}/{max_offense}\nDefensive wars: {len(x['defensive_wars'])}/3{beige}\n\n Soldiers: **{x['soldiers']:,}** / {max_sol:,}\nTanks: **{x['tanks']:,}** / {max_tnk:,}\nPlanes: **{x['aircraft']:,}** / {max_pln:,}\nShips: **{x['ships']:,}** / {max_shp:,}\nMissiles: {x['missiles']}\nNukes: {x['nukes']}\n\nGround IT chance: **{round(100 * result['nation2_ground_win_rate']**3)}%**\nAir IT chance: **{round(100 * result['nation2_air_win_rate']**3)}%**\nNaval IT chance: **{round(100 * result['nation2_naval_win_rate']**3)}%**{vmend}", inline=True)
             embed2.add_field(name=f"{x['nation_name']} ({x['id']})", value=f"{vmstart}[War timeline](https://politicsandwar.com/nation/war/timeline/war={war['id']}) | {alliance}\n\n{war_emoji_1} **[{nation['nation_name']}](https://politicsandwar.com/nation/id={nation['id']})**{result['nation1_append']}\nGround: **${result['nation1_ground_net']/3:,.0f}**\nAir vs Air: **${result['nation1_airvair_net']/4:,.0f}**\nNaval vs Other: **${result['nation1_navalvinfra_net']/4:,.0f}**\nNaval vs Naval: **${result['nation1_navalvships_net']/4:,.0f}**\nMissile: **${result['nation1_missile_net']/8:,.0f}**\nNuke: **${result['nation1_nuke_net']/12:,.0f}** **\n\n{war_emoji_2} [{x['nation_name']}](https://politicsandwar.com/nation/id={x['id']})**{result['nation2_append']}\nGround: **${result['nation2_ground_net']/3:,.0f}**\nAir vs Air: **${result['nation2_airvair_net']/4:,.0f}**\nNaval vs Other: **${result['nation2_navalvinfra_net']/4:,.0f}**\nNaval vs Naval: **${result['nation2_navalvships_net']/4:,.0f}**\nMissile: **${result['nation2_missile_net']/8:,.0f}**\nNuke: **${result['nation2_nuke_net']/12:,.0f}**{vmend}", inline=True)
 
-        class status_view(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=None)
-
-            @discord.ui.button(label="General", style=discord.ButtonStyle.primary, custom_id="status_general", disabled=True)
-            async def general_callback(self, b: discord.Button, i: discord.Interaction):
-                this_button = [x for x in self.children if x.custom_id == "status_general"][0]
-                other_buttons = [x for x in self.children if x.custom_id != "status_general"]
-                for button in other_buttons:
-                    button.disabled = False
-                this_button.disabled = True
-                await i.response.edit_message(content="", embed=embed, view=view)
-            
-            @discord.ui.button(label="Military", style=discord.ButtonStyle.primary, custom_id="status_military")
-            async def military_callback(self, b: discord.Button, i: discord.Interaction):
-                this_button = [x for x in self.children if x.custom_id == "status_military"][0]
-                other_buttons = [x for x in self.children if x.custom_id != "status_military"]
-                for button in other_buttons:
-                    button.disabled = False
-                this_button.disabled = True
-                await i.response.edit_message(content="", embed=embed1, view=view)
-            
-            @discord.ui.button(label="Damage", style=discord.ButtonStyle.primary, custom_id="status_damage")
-            async def damage_callback(self, b: discord.Button, i: discord.Interaction):
-                this_button = [x for x in self.children if x.custom_id == "status_damage"][0]
-                other_buttons = [x for x in self.children if x.custom_id != "status_damage"]
-                for button in other_buttons:
-                    button.disabled = False
-                this_button.disabled = True
-                await i.response.edit_message(content="", embed=embed2, view=view)
-        
-        view = status_view()
-        print(embed.__sizeof__())
-        print(embed1.__sizeof__())
-        print(embed2.__sizeof__())
-        await ctx.respond(content="", embed=embed, view=view)
+        view, session_id, active_embed = await views.create_persistent_tabs_prompt(
+            command="war_status",
+            ctx=ctx,
+            tabs=[("General", embed), ("Military", embed1), ("Damage", embed2)],
+            initial_index=0,
+            ttl_seconds=3600,
+        )
+        msg = await ctx.respond(content="", embed=active_embed, view=view)
+        if not msg:
+            try:
+                msg = await ctx.interaction.original_response()
+            except Exception:
+                msg = None
+        if msg and getattr(msg, "id", None):
+            await views.bind_persistent_prompt_message(session_id, msg.id)
     
     @slash_command(
         name="nuketargets",
@@ -1716,12 +1220,16 @@ class TargetFinding(commands.Cog):
         include_beige: Option(bool, "Include beige nations", default=False) = False,
         include_slotted: Option(bool, "Include slotted nations", default=False) = False
     ):
+        loading: LoadingDisplay | None = None
         try:
             await ctx.respond("Let me think for a second...")
+            loading = LoadingDisplay(ctx, show_after=0)
+            await loading.start("Let me think for a second...")
             
             user = await helpers.find_nation_plus(self.bot, ctx.author.id)
             if not user:
-                await ctx.edit(content="Make sure that you are verified with `/verify`!")
+                await loading.clear()
+                await ctx.edit(content="Make sure that you are verified with `/verify`!", attachments=[])
                 return
             
             config = await db.guild_configs.find_one({"guild_id": ctx.guild.id})
@@ -1737,22 +1245,38 @@ class TargetFinding(commands.Cog):
                 except (KeyError, TypeError):
                     fail = True
             if fail:
-                view = views.YesOrNoView(ctx=ctx)
+                view, session_id = await views.create_persistent_yesno_prompt(
+                    command="nuketargets",
+                    ctx=ctx,
+                    disable_on_submit=False,
+                )
                 embed = discord.Embed(title="Targets not configured", description="This command has not been configured for this server. To configure targeted alliances, someone with the `manage_server` permission must use `/config`.\n\nDo you want to continue with all alliances being targeted?", color=0xff5100)
-                await ctx.edit(content="", embed=embed, view=view)
-                timed_out = await view.wait()
-                if timed_out:
+                msg = await ctx.edit(content="", embed=embed, view=view, attachments=[])
+                if msg and getattr(msg, "id", None):
+                    await views.bind_persistent_prompt_message(session_id, msg.id)
+                result = await views.wait_for_persistent_yesno_result(session_id)
+                if result is None:
+                    await loading.clear()
                     return
-                if view.result == True:
-                    await ctx.edit(content="Let me think for a second...", view=None, embed=None)
+                if result is True:
+                    await loading.update("Let me think for a second...", force_show=True)
                     res = await api_client.call(f"{{nations(first:1 id:{user['id']}){{data{get_query(queries.NUKETARGETS)}}}}}", api_key)
                     user_nation = res['data']['nations']['data'][0]
-                    file_content = get_all_nations(get_nations_db_path())
-                    all_nations = file_content['nations']
-                elif view.result == False:
-                    await ctx.edit(content="Parsing of command was cancelled <:kekw:984765354452602880>", embed=None, view=None)
+                    file_content = await asyncio.to_thread(
+                        get_all_nations, get_nations_db_path()
+                    )
+                    all_nations = file_content["nations"]
+                elif result is False:
+                    await loading.clear()
+                    await ctx.edit(
+                        content="Parsing of command was cancelled <:kekw:984765354452602880>",
+                        embed=None,
+                        view=None,
+                        attachments=[],
+                    )
                     return
                 else:
+                    await loading.clear()
                     return
             
             if not fail:
@@ -1801,7 +1325,8 @@ class TargetFinding(commands.Cog):
                     pass
 
             if len(nation_list) == 0:
-                await ctx.edit(content="No eligible targets found!")
+                await loading.clear()
+                await ctx.edit(content="No eligible targets found!", attachments=[])
                 return
             
             if sort == "Nuke damage":
@@ -1833,9 +1358,12 @@ class TargetFinding(commands.Cog):
             else:
                 view = None
 
-            await ctx.edit(embed=embeds[0], content="", view=view)
+            await loading.clear()
+            await ctx.edit(embed=embeds[0], content="", view=view, attachments=[])
 
         except Exception as e:
+            if loading is not None:
+                await loading.clear()
             await self._handle_command_exception(ctx, e, command_name="nuketargets")
             return
     

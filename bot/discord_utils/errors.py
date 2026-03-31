@@ -10,7 +10,11 @@ import xkcdpass.xkcd_password as xp
 from discord.ext import commands
 
 ERROR_EMBED_COLOR = 0xED4245
-DEFAULT_CONTACT_FOOTER = "Contact RandomNoobster#0093 for help or bug reports"
+DEFAULT_CONTACT_FOOTER = "Contact randomnoobster for help or bug reports"
+PNW_SERVER_USER_MESSAGE = (
+    "Politics & War's server is currently having issues. "
+    "Please wait a bit and try again once PnW resolves it."
+)
 
 _wordfile = xp.locate_wordfile()
 _WORDLIST = xp.generate_wordlist(wordfile=_wordfile, min_length=3, max_length=9)
@@ -29,19 +33,30 @@ def unwrap_command_error(error: BaseException) -> BaseException:
     return error
 
 
+def is_pnw_server_error(error: BaseException) -> bool:
+    root = unwrap_command_error(error)
+    if type(root).__name__ == "PnWServerError":
+        return True
+    msg = str(root).lower()
+    return "internal server error" in msg or "pnw server error" in msg
+
+
 def error_embed(
     title: str,
     description: str,
     *,
-    reference: str,
+    reference: str | None = None,
     color: int = ERROR_EMBED_COLOR,
     contact_footer: str | None = DEFAULT_CONTACT_FOOTER,
 ) -> discord.Embed:
     embed = discord.Embed(title=title, description=description, color=color)
-    footer = f"Reference: {reference}"
+    footer_parts: list[str] = []
+    if reference:
+        footer_parts.append(f"Reference: {reference}")
     if contact_footer:
-        footer = f"{footer}\n{contact_footer}"
-    embed.set_footer(text=footer[:2048])
+        footer_parts.append(contact_footer)
+    if footer_parts:
+        embed.set_footer(text="\n".join(footer_parts)[:2048])
     return embed
 
 
@@ -155,24 +170,65 @@ async def send_debug_channel_messages(
     reference: str,
     log: logging.Logger,
 ) -> None:
+    await send_embed_with_trace_thread(
+        channel,
+        embed=build_debug_embed(ctx, error, reference),
+        traceback_text=_format_traceback_text(error),
+        log=log,
+        thread_name=f"trace-{reference}",
+        reference=reference,
+    )
+
+
+async def send_embed_with_trace_thread(
+    channel: discord.abc.Messageable | None,
+    *,
+    embed: discord.Embed,
+    traceback_text: str,
+    log: logging.Logger,
+    thread_name: str,
+    reference: str | None = None,
+) -> None:
     if channel is None:
         return
     try:
-        tb = _format_traceback_text(error)
-        await channel.send(embed=build_debug_embed(ctx, error, reference))
-        chunks = chunk_text_for_discord(tb, max_len=1700)
-        n = len(chunks)
-        for i, chunk in enumerate(chunks):
-            head = f"Traceback ({i + 1}/{n})\n" if n > 1 else "Traceback\n"
-            await channel.send(f"```{head}{chunk}\n```")
-    except (discord.HTTPException, discord.NotFound, TypeError) as e:
-        log.error(
-            "failed_debug_channel reference=%r: %s",
-            reference,
-            e,
-            exc_info=e,
-            extra={"error_reference": reference},
+        message = await channel.send(embed=embed)
+        trace_target: discord.abc.Messageable = channel
+        if isinstance(channel, discord.TextChannel):
+            try:
+                trace_target = await message.create_thread(
+                    name=thread_name[:100],
+                    auto_archive_duration=1440,
+                )
+            except (discord.HTTPException, discord.Forbidden, TypeError) as thread_exc:
+                if reference:
+                    log.warning(
+                        "Failed to create traceback thread reference=%r: %s",
+                        reference,
+                        thread_exc,
+                    )
+                else:
+                    log.warning(
+                        "Failed to create traceback thread: %s",
+                        thread_exc,
+                    )
+        chunks = chunk_text_for_discord(
+            traceback_text.replace("```", "'''"),
+            max_len=1700,
         )
+        for chunk in chunks:
+            await trace_target.send(f"```{chunk}\n```")
+    except (discord.HTTPException, discord.NotFound, TypeError) as e:
+        if reference:
+            log.error(
+                "failed_debug_channel reference=%r: %s",
+                reference,
+                e,
+                exc_info=e,
+                extra={"error_reference": reference},
+            )
+        else:
+            log.error("failed_debug_channel: %s", e, exc_info=e)
 
 
 async def report_handled_exception(

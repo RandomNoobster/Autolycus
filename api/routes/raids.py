@@ -14,7 +14,7 @@ from typing import Any, Optional
 from flask import Blueprint, current_app, jsonify, request
 
 from logic import queries
-from api.security import optional_token, require_token
+from api.security import optional_discord_session, require_discord_session
 from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
                                    get_nation_by_id)
@@ -32,7 +32,7 @@ raids_bp = Blueprint('raids', __name__, url_prefix='/api/raids')
 
 
 @raids_bp.route('/', methods=['GET'])
-@optional_token
+@optional_discord_session
 def get_raids() -> tuple[Any, int]:
     """
     Get raid targets for the authenticated user.
@@ -56,8 +56,7 @@ def get_raids() -> tuple[Any, int]:
     """
     try:
         req_start = time.perf_counter()
-        token_payload = getattr(request, 'token_payload', {}) or {}
-        user_id = token_payload.get('user_id')
+        user_id = getattr(request, 'session_user_id', None)
 
         # Parse filters and attacker nation ID override
         attacker_nation_id = request.args.get('attackerNationId', type=int)
@@ -415,6 +414,7 @@ def get_raids() -> tuple[Any, int]:
             'beigeAlerts': [str(x) for x in beige_alerts],
             'showBeige': beige_only is not False,
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
+            'discordAuthenticated': user_id is not None,
             'discordLinked': discord_linked,
                 'warning': nation_warning if 'nation_warning' in locals() else None,
         }
@@ -441,7 +441,7 @@ def get_raids() -> tuple[Any, int]:
 
 
 @raids_bp.route('/reminders', methods=['POST'])
-@require_token
+@require_discord_session
 def add_reminder() -> tuple[Any, int]:
     """
     Add a beige reminder for a nation.
@@ -457,8 +457,7 @@ def add_reminder() -> tuple[Any, int]:
         JSON response confirming the reminder was set.
     """
     try:
-        token_payload = getattr(request, 'token_payload', {}) or {}
-        user_id = token_payload.get('user_id')
+        user_id = getattr(request, 'session_user_id', None)
         if not user_id:
             return jsonify({
                 'error': 'Authentication required',
@@ -520,7 +519,7 @@ def add_reminder() -> tuple[Any, int]:
 
 
 @raids_bp.route('/reminders/<nation_id>', methods=['DELETE'])
-@require_token
+@require_discord_session
 def remove_reminder(nation_id: str) -> tuple[Any, int]:
     """
     Remove a beige reminder for a nation.
@@ -532,8 +531,7 @@ def remove_reminder(nation_id: str) -> tuple[Any, int]:
         JSON response confirming the reminder was removed.
     """
     try:
-        token_payload = getattr(request, 'token_payload', {}) or {}
-        user_id = token_payload.get('user_id')
+        user_id = getattr(request, 'session_user_id', None)
         if not user_id:
             return jsonify({
                 'error': 'Authentication required',
@@ -579,7 +577,7 @@ def remove_reminder(nation_id: str) -> tuple[Any, int]:
 
 
 @raids_bp.route('/alliances/search', methods=['GET'])
-@optional_token
+@optional_discord_session
 def search_alliances():
     """
     Search for alliances by name, acronym, or ID (fuzzy matching).

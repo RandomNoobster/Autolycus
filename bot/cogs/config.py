@@ -43,7 +43,11 @@ class Config(commands.Cog):
         )
         embed = err_util.error_embed(
             "Configuration failed",
-            "I couldn't update or read that setting. Please try again.",
+            (
+                err_util.PNW_SERVER_USER_MESSAGE
+                if err_util.is_pnw_server_error(error)
+                else "I couldn't update or read that setting. Please try again."
+            ),
             reference=ref,
         )
         await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
@@ -175,16 +179,21 @@ class Config(commands.Cog):
                         description=description,
                         color=common.EMBED_COLOR,
                     )
-                    view = views.YesOrNoView(
-                        ctx, positive="Keep", negative="Discard"
+                    view, session_id = await views.create_persistent_yesno_prompt(
+                        command="config_reminders",
+                        ctx=ctx,
+                        positive="Keep",
+                        negative="Discard",
+                        disable_on_submit=False,
                     )
-                    await ctx.edit(embed=embed, view=view)
-                    timed_out = await view.wait()
-                    
-                    if timed_out:
+                    msg = await ctx.edit(embed=embed, view=view)
+                    if msg and getattr(msg, "id", None):
+                        await views.bind_persistent_prompt_message(session_id, msg.id)
+                    result = await views.wait_for_persistent_yesno_result(session_id)
+                    if result is None:
                         return
-                    
-                    if not view.result:
+
+                    if not result:
                         user["beige_alerts_config"] = []
 
                 # Prompt for adding more reminders
@@ -212,28 +221,24 @@ class Config(commands.Cog):
                     label="Minutes before exiting beige",
                     placeholder="Enter an integer, e.g. 5",
                 )
-                view = views.YesOrNoView(
-                    ctx,
-                    positive="Add more",
-                    negative="Finish configuration",
-                    positive_style=discord.ButtonStyle.blurple,
-                    negative_style=discord.ButtonStyle.blurple,
+                view, session_id = await views.create_persistent_choice_prompt(
+                    command="config_reminders",
+                    ctx=ctx,
+                    choices=[
+                        ("add", "Add more", discord.ButtonStyle.blurple),
+                        ("finish", "Finish configuration", discord.ButtonStyle.blurple),
+                    ],
+                    disable_on_submit=False,
                 )
+                msg = await ctx.edit(embed=embed, view=view)
+                if msg and getattr(msg, "id", None):
+                    await views.bind_persistent_prompt_message(session_id, msg.id)
+                result = await views.wait_for_persistent_choice_result(session_id)
 
-                async def primary_callback(interaction: discord.Interaction) -> None:
-                    """Handle modal submission."""
-                    view.result = True
-                    await interaction.response.send_modal(modal)
-                    view.stop()
-
-                view.children[0].callback = primary_callback
-                await ctx.edit(embed=embed, view=view)
-                timed_out = await view.wait()
-                
-                if timed_out:
+                if result is None:
                     return
 
-                if not view.result:
+                if result == "finish":
                     # User chose to finish configuration
                     if user["beige_alerts_config"]:
                         reminders_text = common.comma_and_list(
@@ -251,11 +256,11 @@ class Config(commands.Cog):
                         description=description,
                         color=common.EMBED_COLOR,
                     )
-                    view.disable_all_items()
-                    await ctx.edit(embed=embed, view=view)
+                    await ctx.edit(embed=embed, view=None)
                     break
 
                 # Wait for modal submission
+                await ctx.send_modal(modal)
                 submitted = await modal.wait()
                 if not submitted:
                     return

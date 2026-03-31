@@ -1,28 +1,16 @@
-import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 
 import { AppNavbar } from '@/components/layout/AppNavbar';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { AppFooter } from '@/components/layout/AppFooter';
 import { RaidsPage } from '@/pages/RaidsPage';
 import { BuildsPage } from '@/pages/BuildsPage';
 import { DamagePage } from '@/pages/DamagePageView';
 import { HomePage } from '@/pages/HomePage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
-
-/**
- * Redirect legacy /token-request links to the target page with the auth code.
- * Preserves backward compatibility with existing Discord bot links.
- */
-function TokenRedirect() {
-  const [searchParams] = useSearchParams();
-  const code = searchParams.get('code');
-  const redirect = searchParams.get('redirect') || '/raids';
-  const target = code
-    ? `${redirect}${redirect.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}`
-    : redirect;
-  return <Navigate to={target} replace />;
-}
+import { PrivacyStoragePage } from '@/pages/PrivacyStoragePage';
 
 function App() {
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure();
@@ -33,8 +21,10 @@ function App() {
 
   return (
     <AppShell
+      layout="alt"
       /* Show header only on mobile; sidebar is always visible on desktop */
       {...(isMobile ? { header: { height: 56 } } : {})}
+      footer={{ height: 44 }}
       navbar={{
         width: 240,
         breakpoint: 'sm',
@@ -55,14 +45,17 @@ function App() {
       <AppShell.Main>
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/token-request" element={<TokenRedirect />} />
           <Route path="/raids" element={<RaidsPage />} />
           <Route path="/builds" element={<BuildsPage />} />
           <Route path="/damage" element={<DamagePage />} />
+          <Route path="/privacy" element={<PrivacyStoragePage />} />
           <Route path="/404" element={<NotFoundPage />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>
       </AppShell.Main>
+      <AppShell.Footer style={{ borderTop: 'none' }}>
+        <AppFooter />
+      </AppShell.Footer>
     </AppShell>
   );
 }

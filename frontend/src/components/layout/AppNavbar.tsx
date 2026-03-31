@@ -13,11 +13,12 @@ import {
   Divider,
   Badge,
   Group,
-  ActionIcon,
   Switch,
   Image,
+  Button,
   useMantineColorScheme,
 } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -26,13 +27,12 @@ import {
   IconBuildingFactory2,
   IconBomb,
   IconExternalLink,
-  IconCheck,
-  IconX,
   IconSun,
   IconMoon,
 } from '@tabler/icons-react';
-import { useNationId, useSidebarDiscordSession } from '@/hooks';
-import { NationIdField } from '@/components/common';
+import { useDelayedFlag, useSidebarDiscordSession } from '@/hooks';
+import { getLinkedNation } from '@/api/auth';
+import { VerifyNationModal } from '@/components/common';
 import { DiscordSidebarCard } from '@/components/layout/DiscordSidebarCard';
 import { internalNavPath } from '@/lib/internalNavPath';
 
@@ -96,28 +96,24 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
-  const { nationId, setNationId, clearNationId, parseNationId } = useNationId();
   const discordSession = useSidebarDiscordSession();
-  const [inputValue, setInputValue] = useState(nationId);
-  const [error, setError] = useState('');
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [linkedNationHover, setLinkedNationHover] = useState(false);
+  const { data: linkedNationData, isFetched: linkedNationFetched, isLoading: linkedNationLoading } = useQuery({
+    queryKey: ['linkedNation'],
+    queryFn: async () => {
+      try {
+        return await getLinkedNation();
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
+  });
+  const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || '' : '';
+  const showLinkedNationLoading = useDelayedFlag(linkedNationLoading, 150);
   const isLightMode = colorScheme === 'light';
-
-  const handleSaveNationId = () => {
-    const parsed = parseNationId(inputValue);
-    if (parsed) {
-      setNationId(parsed);
-      setInputValue(parsed);
-      setError('');
-    } else {
-      setError('Invalid nation ID or link');
-    }
-  };
-
-  const handleClearNationId = () => {
-    clearNationId();
-    setInputValue('');
-    setError('');
-  };
+  const isDiscordSignedIn = discordSession.status === 'signed_in';
 
   const handleExternalNav = (item: NavItem) => {
     window.open(item.path, '_blank', 'noopener,noreferrer');
@@ -142,6 +138,11 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
           maw={180}
           w="100%"
           fallbackSrc="/splash.webp"
+          style={{
+            filter: isLightMode
+              ? 'contrast(1.16) saturate(1.08) drop-shadow(0 1px 2px rgba(124, 45, 18, 0.35))'
+              : undefined,
+          }}
         />
       </Group>
 
@@ -237,44 +238,115 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
 
       <DiscordSidebarCard session={discordSession} />
 
-      <Divider my="xs" label="Your Nation" labelPosition="center" />
+      <Divider my="xs" label="Linked Nation" labelPosition="center" />
 
-      <Stack gap="xs">
-        <NationIdField
-          placeholder="Nation ID or Link"
-          size="xs"
-          value={inputValue || ''}
-          onChange={(value) => {
-            setInputValue(value);
-            setError('');
-          }}
-          onSubmit={handleSaveNationId}
-          buttonLabel="Save"
-          buttonIcon={<IconCheck size={14} />}
-          buttonDisabled={!inputValue || inputValue === nationId}
-          layout="column"
-          inputProps={{
-            error,
-            rightSection:
-              inputValue && (
-                <ActionIcon
-                  size="xs"
-                  variant="subtle"
-                  color="gray"
-                  onClick={handleClearNationId}
-                >
-                  <IconX size={14} />
-                </ActionIcon>
-              ),
-          }}
-          buttonProps={{ fullWidth: true }}
-        />
-        {nationId && (
-          <Text size="xs" c="dimmed" ta="center">
-            Current: {nationId}
-          </Text>
+      <Stack gap="xs" mih={56} justify="center">
+        {!linkedNationFetched ? (
+          showLinkedNationLoading ? (
+            <Text size="xs" c="dimmed" ta="center">
+              Checking linked nation...
+            </Text>
+          ) : (
+            <div style={{ height: 32 }} />
+          )
+        ) : linkedNationId ? (
+          <a
+            href={`https://politicsandwar.com/nation/id=${linkedNationId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onMouseEnter={() => setLinkedNationHover(true)}
+            onMouseLeave={() => setLinkedNationHover(false)}
+            style={{
+              display: 'block',
+              position: 'relative',
+              width: '100%',
+              overflow: 'hidden',
+              borderRadius: 'var(--mantine-radius-sm)',
+              border: '1px solid transparent',
+              backgroundImage:
+                isLightMode
+                  ? 'linear-gradient(rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.96)), linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(249, 115, 22, 0.35))'
+                  : 'linear-gradient(var(--mantine-color-dark-7), var(--mantine-color-dark-7)), linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(249, 115, 22, 0.5))',
+              backgroundOrigin: 'border-box',
+              backgroundClip: 'padding-box, border-box',
+              padding: '8px 10px',
+              boxShadow: isLightMode
+                ? '0 2px 8px rgba(15, 23, 42, 0.06)'
+                : '0 2px 10px rgba(0, 0, 0, 0.25)',
+              textDecoration: 'none',
+              color: isLightMode ? 'var(--mantine-color-black)' : 'var(--mantine-color-white)',
+              cursor: 'pointer',
+              transition: 'box-shadow 120ms ease',
+            }}
+          >
+            <Image
+              src={linkedNationData?.flag_url || undefined}
+              alt={linkedNationData?.nation_name ? `${linkedNationData.nation_name} flag background` : 'Nation flag background'}
+              fallbackSrc="https://politicsandwar.com/img/flags/defaultflag.svg"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                opacity: isLightMode ? 0.1 : 0.14,
+                filter: 'saturate(1.1) blur(1px)',
+                pointerEvents: 'none',
+              }}
+            />
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 1,
+                backgroundColor: linkedNationHover
+                  ? isLightMode
+                    ? 'rgba(0, 0, 0, 0.04)'
+                    : 'rgba(255, 255, 255, 0.06)'
+                  : 'transparent',
+                transition: 'background-color 120ms ease',
+                pointerEvents: 'none',
+              }}
+            />
+            <Group gap={8} wrap="nowrap" justify="center" align="center" style={{ position: 'relative', zIndex: 2 }}>
+              <Image
+                src={linkedNationData?.flag_url || undefined}
+                alt={linkedNationData?.nation_name ? `${linkedNationData.nation_name} flag` : 'Nation flag'}
+                w={20}
+                h={20}
+                radius="sm"
+                fallbackSrc="https://politicsandwar.com/img/flags/defaultflag.svg"
+                style={{ objectFit: 'cover', flexShrink: 0 }}
+              />
+              <Text size="sm" fw={600} lh={1.2} ta="center" style={{ color: 'inherit' }}>
+                {linkedNationData?.nation_name || 'Linked nation'} (ID: {linkedNationId})
+              </Text>
+            </Group>
+          </a>
+        ) : (
+          <>
+            <Text size="xs" c="dimmed" ta="center">
+              {isDiscordSignedIn
+                ? 'No nation linked yet.'
+                : 'Please log in with Discord before linking your nation.'}
+            </Text>
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => setVerifyModalOpen(true)}
+              disabled={!isDiscordSignedIn}
+            >
+              Link Nation
+            </Button>
+          </>
         )}
       </Stack>
+      <VerifyNationModal
+        opened={verifyModalOpen}
+        onClose={() => setVerifyModalOpen(false)}
+      />
 
       <Divider my="xs" />
 

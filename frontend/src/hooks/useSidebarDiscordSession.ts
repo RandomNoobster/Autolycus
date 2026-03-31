@@ -1,17 +1,10 @@
 /**
- * Resolves Discord-linked API session for sidebar (raid token in URL or localStorage).
+ * Resolves Discord OAuth web session state for sidebar.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { verifyToken } from '@/api/auth';
-import {
-  ACCESS_TOKEN_MAX_AGE_SEC,
-  AUTH_STORAGE_CHANGED_EVENT,
-  readStoredAccessToken,
-} from '@/lib/accessTokenStorage';
-
-const STORAGE_KEY_PREFIX = 'autolycus-access-token-v1';
+import { getDiscordSession } from '@/api/auth';
 
 export type SidebarDiscordSession =
   | { status: 'loading' }
@@ -19,81 +12,62 @@ export type SidebarDiscordSession =
   | {
       status: 'signed_in';
       discordUserId: number;
+      username?: string;
+      displayName?: string;
+      avatarUrl?: string;
       expiresAtSec: number;
     };
 
-function parseDiscordUserId(payload: Record<string, unknown>): number | null {
-  const raw = payload.user_id;
-  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-  if (typeof raw === 'string' && /^\d+$/.test(raw)) return parseInt(raw, 10);
-  return null;
-}
-
 export function useSidebarDiscordSession(): SidebarDiscordSession {
   const location = useLocation();
-  const urlToken = useMemo(
-    () => new URLSearchParams(location.search).get('token'),
-    [location.search]
-  );
   const [state, setState] = useState<SidebarDiscordSession>({ status: 'loading' });
+  const hasResolvedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function refresh() {
-      const stored = readStoredAccessToken('raids');
-      const token = urlToken || stored?.token;
-      if (!token) {
-        if (!cancelled) setState({ status: 'guest' });
-        return;
+      // Keep the previously resolved state during route changes.
+      // This avoids sidebar skeleton flashes while still refreshing in background.
+      if (!cancelled && !hasResolvedRef.current) {
+        setState({ status: 'loading' });
       }
-      if (!cancelled) setState({ status: 'loading' });
       try {
-        const v = await verifyToken(token);
+        const v = await getDiscordSession();
         if (cancelled) return;
-        if (!v.valid || !v.payload) {
+        if (!v.authenticated || !v.discord_user_id) {
           setState({ status: 'guest' });
+          hasResolvedRef.current = true;
           return;
         }
-        const userId = parseDiscordUserId(v.payload as Record<string, unknown>);
-        if (userId === null) {
-          setState({ status: 'guest' });
-          return;
-        }
-        const ts =
-          typeof v.payload.timestamp === 'number'
-            ? v.payload.timestamp
-            : Math.floor(Date.now() / 1000);
+        const ts = typeof v.authenticated_at === 'number' ? v.authenticated_at : Math.floor(Date.now() / 1000);
         setState({
           status: 'signed_in',
-          discordUserId: userId,
-          expiresAtSec: ts + ACCESS_TOKEN_MAX_AGE_SEC,
+          discordUserId: v.discord_user_id,
+          username: typeof v.username === 'string' ? v.username : undefined,
+          displayName: typeof v.global_name === 'string' ? v.global_name : undefined,
+          avatarUrl:
+            typeof v.avatar_url === 'string' && v.avatar_url
+              ? v.avatar_url
+              : typeof v.avatar === 'string' && v.avatar
+              ? `https://cdn.discordapp.com/avatars/${v.discord_user_id}/${v.avatar}.png?size=128`
+              : undefined,
+          expiresAtSec: ts + 7 * 24 * 3600,
         });
+        hasResolvedRef.current = true;
       } catch {
-        if (!cancelled) setState({ status: 'guest' });
+        if (!cancelled) {
+          setState({ status: 'guest' });
+          hasResolvedRef.current = true;
+        }
       }
     }
 
     void refresh();
-
-    const onAuthChanged = () => {
-      void refresh();
-    };
-
-    const onStorage = (e: StorageEvent) => {
-      if (e.key && e.key.startsWith(STORAGE_KEY_PREFIX)) {
-        void refresh();
-      }
-    };
-
-    window.addEventListener(AUTH_STORAGE_CHANGED_EVENT, onAuthChanged);
-    window.addEventListener('storage', onStorage);
     return () => {
       cancelled = true;
-      window.removeEventListener(AUTH_STORAGE_CHANGED_EVENT, onAuthChanged);
-      window.removeEventListener('storage', onStorage);
     };
-  }, [urlToken]);
+  }, [location.key]);
 
   return state;
 }

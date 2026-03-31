@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any, Optional, Union
 
@@ -16,7 +17,7 @@ async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[d
     """
     if isinstance(arg, str):
         arg = arg.strip()
-    nation = db_find_nation(arg)
+    nation = await asyncio.to_thread(db_find_nation, arg)
     if nation is None:
         user = await get_global_user_by_any(arg)
         if not user and isinstance(arg, str):
@@ -28,7 +29,7 @@ async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[d
                         break
         if not user:
             return None
-        nation = db_find_nation(user['id'])
+        nation = await asyncio.to_thread(db_find_nation, user['id'])
         if nation is None:
             return None
     return nation
@@ -69,4 +70,4 @@ async def find_user(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str
 
 async def autocomplete_alliances(ctx: discord.AutocompleteContext) -> list[str]:
     search_value = ctx.value or ""
-    return search_alliances_autocomplete(search_value)
+    return await asyncio.to_thread(search_alliances_autocomplete, search_value)

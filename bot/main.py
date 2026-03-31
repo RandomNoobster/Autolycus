@@ -12,7 +12,10 @@ import pnwkit
 from discord.ext import commands
 
 from bot.discord_utils import errors as err_embeds
+from bot.discord_utils import views as discord_views
+from bot.discord_utils.interaction_framework import InteractionRegistry
 from core.logging_config import setup_logging
+from database import interaction_sessions
 from database.mongo import record_slash_command
 
 intents = discord.Intents.default()
@@ -33,6 +36,8 @@ kit = pnwkit.QueryKit(api_key)
 # discord bot
 bot = commands.Bot(intents=intents, command_prefix="!")
 bot.pnw_kit = kit
+bot.interaction_registry = InteractionRegistry()
+discord_views.register_interaction_handlers(bot.interaction_registry)
 
 # cogs
 cogs_dir = pathlib.Path(__file__).resolve().parent / "cogs"
@@ -43,6 +48,7 @@ for path in sorted(cogs_dir.glob("*.py")):
 
 @bot.event
 async def on_ready():
+    await interaction_sessions.ensure_indexes()
     guilds = sorted(bot.guilds, key=lambda x: x.member_count, reverse=True)
     n = len(guilds)
     logger.info(f"I am in {n} servers:")
@@ -53,6 +59,13 @@ async def on_ready():
     logger.info(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     logger.info('We have logged in as {0.user}'.format(bot))
+
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    handled = await bot.interaction_registry.dispatch(interaction)
+    if not handled and interaction.type == discord.InteractionType.application_command:
+        await bot.process_application_commands(interaction)
 
 
 @bot.event
@@ -151,10 +164,19 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
         await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
         await _debug()
         return
+    if err_embeds.is_pnw_server_error(root):
+        embed = err_embeds.error_embed(
+            "PnW server issue",
+            err_embeds.PNW_SERVER_USER_MESSAGE,
+            reference=reference,
+        )
+        await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
+        await _debug()
+        return
 
     embed = err_embeds.error_embed(
         "Something went wrong",
-        "An unexpected error occurred. If it keeps happening, contact RandomNoobster#0093 with the reference below.",
+        "An unexpected error occurred. If it keeps happening, contact randomnoobster with the reference below.",
         reference=reference,
     )
     await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
