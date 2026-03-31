@@ -440,7 +440,8 @@ class TargetFinding(commands.Cog):
             option_list = [(embed1, stage_one()), (embed2, stage_two()), (embed3, stage_three()), (embed4, stage_four()), (embed5, stage_five()), (embed6, stage_six()), (embed7, stage_seven()), (embed8, stage_eight())]
             db = db_mongo.get_db()
             user = await db.global_users.find_one({"user": ctx.author.id})
-            if "raids_config" not in user:
+            saved_raids_cfg = user.get("raids_config") if user else None
+            if not isinstance(saved_raids_cfg, dict) or "webpage" not in saved_raids_cfg:
                 option_list.pop(0)
 
             for embed, view in option_list:
@@ -449,16 +450,17 @@ class TargetFinding(commands.Cog):
                 if timed_out:
                     return
                 if use_same == True:
-                    webpage = user['raids_config']['webpage']
-                    discord_embed = user['raids_config']['discord_embed']
-                    who = user['raids_config']['who']
-                    max_wars = user['raids_config']['max_wars']
-                    inactive_limit = user['raids_config']['inactive_limit']
-                    beige = user['raids_config']['beige']
-                    performace_filter = user['raids_config']['performace_filter']
+                    cfg = user["raids_config"]
+                    webpage = cfg["webpage"]
+                    discord_embed = cfg["discord_embed"]
+                    who = cfg["who"]
+                    max_wars = cfg["max_wars"]
+                    inactive_limit = cfg["inactive_limit"]
+                    beige = cfg["beige"]
+                    performace_filter = cfg["performace_filter"]
                     # this was added later on when some people may not have it in their raid_config
                     # which makes this check necessary (null in DB must not become None here)
-                    minimum_beige_loot = user['raids_config'].get('minimum_beige_loot')
+                    minimum_beige_loot = cfg.get("minimum_beige_loot")
                     if minimum_beige_loot is None:
                         minimum_beige_loot = 0
                     break
@@ -476,6 +478,24 @@ class TargetFinding(commands.Cog):
 
             if minimum_beige_loot is None:
                 minimum_beige_loot = 0
+
+            await db.global_users.find_one_and_update(
+                {"user": ctx.author.id},
+                {
+                    "$set": {
+                        "raids_config": {
+                            "webpage": webpage,
+                            "discord_embed": discord_embed,
+                            "who": who,
+                            "max_wars": max_wars,
+                            "inactive_limit": inactive_limit,
+                            "beige": beige,
+                            "performace_filter": performace_filter,
+                            "minimum_beige_loot": minimum_beige_loot,
+                        }
+                    }
+                },
+            )
             
             view = None
 
@@ -551,12 +571,13 @@ class TargetFinding(commands.Cog):
                                 await ctx.edit(content="", embed=embed, view=None)
                                 return
                             data = await resp.json()
-                except Exception as exc:
+                except Exception:
                     ref = err_util.new_error_reference()
                     logger.error(
-                        "raids_token_issue_exception reference=%r",
+                        "raids_token_issue_exception reference=%r issue_url=%s",
                         ref,
-                        exc_info=exc,
+                        issue_url,
+                        exc_info=True,
                         extra={"error_reference": ref},
                     )
                     embed = err_util.error_embed(
@@ -749,8 +770,6 @@ class TargetFinding(commands.Cog):
                 filters = filters + ", ".join(filter_list)
             else:
                 filters += "No active filters"
-            
-            await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$set": {"raids_config": {"webpage": webpage, "discord_embed": discord_embed, "who": who, "max_wars": max_wars, "inactive_limit": inactive_limit, "beige": beige, "performace_filter": performace_filter, "minimum_beige_loot": minimum_beige_loot}}})
 
             await ctx.edit(content='Calculating best targets...')
 
@@ -938,12 +957,13 @@ class TargetFinding(commands.Cog):
                                 await ctx.edit(content="", embed=embed, view=None)
                                 return
                             data = await resp.json()
-                except Exception as exc:
+                except Exception:
                     ref = err_util.new_error_reference()
                     logger.error(
-                        "raids_token_issue_exception reference=%r",
+                        "raids_token_issue_exception reference=%r issue_url=%s",
                         ref,
-                        exc_info=exc,
+                        issue_url,
+                        exc_info=True,
                         extra={"error_reference": ref},
                     )
                     embed = err_util.error_embed(
