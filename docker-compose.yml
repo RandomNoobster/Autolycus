@@ -70,7 +70,7 @@ services:
         VITE_API_URL: ${VITE_API_URL-}
         VITE_AUTH_TOKEN_API_KEY: ${VITE_AUTH_TOKEN_API_KEY-}
     ports:
-      - "80:80"
+      - "8080:80"
     restart: unless-stopped
     depends_on:
       api:
