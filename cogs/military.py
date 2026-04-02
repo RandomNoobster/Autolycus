@@ -121,6 +121,14 @@ class TargetFinding(commands.Cog):
         ):
         try:
             await ctx.defer()
+            async def send_beta_promo():
+                await ctx.followup.send(
+                    content=(
+                        "I am currently looking for beta testers for the new bot + web interface! "
+                        "Join the test server: https://discord.gg/N79yN5DS4q"
+                    ),
+                    ephemeral=True,
+                )
             
             when_to_timeout = datetime.utcnow() + timedelta(minutes=10)
 
@@ -770,6 +778,7 @@ class TargetFinding(commands.Cog):
 
                 view = webpage_view()
                 await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
+                await send_beta_promo()
                 return
 
             elif discord_embed:
@@ -892,6 +901,7 @@ class TargetFinding(commands.Cog):
                     
                 view = embed_paginator()
                 await ctx.edit(content="", embed=msg_embd, attachments=[], view=view)
+                await send_beta_promo()
 
             else:
                 targets = sorted(best_targets, key=lambda k: k['nation_loot_value'], reverse=True)
@@ -902,6 +912,7 @@ class TargetFinding(commands.Cog):
                 embed = discord.Embed(title="Top nations by beige loot", description=desc, color=0xff5100)
                 embed.set_footer(text="Contact RandomNoobster#0093 for help or bug reports")
                 await ctx.edit(content="", embed=embed, attachments=[], view=None)
+                await send_beta_promo()
 
         except Exception as e:
             logger.error(e, exc_info=True)
