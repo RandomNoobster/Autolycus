@@ -10,7 +10,7 @@ from . import queries
 from infra.cache import cache_historical_prices
 from logic.merge_utils import get_query
 from logic.revenue import (calculate_nation_modifiers, pre_revenue_calc,
-                           revenue_calc)
+                           revenue_calc, revenue_calc_sync)
 from database import sqlite_cache as db_utils
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,86 @@ def _freeze_value(value: Any) -> Any:
     if isinstance(value, list):
         return tuple(_freeze_value(v) for v in value)
     return value
+
+
+def _score_build_cities_sync(
+    *,
+    base_nation: dict[str, Any],
+    to_scan: list[BuildDict],
+    radiation: dict[str, float],
+    treasures: list[dict[str, Any]],
+    prices: dict[str, float],
+    colors: dict[str, float],
+    seasonal_mod: dict[str, float],
+    selected_upkeep_mode: str,
+    mil_cost_mod: float,
+    include_military_upkeep: bool,
+) -> list[BuildDict]:
+    cities: list[BuildDict] = []
+    for city in to_scan:
+        nation_local = dict(base_nation)
+        nation_local["cities"] = [city]
+
+        revenue = revenue_calc_sync(
+            nation_local,
+            radiation,
+            treasures,
+            prices,
+            colors,
+            seasonal_mod,
+            single_city=True,
+        )
+
+        population = revenue.get("population", 0)
+        max_units = _max_units_from_city(city, population)
+        peace_total, peace_food, peace_breakdown, peace_food_breakdown = _unit_upkeep_for_max(
+            max_units,
+            at_war=False,
+            mil_cost_mod=mil_cost_mod,
+        )
+        war_total, war_food, war_breakdown, war_food_breakdown = _unit_upkeep_for_max(
+            max_units,
+            at_war=True,
+            mil_cost_mod=mil_cost_mod,
+        )
+
+        resolved_mode = selected_upkeep_mode
+        active_total, active_food, active_breakdown, active_food_breakdown = (
+            (war_total, war_food, war_breakdown, war_food_breakdown)
+            if resolved_mode == "war"
+            else (peace_total, peace_food, peace_breakdown, peace_food_breakdown)
+        )
+
+        revenue["unit_upkeep"] = {
+            "included": include_military_upkeep,
+            "selectedMode": selected_upkeep_mode,
+            "mode": resolved_mode,
+            "total": round(active_total),
+            "food": round(active_food, 4),
+            "breakdown": {k: round(v) for k, v in active_breakdown.items()},
+            "breakdownFood": {k: round(v, 4) for k, v in active_food_breakdown.items()},
+            "counts": max_units,
+            "modes": {
+                "peace": {
+                    "total": round(peace_total),
+                    "food": round(peace_food, 4),
+                    "breakdown": {k: round(v) for k, v in peace_breakdown.items()},
+                    "breakdownFood": {k: round(v, 4) for k, v in peace_food_breakdown.items()},
+                },
+                "war": {
+                    "total": round(war_total),
+                    "food": round(war_food, 4),
+                    "breakdown": {k: round(v) for k, v in war_breakdown.items()},
+                    "breakdownFood": {k: round(v, 4) for k, v in war_food_breakdown.items()},
+                },
+            },
+        }
+        if include_military_upkeep:
+            revenue["net income"] = revenue.get("net income", 0) - active_total
+            revenue["net_cash_num"] = revenue.get("net_cash_num", 0) - active_total
+        cities.append(revenue)
+
+    return cities
 
 
 # Raw resource availability per continent.
@@ -397,70 +477,23 @@ async def calculate_builds(
             for resource, value in averaged_prices.items():
                 prices[resource] = value
 
-    cities: List[BuildDict] = []
-    for city in to_scan:
-        nation["cities"] = [city]
-        revenue = await revenue_calc(
-            status_target,
-            nation,
-            radiation,
-            treasures,
-            prices,
-            colors,
-            seasonal_mod,
-            single_city=True,
-        )
+    modifiers = calculate_nation_modifiers(nation)
+    mil_cost_mod = float(modifiers.get("mil_cost", 1))
+    base_nation = dict(nation)
 
-        population = revenue.get("population", 0)
-        max_units = _max_units_from_city(city, population)
-        modifiers = calculate_nation_modifiers(nation)
-        mil_cost_mod = modifiers.get("mil_cost", 1)
-        peace_total, peace_food, peace_breakdown, peace_food_breakdown = _unit_upkeep_for_max(
-            max_units,
-            at_war=False,
-            mil_cost_mod=mil_cost_mod,
-        )
-        war_total, war_food, war_breakdown, war_food_breakdown = _unit_upkeep_for_max(
-            max_units,
-            at_war=True,
-            mil_cost_mod=mil_cost_mod,
-        )
-
-        resolved_mode = selected_upkeep_mode
-        active_total, active_food, active_breakdown, active_food_breakdown = (
-            (war_total, war_food, war_breakdown, war_food_breakdown)
-            if resolved_mode == "war"
-            else (peace_total, peace_food, peace_breakdown, peace_food_breakdown)
-        )
-
-        revenue["unit_upkeep"] = {
-            "included": include_military_upkeep,
-            "selectedMode": selected_upkeep_mode,
-            "mode": resolved_mode,
-            "total": round(active_total),
-            "food": round(active_food, 4),
-            "breakdown": {k: round(v) for k, v in active_breakdown.items()},
-            "breakdownFood": {k: round(v, 4) for k, v in active_food_breakdown.items()},
-            "counts": max_units,
-            "modes": {
-                "peace": {
-                    "total": round(peace_total),
-                    "food": round(peace_food, 4),
-                    "breakdown": {k: round(v) for k, v in peace_breakdown.items()},
-                    "breakdownFood": {k: round(v, 4) for k, v in peace_food_breakdown.items()},
-                },
-                "war": {
-                    "total": round(war_total),
-                    "food": round(war_food, 4),
-                    "breakdown": {k: round(v) for k, v in war_breakdown.items()},
-                    "breakdownFood": {k: round(v, 4) for k, v in war_food_breakdown.items()},
-                },
-            },
-        }
-        if include_military_upkeep:
-            revenue["net income"] = revenue.get("net income", 0) - active_total
-            revenue["net_cash_num"] = revenue.get("net_cash_num", 0) - active_total
-        cities.append(revenue)
+    cities: List[BuildDict] = await asyncio.to_thread(
+        _score_build_cities_sync,
+        base_nation=base_nation,
+        to_scan=to_scan,
+        radiation=radiation,
+        treasures=treasures,
+        prices=prices,
+        colors=colors,
+        seasonal_mod=seasonal_mod,
+        selected_upkeep_mode=selected_upkeep_mode,
+        mil_cost_mod=mil_cost_mod,
+        include_military_upkeep=include_military_upkeep,
+    )
 
     if not cities:
         raise ValueError("No builds matched your criteria")

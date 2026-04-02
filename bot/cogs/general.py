@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import pathlib
+import time
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Any, Dict, List, Optional
@@ -178,25 +179,35 @@ class Background(commands.Cog):
             target = person or ctx.author.id
             db_nation = await helpers.find_nation_plus(self.bot, target)
             if not db_nation:
-                await loading.clear()
                 await ctx.edit(content="I could not find the specified person!", attachments=[])
                 return
 
             infra_level = str_to_int(infra)
             if infra_level % 50 != 0:
-                await loading.clear()
                 await ctx.edit(content="The amount of infra must be a multiple of 50!", attachments=[])
                 return
 
             land_amount = str_to_int(land)
 
             try:
+                perf_start = time.perf_counter()
                 results = await calculate_builds_logic(
                     call_pnw=call_api,
                     nation_id=str(db_nation['id']),
                     infra=infra_level,
                     land=land_amount,
                     mmr=mmr,
+                )
+                perf_ms = int((time.perf_counter() - perf_start) * 1000)
+                logger.info(
+                    "[builds] completed ms=%s nation_id=%s infra=%s land=%s mmr=%s totalUnique=%s displayed=%s",
+                    perf_ms,
+                    db_nation.get("id"),
+                    infra_level,
+                    land_amount,
+                    mmr,
+                    results.get("totalUniqueBuilds"),
+                    results.get("displayedUniqueBuilds"),
                 )
             except ValueError as exc:
                 reference = err_util.new_error_reference()
@@ -207,7 +218,6 @@ class Background(commands.Cog):
                     "using `barracks/factory/hangar/drydock` or `any`, then try again.",
                     reference=reference,
                 )
-                await loading.clear()
                 await ctx.edit(content="", embed=embed, attachments=[])
                 return
 
@@ -263,7 +273,6 @@ class Background(commands.Cog):
 
             embed.set_footer(text="Contact randomnoobster for help or bug reports")
 
-            await loading.clear()
             await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
             if loading is not None:
@@ -301,7 +310,6 @@ class Background(commands.Cog):
             if not db_nation:
                 db_nation = await asyncio.to_thread(db_utils.find_nation, person)
                 if not db_nation:
-                    await loading.clear()
                     await ctx.edit(content='I could not find that person!', attachments=[])
                     return
                 db_nation['nationid'] = db_nation['id']
@@ -340,7 +348,6 @@ class Background(commands.Cog):
             embed.add_field(name="Monetary Net Income", inline=False, value=rev_obj['mon_net_txt'])
             embed.set_footer(text=rev_obj['footer'])
 
-            await loading.clear()
             await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
             if loading is not None:
@@ -425,7 +432,6 @@ class Background(commands.Cog):
                         pass
             
             if len(nations) == 0:
-                await loading.clear()
                 await ctx.respond(f"They have no valid members!")
                 return
                 
@@ -437,7 +443,6 @@ class Background(commands.Cog):
             embed.add_field(name="Money", value=f"{income[RSS[-2]]:,.2f}\n")
             embed.add_field(name="Net income", value=f"{income[RSS[-1]]:,.2f}\n")
             
-            await loading.clear()
             await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
             if loading is not None:

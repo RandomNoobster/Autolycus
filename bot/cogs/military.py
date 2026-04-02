@@ -126,7 +126,7 @@ class TargetFinding(commands.Cog):
             inactive_limit = None
             beige = None
             minimum_beige_loot = 0
-            performace_filter = None
+            performance_filter = None
 
             target_list = []
                 
@@ -143,12 +143,17 @@ class TargetFinding(commands.Cog):
             user = await db.global_users.find_one({"user": ctx.author.id})
             saved_raids_cfg = user.get("raids_config") if user else None
 
-            async def _ask_choice(embed: discord.Embed, choices: list[tuple[str, str, discord.ButtonStyle]]) -> str | None:
+            async def _ask_choice(
+                embed: discord.Embed,
+                choices: list[tuple[str, str, discord.ButtonStyle]],
+                *,
+                disable_on_submit: bool = False,
+            ) -> str | None:
                 view, session_id = await views.create_persistent_choice_prompt(
                     command="raids",
                     ctx=ctx,
                     choices=choices,
-                    disable_on_submit=False,
+                    disable_on_submit=disable_on_submit,
                 )
                 msg = await ctx.edit(content="", embed=embed, view=view)
                 if msg and getattr(msg, "id", None):
@@ -162,6 +167,7 @@ class TargetFinding(commands.Cog):
                         ("yes", "Yes", discord.ButtonStyle.success),
                         ("no", "No", discord.ButtonStyle.danger),
                     ],
+                    disable_on_submit=True,
                 )
                 if same_result is None:
                     return
@@ -175,7 +181,7 @@ class TargetFinding(commands.Cog):
                 max_wars = cfg["max_wars"]
                 inactive_limit = cfg["inactive_limit"]
                 beige = cfg["beige"]
-                performace_filter = cfg["performace_filter"]
+                performance_filter = cfg["performace_filter"]
                 minimum_beige_loot = cfg.get("minimum_beige_loot")
                 if minimum_beige_loot is None:
                     minimum_beige_loot = 0
@@ -200,7 +206,7 @@ class TargetFinding(commands.Cog):
                     inactive_limit = 0
                     beige = True
                     minimum_beige_loot = 0
-                    performace_filter = False
+                    performance_filter = False
                 else:
                     who_result = await _ask_choice(
                         embed3,
@@ -275,14 +281,19 @@ class TargetFinding(commands.Cog):
                             ("yes", "Yes", discord.ButtonStyle.success),
                             ("no", "No", discord.ButtonStyle.danger),
                         ],
+                        disable_on_submit=True,
                     )
                     if perf_result is None:
                         return
-                    performace_filter = perf_result == "yes"
+                    performance_filter = perf_result == "yes"
+                    # Give immediate feedback right after the final wizard click.
+                    loading = LoadingDisplay(ctx, show_after=0)
+                    await loading.start("Filters saved. Loading targets now... this can take a little while.")
 
             if not webpage:
-                loading = LoadingDisplay(ctx, show_after=0)
-                await loading.start("Loading targets now... this can take a little while.")
+                if loading is None:
+                    loading = LoadingDisplay(ctx, show_after=0)
+                    await loading.start("Loading targets now... this can take a little while.")
 
             if ctx.guild:
                 if guild_config := await db.guild_configs.find_one({"guild_id": ctx.guild.id}):
@@ -309,7 +320,7 @@ class TargetFinding(commands.Cog):
                             "max_wars": max_wars,
                             "inactive_limit": inactive_limit,
                             "beige": beige,
-                            "performace_filter": performace_filter,
+                            "performace_filter": performance_filter,
                             "minimum_beige_loot": minimum_beige_loot,
                         }
                     }
@@ -538,7 +549,7 @@ class TargetFinding(commands.Cog):
 
             filters = ""
             filter_list = []
-            if not beige or who != "" or max_wars != 3 or performace_filter or inactive_limit != 0 or minimum_beige_loot != 0 or dnr_alliance_ids != []:
+            if not beige or who != "" or max_wars != 3 or performance_filter or inactive_limit != 0 or minimum_beige_loot != 0 or dnr_alliance_ids != []:
                 filters = "Active filters: "
                 if not beige:
                     filter_list.append("hide beige nations")
@@ -552,7 +563,7 @@ class TargetFinding(commands.Cog):
                         filter_list.append("0 active wars")
                     else:
                         filter_list.append(f"{max_wars} or less active wars")
-                if performace_filter:
+                if performance_filter:
                     filter_list.append('omit "bad" targets')
                 if inactive_limit != 0:
                     filter_list.append(f"hide nations that logged in within the last {inactive_limit} days")
@@ -575,9 +586,9 @@ class TargetFinding(commands.Cog):
             for target in target_list:
                 target_cached_ts = cached_ts_for_target(target)
                 cache_line = (
-                    f"Nation updated <t:{target_cached_ts}:R>"
+                    f"Nation information fetched <t:{target_cached_ts}:R>"
                     if target_cached_ts is not None
-                    else "Nation updated (unknown)"
+                    else "Nation information fetched (unknown)"
                 )
                 embed = discord.Embed(
                     title=f"{target['nation_name']}",
@@ -686,7 +697,7 @@ class TargetFinding(commands.Cog):
                 if not webpage:
                     target['embed'] = embed
 
-            if performace_filter:
+            if performance_filter:
                 def determine(x):
                     if x['groundwin'] < .4 or x['nation_loot'] == "0" or x['net_cash_num'] < 10000:
                         return False
@@ -775,9 +786,12 @@ class TargetFinding(commands.Cog):
                 desc = filters
                 for n in range(min(20, len(targets))):
                     target = targets[n]
+                    loot_text = str(target.get("nation_loot", "0"))
+                    if loot_text != "NaN" and not loot_text.startswith("$"):
+                        loot_text = f"${loot_text}"
                     target_cached_ts = cached_ts_for_target(target)
                     cache_age = f"<t:{target_cached_ts}:R>" if target_cached_ts is not None else "unknown"
-                    desc += f"\n\n**Last beige: ${target['nation_loot']}**\n[{target['nation_name']}](https://politicsandwar.com/nation/id={target['id']}) | Active: <t:{round(datetime.strptime(target['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R> | Updated: {cache_age} | Ground IT: {round(100*target['groundwin']**3)}%"
+                    desc += f"\n\n**Last beige: {loot_text}**\n[{target['nation_name']}](https://politicsandwar.com/nation/id={target['id']}) | Active: <t:{round(datetime.strptime(target['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R> | Updated: {cache_age} | Ground IT: {round(100*target['groundwin']**3)}%"
                 embed = discord.Embed(title="Top nations by beige loot", description=desc, color=0xff5100)
                 embed.set_footer(text="Contact randomnoobster for help or bug reports")
                 await loading.clear()

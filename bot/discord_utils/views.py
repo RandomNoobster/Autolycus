@@ -443,17 +443,9 @@ async def _yesno_interaction_handler(
         else:
             await interaction.response.edit_message(view=view)
     elif interaction.response.is_done():
-        # interaction_framework already deferred; replace wizard UI immediately so the user
-        # is not stuck on the old embed until the slash command resumes from polling.
-        try:
-            await interaction.edit_original_response(
-                content="Working...",
-                embed=None,
-                view=None,
-                attachments=[],
-            )
-        except Exception:
-            logger.debug("Immediate placeholder after yes/no failed", exc_info=True)
+        # Keep the current wizard embed visible; the slash command will replace it
+        # with the next step immediately after polling returns.
+        return
     else:
         await interaction.response.defer()
 
@@ -496,15 +488,9 @@ async def _choice_interaction_handler(
         else:
             await interaction.response.edit_message(view=view)
     elif interaction.response.is_done():
-        try:
-            await interaction.edit_original_response(
-                content="Working...",
-                embed=None,
-                view=None,
-                attachments=[],
-            )
-        except Exception:
-            logger.debug("Immediate placeholder after choice failed", exc_info=True)
+        # Keep the current wizard embed visible; the slash command will replace it
+        # with the next step immediately after polling returns.
+        return
     else:
         await interaction.response.defer()
 

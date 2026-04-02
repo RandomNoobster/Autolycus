@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
+from collections import OrderedDict
 from typing import Any, Optional, Union
 
 import discord
@@ -9,6 +11,10 @@ import discord
 from database.mongo import get_global_user_by_any
 from database.sqlite_cache import find_nation as db_find_nation
 from database.sqlite_cache import search_alliances_autocomplete
+
+_ALLIANCE_AC_TTL_SECONDS = 6.0
+_ALLIANCE_AC_MAX = 128
+_alliance_ac_cache: "OrderedDict[str, tuple[float, list[str]]]" = OrderedDict()
 
 
 async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str, Any]]:
@@ -70,4 +76,19 @@ async def find_user(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str
 
 async def autocomplete_alliances(ctx: discord.AutocompleteContext) -> list[str]:
     search_value = ctx.value or ""
-    return await asyncio.to_thread(search_alliances_autocomplete, search_value)
+    key = str(search_value).strip().lower()
+    now = time.monotonic()
+    cached = _alliance_ac_cache.get(key)
+    if cached is not None:
+        ts, results = cached
+        if (now - ts) <= _ALLIANCE_AC_TTL_SECONDS:
+            _alliance_ac_cache.move_to_end(key)
+            return list(results)
+        _alliance_ac_cache.pop(key, None)
+
+    results = await asyncio.to_thread(search_alliances_autocomplete, search_value)
+    _alliance_ac_cache[key] = (now, list(results))
+    _alliance_ac_cache.move_to_end(key)
+    while len(_alliance_ac_cache) > _ALLIANCE_AC_MAX:
+        _alliance_ac_cache.popitem(last=False)
+    return results
