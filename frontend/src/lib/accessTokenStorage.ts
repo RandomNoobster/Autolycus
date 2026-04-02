@@ -1,11 +1,23 @@
 /**
  * Persists API access tokens (from Discord code exchange) in localStorage.
- * Expiry aligns with the API default TOKEN_MAX_AGE (see api/security.py).
+ * Expiry aligns with API TOKEN_MAX_AGE / TOKEN_MAX_AGE_SEC; override with VITE_TOKEN_MAX_AGE_SEC.
  */
 
 import { verifyToken } from '@/api/auth';
 
-export const ACCESS_TOKEN_MAX_AGE_SEC = 7 * 24 * 3600;
+function parseTokenMaxAgeSec(): number {
+  const raw = import.meta.env.VITE_TOKEN_MAX_AGE_SEC;
+  if (raw === undefined || raw === '') {
+    return 7 * 24 * 3600;
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    return 7 * 24 * 3600;
+  }
+  return Math.max(60, Math.min(Math.floor(n), 3600 * 24 * 400));
+}
+
+export const ACCESS_TOKEN_MAX_AGE_SEC = parseTokenMaxAgeSec();
 
 /** Fired on same-tab writes to auth storage so the sidebar can refresh. */
 export const AUTH_STORAGE_CHANGED_EVENT = 'autolycus-auth-changed';

@@ -613,7 +613,7 @@ async def _raids_pager_interaction_handler(
                 else:
                     await db.global_users.find_one_and_update(
                         {"user": interaction.user.id},
-                        {"$push": {"beige_alerts": cur_target}},
+                        {"$addToSet": {"beige_alerts": cur_target}},
                     )
                     ephemeral_text = f"A beige reminder for <https://politicsandwar.com/nation/id={cur_target}> was added!"
 

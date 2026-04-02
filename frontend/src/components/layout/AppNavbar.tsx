@@ -26,6 +26,7 @@ import {
   IconSword,
   IconBuildingFactory2,
   IconBomb,
+  IconBell,
   IconExternalLink,
   IconSun,
   IconMoon,
@@ -63,6 +64,12 @@ const navItems: NavItem[] = [
     path: '/builds',
     icon: <IconBuildingFactory2 size={20} stroke={1.5} />,
     description: 'Optimal city templates',
+  },
+  {
+    label: 'Reminders',
+    path: '/reminders',
+    icon: <IconBell size={20} stroke={1.5} />,
+    description: 'Manage beige alert timings',
   },
   {
     label: 'Damage Calculator',

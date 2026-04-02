@@ -51,12 +51,13 @@ body {
   background-color: rgba(255, 183, 77, 0.2) !important;
 }
 
-/* Link styling */
-a {
+/* Link styling — Mantine v7 Button/Text/Anchor roots often set data-variant on <a>.
+   Global color + underline on :hover fights Button variant hover (dim) and adds underlines. */
+a:not([data-variant]) {
   color: var(--mantine-color-blue-6);
   text-decoration: none;
 }
 
-a:hover {
+a:not([data-variant]):hover {
   text-decoration: underline;
 }

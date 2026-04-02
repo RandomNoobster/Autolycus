@@ -5,11 +5,13 @@
  */
 
 import {
+  Box,
   Container,
   Title,
   Text,
   Stack,
   Group,
+  Flex,
   Paper,
   Autocomplete,
   Button,
@@ -1061,10 +1063,17 @@ export function DamagePage() {
                 <Text size="sm" c="dimmed">
                   Enter two nation IDs to calculate damage potential
                 </Text>
-                <Group grow>
+                <Flex
+                  direction={{ base: "column", sm: "row" }}
+                  gap="sm"
+                  align={{ base: "stretch", sm: "flex-end" }}
+                  wrap="nowrap"
+                >
                   <Autocomplete
                     placeholder="Nation 1 ID, name, or leader"
                     size="sm"
+                    flex={{ sm: 1 }}
+                    miw={{ sm: 0 }}
                     value={inputNation1}
                     onChange={(value) => {
                       setHasTouchedNation1Input(true);
@@ -1081,6 +1090,8 @@ export function DamagePage() {
                   <Autocomplete
                     placeholder="Nation 2 ID, name, or leader"
                     size="sm"
+                    flex={{ sm: 1 }}
+                    miw={{ sm: 0 }}
                     value={inputNation2}
                     onChange={setInputNation2}
                     leftSection={<IconSearch size={16} />}
@@ -1096,7 +1107,7 @@ export function DamagePage() {
                   >
                     Calculate Damage
                   </Button>
-                </Group>
+                </Flex>
               </Stack>
             </form>
           </Paper>
@@ -1183,24 +1194,32 @@ export function DamagePage() {
 
               <Paper p="md" withBorder radius="md">
                 <Stack gap="sm">
-                  <Group grow align="flex-end">
-                    <NationAutocompleteField
-                      label="Nation 1 ID, name, or leader"
-                      value={nation1Query}
-                      onCommit={(value) => {
-                        setHasTouchedNation1Input(true);
-                        commitNation1Query(value);
-                      }}
-                    />
-                    <NationAutocompleteField
-                      label="Nation 2 ID, name, or leader"
-                      value={nation2Query}
-                      onCommit={commitNation2Query}
-                    />
+                  <Flex
+                    direction={{ base: "column", sm: "row" }}
+                    gap="sm"
+                    align={{ base: "stretch", sm: "flex-end" }}
+                    wrap="nowrap"
+                  >
+                    <Box flex={{ sm: 1 }} miw={{ sm: 0 }}>
+                      <NationAutocompleteField
+                        label="Nation 1 ID, name, or leader"
+                        value={nation1Query}
+                        onCommit={(value) => {
+                          setHasTouchedNation1Input(true);
+                          commitNation1Query(value);
+                        }}
+                      />
+                    </Box>
+                    <Box flex={{ sm: 1 }} miw={{ sm: 0 }}>
+                      <NationAutocompleteField
+                        label="Nation 2 ID, name, or leader"
+                        value={nation2Query}
+                        onCommit={commitNation2Query}
+                      />
+                    </Box>
                     <Button
                       variant="light"
                       type="button"
-                      style={{ alignSelf: "flex-end" }}
                       onClick={async () => {
                         const nation1Id =
                           form.values.nation1Id ||
@@ -1217,7 +1236,7 @@ export function DamagePage() {
                     >
                       Reload Nations
                     </Button>
-                  </Group>
+                  </Flex>
                 </Stack>
               </Paper>
 

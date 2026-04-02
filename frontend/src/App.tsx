@@ -11,6 +11,7 @@ import { DamagePage } from '@/pages/DamagePageView';
 import { HomePage } from '@/pages/HomePage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { PrivacyStoragePage } from '@/pages/PrivacyStoragePage';
+import { RemindersPage } from '@/pages/RemindersPage';
 
 function App() {
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure();
@@ -46,6 +47,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/raids" element={<RaidsPage />} />
+          <Route path="/reminders" element={<RemindersPage />} />
           <Route path="/builds" element={<BuildsPage />} />
           <Route path="/damage" element={<DamagePage />} />
           <Route path="/privacy" element={<PrivacyStoragePage />} />

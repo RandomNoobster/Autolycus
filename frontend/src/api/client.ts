@@ -7,7 +7,22 @@
 
 import type { ApiError } from '@/types';
 
+import { BACKEND_UNAVAILABLE_CODE } from './errors';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
+const BACKEND_UNAVAILABLE_MESSAGE =
+  'The Autolycus API is unreachable. Start the backend (or check VITE_API_URL and your dev proxy), then try again.';
+
+function throwBackendUnavailable(detail?: string): never {
+  const message = detail ? `${BACKEND_UNAVAILABLE_MESSAGE} (${detail})` : BACKEND_UNAVAILABLE_MESSAGE;
+  const err: ApiError = {
+    error: 'Cannot reach API',
+    message,
+    code: BACKEND_UNAVAILABLE_CODE,
+  };
+  throw err;
+}
 
 interface RequestOptions extends RequestInit {
   token?: string;
@@ -34,14 +49,20 @@ export async function apiRequest<T>(
     url = `${url}${separator}token=${encodeURIComponent(token)}`;
   }
 
-  const response = await fetch(url, {
-    ...fetchOptions,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...fetchOptions.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...fetchOptions,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...fetchOptions.headers,
+      },
+    });
+  } catch (e) {
+    const cause = e instanceof Error ? e.message : String(e);
+    throwBackendUnavailable(cause);
+  }
 
   const rawText = await response.text();
   let data: any = null;
@@ -54,10 +75,26 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
+    const status = response.status;
+    const gateway = status === 502 || status === 503 || status === 504;
+    const emptyOrUnhelpful =
+      data == null ||
+      (typeof data === 'string' && (data.trim() === '' || !data.trim().startsWith('{')));
+
+    if (gateway && emptyOrUnhelpful) {
+      throwBackendUnavailable(`HTTP ${status}`);
+    }
+
     const error: ApiError = {
-      error: data?.error || 'Request failed',
-      message: data?.message || (typeof data === 'string' ? data : 'An unexpected error occurred'),
-      code: data?.code || 'UNKNOWN_ERROR',
+      error: data?.error || (gateway ? 'Service unavailable' : 'Request failed'),
+      message:
+        data?.message ||
+        (gateway
+          ? 'The API server is not responding. It may be down or still starting.'
+          : typeof data === 'string' && data.length < 400
+            ? data
+            : 'An unexpected error occurred'),
+      code: data?.code || (gateway ? BACKEND_UNAVAILABLE_CODE : 'UNKNOWN_ERROR'),
     };
     throw error;
   }
@@ -101,4 +138,19 @@ export function apiPost<T, B = unknown>(
  */
 export function apiDelete<T>(endpoint: string, token?: string): Promise<T> {
   return apiRequest<T>(endpoint, { method: 'DELETE', token });
+}
+
+/**
+ * PUT request helper
+ */
+export function apiPut<T, B = unknown>(
+  endpoint: string,
+  body: B,
+  token?: string
+): Promise<T> {
+  return apiRequest<T>(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+    token,
+  });
 }

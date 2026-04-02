@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState, useEffect, type ReactNode } from 'react';
 import {
   MantineReactTable,
   useMantineReactTable,
@@ -18,6 +18,8 @@ import {
   Box,
   Alert,
   Stack,
+  Group,
+  Button,
   NumberInput,
   TextInput,
   Menu,
@@ -25,10 +27,19 @@ import {
 import { notifications } from '@mantine/notifications';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { IconBell, IconBellOff, IconExternalLink, IconInfoCircle } from '@tabler/icons-react';
+import {
+  IconBell,
+  IconBellOff,
+  IconBrandDiscord,
+  IconExternalLink,
+  IconInfoCircle,
+} from '@tabler/icons-react';
+import { useLocation } from 'react-router-dom';
 
 import type { RaidTarget } from '@/types';
 import { addReminder, removeReminder } from '@/api';
+import { getDiscordLoginUrl } from '@/api/auth';
+import { internalNavPath } from '@/lib/internalNavPath';
 
 // --- HELPER FUNCTIONS FOR FILTERING ---
 
@@ -152,6 +163,31 @@ const headerWithTooltip = (text: string, description: string) => (
   </Tooltip>
 );
 
+/** Center content in the Reminder column; use fullWidth for bell / CTA controls. */
+function ReminderColumnCell({ children, fullWidth = false }: { children: ReactNode; fullWidth?: boolean }) {
+  return (
+    <Box
+      w="100%"
+      maw="100%"
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: 36,
+        ...(fullWidth ? { alignSelf: 'stretch' as const } : {}),
+      }}
+    >
+      {fullWidth ? (
+        <Box component="span" w="100%" maw="100%" style={{ display: 'block', minWidth: 0 }}>
+          {children}
+        </Box>
+      ) : (
+        children
+      )}
+    </Box>
+  );
+}
+
 // --- CUSTOM FILTER COMPONENTS ---
 
 // Filter component: Min only (for days inactive, income fields, days since war)
@@ -253,6 +289,8 @@ interface RaidsTableProps {
   showBeige: boolean;
   discordAuthenticated: boolean;
   discordLinked: boolean;
+  /** Opens Verify Nation (link PnW account). Used when signed in with Discord but not linked. */
+  onOpenVerifyNationModal?: () => void;
   initialSorting?: { id: string; desc: boolean }[];
   columnVisibility: MRT_VisibilityState;
   columnOrder: MRT_ColumnOrderState;
@@ -274,6 +312,7 @@ export function RaidsTable({
   showBeige,
   discordAuthenticated,
   discordLinked,
+  onOpenVerifyNationModal,
   initialSorting = [],
   columnVisibility,
   columnOrder,
@@ -285,6 +324,7 @@ export function RaidsTable({
   onColumnFiltersChange,
 }: RaidsTableProps) {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -454,12 +494,12 @@ export function RaidsTable({
           </Badge>
         ),
       },
-      ...(showBeige && discordLinked
+      ...(showBeige
         ? [
             {
               accessorKey: 'beigeTurns',
               header: 'Beige Turns',
-              Header: () => wrappedHeader('Beige Turns'), // Use custom wrapper
+              Header: () => wrappedHeader('Beige Turns'),
               size: 90,
               filterFn: beigeFilter,
               filterVariant: 'select',
@@ -473,43 +513,120 @@ export function RaidsTable({
             } as MRT_ColumnDef<RaidTarget>,
             {
               id: 'reminder',
-              header: 'Reminder', // Shortened text
-              size: 100,
+              header: 'Reminder',
+              Header: () =>
+                discordLinked ? (
+                  wrappedHeader('Reminder')
+                ) : (
+                  <Tooltip
+                    label={
+                      discordAuthenticated
+                        ? onOpenVerifyNationModal
+                          ? 'Link your PnW nation via Link nation in each row, the yellow banner, or the sidebar.'
+                          : 'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.'
+                        : 'Use Log in with Discord in each row, the sidebar, or the raids banner.'
+                    }
+                    multiline
+                    maw={280}
+                    withinPortal
+                  >
+                    <Box style={{ cursor: 'help' }}>{wrappedHeader('Reminder')}</Box>
+                  </Tooltip>
+                ),
+              size:
+                !discordLinked && discordAuthenticated && onOpenVerifyNationModal
+                  ? 128
+                  : !discordLinked
+                    ? 176
+                    : 120,
               enableSorting: false,
               enableColumnFilter: false,
+              mantineTableBodyCellProps: {
+                style: { verticalAlign: 'middle' },
+              },
               Cell: ({ row }: { row: MRT_Row<RaidTarget> }) => {
                 const nation = row.original;
-                if (nation.beigeTurns <= 0) return <Text size="sm" c="dimmed">Not beige</Text>;
+                if (nation.beigeTurns <= 0) {
+                  return (
+                    <ReminderColumnCell>
+                      <Text size="sm" c="dimmed" ta="center" style={{ width: '100%' }}>
+                        Not beige
+                      </Text>
+                    </ReminderColumnCell>
+                  );
+                }
+                if (!discordLinked) {
+                  if (!discordAuthenticated) {
+                    return (
+                      <ReminderColumnCell fullWidth>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          component="a"
+                          href={getDiscordLoginUrl('/raids')}
+                          leftSection={<IconBrandDiscord size={14} />}
+                          fullWidth
+                        >
+                          Log in with Discord
+                        </Button>
+                      </ReminderColumnCell>
+                    );
+                  }
+                  if (onOpenVerifyNationModal) {
+                    return (
+                      <ReminderColumnCell fullWidth>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          fullWidth
+                          onClick={() => onOpenVerifyNationModal()}
+                        >
+                          Link nation
+                        </Button>
+                      </ReminderColumnCell>
+                    );
+                  }
+                  const disabledHint =
+                    'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.';
+                  return (
+                    <ReminderColumnCell fullWidth>
+                      <Tooltip label={disabledHint} multiline maw={280} withinPortal>
+                        <Box component="span" w="100%" style={{ display: 'block' }}>
+                          <ActionIcon
+                            variant="light"
+                            color="gray"
+                            size="lg"
+                            radius="md"
+                            w="100%"
+                            disabled
+                            aria-label={disabledHint}
+                          >
+                            <IconBellOff size={18} />
+                          </ActionIcon>
+                        </Box>
+                      </Tooltip>
+                    </ReminderColumnCell>
+                  );
+                }
                 return (
-                  <Tooltip label={nation.hasReminderActive ? 'Remove reminder' : 'Set reminder'}>
-                    <ActionIcon
-                      variant={nation.hasReminderActive ? 'filled' : 'light'}
-                      color={nation.hasReminderActive ? 'green' : 'gray'}
-                      onClick={() => handleReminderToggle(row)}
-                      loading={addReminderMutation.isPending || removeReminderMutation.isPending}
-                    >
-                      {nation.hasReminderActive ? <IconBell size={16} /> : <IconBellOff size={16} />}
-                    </ActionIcon>
-                  </Tooltip>
+                  <ReminderColumnCell fullWidth>
+                    <Tooltip label={nation.hasReminderActive ? 'Remove reminder' : 'Set reminder'}>
+                      <Box component="span" w="100%" style={{ display: 'block' }}>
+                        <ActionIcon
+                          variant={nation.hasReminderActive ? 'filled' : 'light'}
+                          color={nation.hasReminderActive ? 'green' : 'gray'}
+                          size="lg"
+                          radius="md"
+                          w="100%"
+                          onClick={() => handleReminderToggle(row)}
+                          loading={addReminderMutation.isPending || removeReminderMutation.isPending}
+                        >
+                          {nation.hasReminderActive ? <IconBell size={20} /> : <IconBellOff size={20} />}
+                        </ActionIcon>
+                      </Box>
+                    </Tooltip>
+                  </ReminderColumnCell>
                 );
-              },
-            } as MRT_ColumnDef<RaidTarget>,
-          ]
-        : showBeige
-        ? [
-            {
-              accessorKey: 'beigeTurns',
-              header: 'Beige Turns',
-              Header: () => wrappedHeader('Beige Turns'),
-              size: 120,
-              filterFn: beigeFilter,
-              filterVariant: 'select',
-              mantineFilterSelectProps: {
-                data: [
-                  { value: 'only', label: 'Only beige' },
-                  { value: 'hide', label: 'Hide beige' },
-                ],
-                clearable: true,
               },
             } as MRT_ColumnDef<RaidTarget>,
           ]
@@ -534,9 +651,14 @@ export function RaidsTable({
       },
       {
         accessorKey: 'updatedAt',
-        header: 'Nation Updated',
-        Header: () => headerWithTooltip('Nation Updated', 'How long since Autolycus last updated information for this nation.'),
+        header: 'Data Age',
+        Header: () =>
+          headerWithTooltip(
+            'Data Age',
+            'How old the cached nation data is (when Autolycus last refreshed it).',
+          ),
         size: 165,
+        enableColumnFilter: false,
         mantineTableBodyCellProps: { align: 'center' },
         Cell: ({ cell }) => {
           const ts = cell.getValue<number | null | undefined>();
@@ -704,7 +826,19 @@ export function RaidsTable({
       },
 
     ],
-    [showBeige, discordLinked, handleReminderToggle, addReminderMutation.isPending, removeReminderMutation.isPending, uniqueAlliances, uniquePositions, uniqueColors, cityRange]
+    [
+      showBeige,
+      discordLinked,
+      discordAuthenticated,
+      onOpenVerifyNationModal,
+      handleReminderToggle,
+      addReminderMutation.isPending,
+      removeReminderMutation.isPending,
+      uniqueAlliances,
+      uniquePositions,
+      uniqueColors,
+      cityRange,
+    ]
   );
 
   const table = useMantineReactTable({
@@ -835,31 +969,69 @@ export function RaidsTable({
           >
             Declare war
           </Menu.Item>
+          <Menu.Item
+            leftSection={<IconExternalLink size={16} />}
+            component="a"
+            href={internalNavPath('/reminders', location.search)}
+          >
+            Manage reminders
+          </Menu.Item>
           <Menu.Divider />
           <Menu.Item
             leftSection={
               contextMenu?.nation.hasReminderActive ? <IconBell size={16} /> : <IconBellOff size={16} />
             }
-            disabled={!contextMenu || !discordLinked || contextMenu.nation.beigeTurns <= 0}
+            disabled={(() => {
+              if (!contextMenu || contextMenu.nation.beigeTurns <= 0) return true;
+              if (discordLinked) return false;
+              if (discordAuthenticated && onOpenVerifyNationModal) return false;
+              return true;
+            })()}
             onClick={() => {
               if (!contextMenu) return;
-              toggleReminderForNation(contextMenu.nation);
+              const nation = contextMenu.nation;
+              if (nation.beigeTurns <= 0) return;
+              if (!discordLinked && discordAuthenticated && onOpenVerifyNationModal) {
+                setContextMenu(null);
+                onOpenVerifyNationModal();
+                return;
+              }
+              if (discordLinked) toggleReminderForNation(nation);
             }}
           >
-            {contextMenu?.nation.hasReminderActive ? 'Remove beige reminder' : 'Add beige reminder'}
+            {!discordLinked &&
+            discordAuthenticated &&
+            onOpenVerifyNationModal &&
+            contextMenu &&
+            contextMenu.nation.beigeTurns > 0
+              ? 'Link nation to set reminders'
+              : contextMenu?.nation.hasReminderActive
+                ? 'Remove beige reminder'
+                : 'Add beige reminder'}
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>
       <MantineReactTable table={table} />
       {discordAuthenticated && !discordLinked && (
-        <Alert icon={<IconInfoCircle size={16} />} title="Reminder Setup Needed" color="yellow" variant="light">
-          Your Discord web session is active, but your Discord account is not linked to a nation profile yet.
-          Run <strong>/verify</strong> in the Discord bot to link your Discord and PnW accounts, then refresh this page to enable beige reminders.
+        <Alert icon={<IconInfoCircle size={16} />} title="Reminder setup" color="yellow" variant="light">
+          <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
+            <Text size="sm">
+              Link your Politics & War nation in <strong>Verify Nation</strong> (same as the yellow banner above
+              {onOpenVerifyNationModal ? ' or the Link nation buttons in the Reminder column' : ''}) to enable beige
+              reminders. You can also use <strong>/verify</strong> in the Discord bot.
+            </Text>
+            {onOpenVerifyNationModal ? (
+              <Button size="xs" variant="default" onClick={() => onOpenVerifyNationModal()}>
+                Verify Nation
+              </Button>
+            ) : null}
+          </Group>
         </Alert>
       )}
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
         Hide or show columns, reorder them and filter columns by using the controls in the top-right of the table.
         Right-click any row to open a context menu with quick links to the nation page, alliance page, declare war page, or to set a beige reminder.
+        Use Manage reminders for timing offsets and bulk cleanup.
       </Alert>
     </Stack>
   );

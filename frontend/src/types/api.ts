@@ -76,13 +76,40 @@ export interface RaidsResponse {
 
 export interface ReminderRequest {
   nationId: number;
-  beigeTurns?: number;
 }
 
 export interface ReminderResponse {
   success: boolean;
   message: string;
   nationId: number;
+  beigeAlerts?: string[];
+  beigeAlertConfig?: number[];
+}
+
+export interface ReminderNation {
+  nationId: number;
+  nationName: string;
+  leaderName: string;
+  beigeTurns: number;
+  vacationModeTurns: number;
+}
+
+export interface RemindersResponse {
+  success: boolean;
+  reminders: ReminderNation[];
+  beigeAlerts: string[];
+  beigeAlertConfig: number[];
+}
+
+export interface ReminderConfigRequest {
+  beigeAlertConfig: number[];
+}
+
+export interface ReminderConfigResponse {
+  success: boolean;
+  message: string;
+  beigeAlerts: string[];
+  beigeAlertConfig: number[];
 }
 
 export interface VerifyLinkRequest {

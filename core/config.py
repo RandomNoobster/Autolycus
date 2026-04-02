@@ -5,7 +5,18 @@ This module is intentionally outside `api/` so domain/infrastructure layers
 can access environment-backed configuration without importing delivery code.
 """
 import os
+from datetime import timedelta
 from typing import Optional
+
+
+def _int_env(name: str, default: int, *, min_v: int = 1, max_v: int = 400) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return max(min_v, min(int(str(raw).strip(), 10), max_v))
+    except ValueError:
+        return default
 
 # Public URLs for Discord bot links and bot -> API HTTP calls.
 # No trailing slash. AUTOLYCUS_API_BASE_URL is origin only (not .../api); callers append /api/...
@@ -25,8 +36,18 @@ class Config:
     DEBUG: bool = False
     TESTING: bool = False
 
-    # Token settings
-    TOKEN_MAX_AGE: int = 3600 * 24 * 7  # 7 days in seconds
+    # Discord OAuth: how long the signed session cookie stays valid (browser Max-Age).
+    # Set session.permanent in the OAuth callback so Flask applies this reliably.
+    SESSION_LIFETIME_DAYS: int = _int_env("SESSION_LIFETIME_DAYS", 90, min_v=1, max_v=400)
+    PERMANENT_SESSION_LIFETIME: timedelta = timedelta(days=SESSION_LIFETIME_DAYS)
+
+    # Token settings (signed links / Bearer tokens from the bot — separate from OAuth cookie)
+    TOKEN_MAX_AGE: int = _int_env(
+        "TOKEN_MAX_AGE_SEC",
+        3600 * 24 * 7,
+        min_v=60,
+        max_v=3600 * 24 * 400,
+    )
     TOKEN_SALT: str = "autolycus-ephemeral-link"
     AUTH_TOKEN_API_KEY: str = os.getenv("AUTH_TOKEN_API_KEY", "")
     DISCORD_BOT_API_KEY: str = os.getenv("DISCORD_BOT_API_KEY", "")

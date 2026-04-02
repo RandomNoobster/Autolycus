@@ -220,6 +220,7 @@ def discord_oauth_callback() -> Any:
         session["discord_avatar"] = user.get("avatar")
         session["discord_avatar_url"] = _build_discord_avatar_url(user)
         session["discord_authenticated_at"] = int(time.time())
+        session.permanent = True
         session.pop("oauth_state", None)
         session.pop("oauth_redirect", None)
         return redirect(str(redirect_target), code=302)

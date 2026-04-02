@@ -936,7 +936,7 @@ class TargetFinding(commands.Cog):
                     await ctx.respond(content=f"You already have a beige reminder for this nation!")
                     return
 
-            await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$push": {"beige_alerts": reminder}})
+            await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$addToSet": {"beige_alerts": reminder}})
             await ctx.respond(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
 
         except Exception as e:

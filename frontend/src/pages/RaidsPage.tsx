@@ -1164,6 +1164,7 @@ export function RaidsPage() {
               showBeige={showBeige}
               discordAuthenticated={discordAuthenticated}
               discordLinked={discordLinked}
+              onOpenVerifyNationModal={() => setVerifyModalOpen(true)}
               initialSorting={initialSorting}
               columnVisibility={columnVisibility}
               columnOrder={columnOrder}

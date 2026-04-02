@@ -2,11 +2,14 @@
  * Raids API Functions
  */
 
-import { apiGet, apiPost, apiDelete } from './client';
+import { apiGet, apiPost, apiDelete, apiPut } from './client';
 import type {
   RaidsResponse,
   ReminderRequest,
   ReminderResponse,
+  RemindersResponse,
+  ReminderConfigRequest,
+  ReminderConfigResponse,
 } from '@/types';
 
 /**
@@ -78,6 +81,16 @@ export function removeReminder(
   nationId: number
 ): Promise<ReminderResponse> {
   return apiDelete<ReminderResponse>(`/api/raids/reminders/${nationId}`);
+}
+
+export function fetchReminders(): Promise<RemindersResponse> {
+  return apiGet<RemindersResponse>('/api/raids/reminders');
+}
+
+export function updateReminderConfig(
+  data: ReminderConfigRequest
+): Promise<ReminderConfigResponse> {
+  return apiPut<ReminderConfigResponse, ReminderConfigRequest>('/api/raids/reminders/config', data);
 }
 
 /**
