@@ -155,6 +155,23 @@ sudo usermod -aG docker $USER
 
 Log out and back in to refresh group membership.
 
+Install Git LFS (required for `data/city_builds.db`):
+
+```
+sudo dnf -y install git-lfs
+git lfs install
+```
+
+If `git: 'lfs' is not a git command` appears, enable EPEL and retry:
+
+```
+sudo dnf -y install oracle-epel-release-el8 || sudo dnf -y install oracle-epel-release-el9
+sudo dnf config-manager --set-enabled ol8_developer_EPEL || sudo dnf config-manager --set-enabled ol9_developer_EPEL
+sudo dnf makecache
+sudo dnf -y install git-lfs
+git lfs install
+```
+
 ### 2) Clone the repository
 
 These systemd files assume the repo lives at `/opt/autolycus`.
@@ -164,6 +181,12 @@ sudo mkdir -p /opt/autolycus
 sudo chown $USER:$USER /opt/autolycus
 git clone <your-fork-url> /opt/autolycus
 cd /opt/autolycus
+```
+
+Fetch LFS-tracked files after cloning:
+
+```
+git lfs pull --include "data/city_builds.db"
 ```
 
 If you choose a different path, update the `WorkingDirectory` and `ExecStart`
@@ -286,6 +309,18 @@ sudo firewall-cmd --reload
 When running for the first time a database file called `nations.db` will be created in `./data`. After running for ~30 minutes the bot should have updated the database with nation details for every nation. Until this happens, some functions may not work properly.
 
 Docker uses the host `./data` folder as a bind mount. Ensure `./data/city_builds.db` exists on the host if you want builds to work immediately.
+
+`city_builds.db` is Git LFS-tracked. If LFS is not installed/pulled on the host,
+the file may be a text pointer instead of a SQLite database. In that case, builds
+routes can fail with `sqlite3.DatabaseError: file is not a database`.
+
+If this happens:
+
+```
+git lfs install
+git lfs pull --include "data/city_builds.db"
+docker compose up -d --build
+```
 
 Common tasks:
 
