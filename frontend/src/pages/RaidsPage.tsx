@@ -23,6 +23,7 @@ import {
   Alert,
   Loader,
   Skeleton,
+  TextInput,
 } from '@mantine/core';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -45,6 +46,23 @@ import {
 import { RaidsTable } from '@/components/raids';
 import { ErrorState, NationIdField, VerifyNationModal } from '@/components/common';
 import type { ApiError } from '@/types';
+import {
+  parseNumericValue,
+  positionsArrayKey,
+  defSlotsFilterCompareKey,
+  classifyAlliancePositionFilter,
+  classifyInactiveColumnValue,
+  classifyLootColumnValue,
+} from '@/lib/raidFilterParsing';
+import type { RaidsDraftFilters } from '@/lib/raidsDraftState';
+import {
+  DEFAULT_RAIDS_DRAFT_FILTERS,
+  buildRaidsDraftFromSearchParams,
+  migrateLegacyRaidsDraftBlob,
+  migrateStoredAlliance,
+  effectiveInactiveMinString,
+  effectiveLootMinNumber,
+} from '@/lib/raidsDraftState';
 
 type TableSettings = {
   columnVisibility: MRT_VisibilityState;
@@ -62,6 +80,8 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
     alliancePosition: true,
     numCities: true,
     color: true,
+    beigeTurns: true,
+    reminder: true,
     nationLoot: true,
     daysInactive: true,
     updatedAt: true,
@@ -90,6 +110,8 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
     'alliancePosition',
     'numCities',
     'color',
+    'beigeTurns',
+    'reminder',
     'nationLoot',
     'daysInactive',
     'updatedAt',
@@ -154,14 +176,20 @@ function parseAlliancesFromSearchParams(sp: URLSearchParams): string[] {
   return [...new Set(raw)];
 }
 
-function migrateStoredAlliance(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((s) => String(s).trim()).filter(Boolean);
-  }
-  if (typeof value === 'string' && value.trim()) return [value.trim()];
-  return [];
-}
-
+const RAID_FILTER_URL_KEYS = [
+  'alliance',
+  'beige',
+  'maxWars',
+  'inactiveMinDays',
+  'scope',
+  'positions',
+  'minBeigeLoot',
+  'performance',
+  'scoreMode',
+  'yourScore',
+  'minScore',
+  'maxScore',
+] as const;
 
 export function RaidsPage() {
   const { initialColumnFilters, initialSorting } = useUrlParams();
@@ -215,35 +243,37 @@ export function RaidsPage() {
     return val === 'true' || val === '1';
   };
 
-  // Active filters from URL (used for API call)
-  const activeFilters = {
-    alliance: parseAlliancesFromSearchParams(searchParams),
-    beige: parseBoolean('beige'),
-    maxWars: parseNumber('maxWars'),
-    inactiveMinDays: parseNumber('inactiveMinDays'),
-    scope: (searchParams.get('scope') as 'all' | 'apps_or_none' | 'no_alliance' | null) || undefined,
-    minBeigeLoot: parseNumber('minBeigeLoot'),
-    performance: parseBoolean('performance'),
-    scoreMode: searchParams.get('scoreMode') || 'custom',
-    yourScore: parseNumber('yourScore'),
-    minScore: parseNumber('minScore'),
-    maxScore: parseNumber('maxScore'),
-  };
+  // Active filters from URL (drives filteredTargets; kept in sync with draft via effect below)
+  const activeFilters = useMemo(() => {
+    const positionsRaw = searchParams.get('positions');
+    const positionFilter =
+      positionsRaw && positionsRaw.trim()
+        ? positionsRaw
+            .split(',')
+            .map((s) => decodeURIComponent(s.trim()))
+            .filter(Boolean)
+        : [];
+    const maxWarsRaw = parseNumber('maxWars');
+    return {
+      alliance: parseAlliancesFromSearchParams(searchParams),
+      beige: parseBoolean('beige'),
+      // 3 in the URL is legacy "any" (same as omitting maxWars); draft maps it to 'all'.
+      maxWars: maxWarsRaw === 3 ? undefined : maxWarsRaw,
+      inactiveMinDays: parseNumber('inactiveMinDays'),
+      scope: (searchParams.get('scope') as 'all' | 'apps_or_none' | 'no_alliance' | null) || undefined,
+      positionFilter: positionFilter.length > 0 ? positionFilter : undefined,
+      minBeigeLoot: parseNumber('minBeigeLoot'),
+      performance: parseBoolean('performance'),
+      scoreMode: searchParams.get('scoreMode') || 'custom',
+      yourScore: parseNumber('yourScore'),
+      minScore: parseNumber('minScore'),
+      maxScore: parseNumber('maxScore'),
+    };
+  }, [searchParams]);
 
-  // Local draft state for filters (before submit)
-  const [draftFilters, setDraftFilters] = useState({
-    alliance: parseAlliancesFromSearchParams(searchParams),
-    beige: activeFilters.beige === true ? 'only' : activeFilters.beige === false ? 'hide' : 'all',
-    maxWars: activeFilters.maxWars?.toString() || 'all',
-    inactiveMinDays: activeFilters.inactiveMinDays?.toString() || 'none',
-    scope: activeFilters.scope || 'all',
-    minBeigeLoot: activeFilters.minBeigeLoot?.toString() || '0',
-    performance: activeFilters.performance ?? false,
-    scoreMode: activeFilters.scoreMode || (savedNationId ? 'yours' : 'custom'),
-    yourScore: activeFilters.yourScore?.toString() || '',
-    minScore: activeFilters.minScore?.toString() || '',
-    maxScore: activeFilters.maxScore?.toString() || '',
-  });
+  const [draftFilters, setDraftFilters] = useState<RaidsDraftFilters>(() =>
+    buildRaidsDraftFromSearchParams(searchParams, savedNationId, '')
+  );
 
   const {
     columnVisibility,
@@ -262,19 +292,6 @@ export function RaidsPage() {
   const urlFiltersAppliedRef = useRef(false);
   const filtersRestoredRef = useRef(false);
   const FILTER_STORAGE_KEY = 'autolycus-raids-filters-v1';
-  const FILTER_QUERY_KEYS = [
-    'alliance',
-    'beige',
-    'maxWars',
-    'inactiveMinDays',
-    'scope',
-    'minBeigeLoot',
-    'performance',
-    'scoreMode',
-    'yourScore',
-    'minScore',
-    'maxScore',
-  ];
 
   // Fetch raids data - must be before any conditional returns
   const {
@@ -314,9 +331,32 @@ export function RaidsPage() {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }, [data?.targets, draftFilters.alliance]);
 
+  const positionFilterOptions = useMemo(() => {
+    const positions = new Set<string>();
+    for (const t of data?.targets ?? []) {
+      const p = t.alliancePosition;
+      if (p) positions.add(p);
+    }
+    for (const p of draftFilters.scopeCustomPositions) {
+      if (p) positions.add(p);
+    }
+    const posCol = columnFilters.find((f) => f.id === 'alliancePosition')?.value;
+    if (Array.isArray(posCol)) {
+      for (const p of posCol) {
+        if (p) positions.add(String(p));
+      }
+    }
+    return Array.from(positions)
+      .map((p) => ({
+        value: p,
+        label: p === 'NOALLIANCE' ? 'None' : p.toLowerCase(),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [data?.targets, draftFilters.scopeCustomPositions, columnFilters]);
+
   useEffect(() => {
     if (filtersRestoredRef.current) return;
-    const hasUrlFilters = FILTER_QUERY_KEYS.some((key) => {
+    const hasUrlFilters = RAID_FILTER_URL_KEYS.some((key) => {
       if (key === 'alliance') return searchParams.getAll('alliance').some(Boolean);
       return searchParams.get(key) !== null;
     });
@@ -331,30 +371,40 @@ export function RaidsPage() {
         filtersRestoredRef.current = true;
         return;
       }
-      const stored = JSON.parse(raw) as Partial<typeof draftFilters>;
-      if (stored.alliance !== undefined) {
-        (stored as { alliance: string[] }).alliance = migrateStoredAlliance(stored.alliance);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const migrated = migrateLegacyRaidsDraftBlob(parsed);
+      if (parsed.alliance !== undefined) {
+        migrated.alliance = migrateStoredAlliance(parsed.alliance);
       }
-      setDraftFilters((prev) => ({ ...prev, ...stored }));
+      const merged: RaidsDraftFilters = {
+        ...buildRaidsDraftFromSearchParams(searchParams, savedNationId, ''),
+        ...migrated,
+      };
+      setDraftFilters(merged);
 
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
-        FILTER_QUERY_KEYS.forEach((key) => next.delete(key));
-        const alliances = stored.alliance !== undefined ? migrateStoredAlliance(stored.alliance) : [];
-        for (const a of alliances) {
+        RAID_FILTER_URL_KEYS.forEach((key) => next.delete(key));
+        for (const a of merged.alliance) {
           if (a.trim()) next.append('alliance', a.trim());
         }
-        if (stored.beige === 'only') next.set('beige', 'true');
-        else if (stored.beige === 'hide') next.set('beige', 'false');
-        if (stored.maxWars && stored.maxWars !== 'all') next.set('maxWars', stored.maxWars);
-        if (stored.inactiveMinDays && stored.inactiveMinDays !== 'none') next.set('inactiveMinDays', stored.inactiveMinDays);
-        if (stored.scope && stored.scope !== 'all') next.set('scope', stored.scope);
-        if (stored.minBeigeLoot && stored.minBeigeLoot !== '0') next.set('minBeigeLoot', stored.minBeigeLoot);
-        if (stored.performance) next.set('performance', 'true');
-        if (stored.scoreMode) next.set('scoreMode', stored.scoreMode);
-        if (stored.yourScore) next.set('yourScore', stored.yourScore);
-        if (stored.minScore) next.set('minScore', stored.minScore);
-        if (stored.maxScore) next.set('maxScore', stored.maxScore);
+        if (merged.beige === 'only') next.set('beige', 'true');
+        else if (merged.beige === 'hide') next.set('beige', 'false');
+        if (merged.maxWars !== 'all') next.set('maxWars', merged.maxWars);
+        const inactiveMin = effectiveInactiveMinString(merged);
+        if (inactiveMin) next.set('inactiveMinDays', inactiveMin);
+        if (merged.scopeMode === 'custom' && merged.scopeCustomPositions.length > 0) {
+          next.set('positions', merged.scopeCustomPositions.map((p) => encodeURIComponent(p)).join(','));
+        } else if (merged.scopeMode === 'preset' && merged.scopePreset !== 'all') {
+          next.set('scope', merged.scopePreset);
+        }
+        const lootMin = effectiveLootMinNumber(merged);
+        if (lootMin !== undefined) next.set('minBeigeLoot', String(Math.round(lootMin)));
+        if (merged.performance) next.set('performance', 'true');
+        if (merged.scoreMode) next.set('scoreMode', merged.scoreMode);
+        if (merged.yourScore) next.set('yourScore', merged.yourScore);
+        if (merged.minScore) next.set('minScore', merged.minScore);
+        if (merged.maxScore) next.set('maxScore', merged.maxScore);
         return next;
       }, { replace: true });
     } catch (error) {
@@ -395,9 +445,7 @@ export function RaidsPage() {
     setColumnFilters((prev) => mergeColumnFilters(prev, initialColumnFilters));
   }, [initialColumnFilters]);
 
-  // Sync draft filters and URL params when column filters change from table interaction.
-  // Side effects are in a useEffect (not inside a setState updater) to avoid
-  // "Cannot update a component while rendering a different component" warnings.
+  // Sync draft filters when column filters change from table interaction (URL follows draft effect).
   useEffect(() => {
     const previousFilters = prevColumnFiltersRef.current;
     prevColumnFiltersRef.current = columnFilters;
@@ -410,71 +458,76 @@ export function RaidsPage() {
     const allianceCompareKey = (val: unknown) =>
       JSON.stringify([...allianceNamesFromColumnFilterValue(val)].sort());
 
-    const changedIds: string[] = [];
+    const minNumericColKey = (val: unknown) =>
+      val == null || val === '' ? '' : String(parseNumericValue(val));
+
     const getVal = (filters: MRT_ColumnFiltersState, id: string) =>
       filters.find((f) => f.id === id)?.value;
 
+    const mappedValuesEqual = (id: string, before: unknown, after: unknown): boolean => {
+      if (id === 'allianceName') return allianceCompareKey(before) === allianceCompareKey(after);
+      if (id === 'defSlots') return defSlotsFilterCompareKey(before) === defSlotsFilterCompareKey(after);
+      if (id === 'daysInactive') return minNumericColKey(before) === minNumericColKey(after);
+      if (id === 'nationLoot') return minNumericColKey(before) === minNumericColKey(after);
+      if (id === 'alliancePosition') {
+        return positionsArrayKey(
+          Array.isArray(before) ? (before as string[]) : []
+        ) === positionsArrayKey(Array.isArray(after) ? (after as string[]) : []);
+      }
+      if (id === 'beigeTurns') return String(before ?? '') === String(after ?? '');
+      return JSON.stringify(before) === JSON.stringify(after);
+    };
+
+    const changedIds: string[] = [];
     MAPPED_COLUMN_IDS.forEach((id) => {
       const before = getVal(previousFilters, id);
       const after = getVal(columnFilters, id);
-      if (id === 'allianceName') {
-        if (allianceCompareKey(before) === allianceCompareKey(after)) return;
-      } else if (JSON.stringify(before) === JSON.stringify(after)) {
-        return;
-      }
+      if (mappedValuesEqual(id, before, after)) return;
       changedIds.push(id);
     });
 
-    if (changedIds.length) {
+    if (!changedIds.length) return;
+
+    setDraftFilters((prev) => {
+      const next: RaidsDraftFilters = { ...prev };
       if (changedIds.includes('allianceName')) {
-        const names = allianceNamesFromColumnFilterValue(
+        next.alliance = allianceNamesFromColumnFilterValue(
           columnFilters.find((f) => f.id === 'allianceName')?.value
         );
-        setDraftFilters((prev) => ({ ...prev, alliance: names }));
       }
-
-      const resetDraft: Record<string, string | boolean> = {};
-      const paramsToClear: string[] = [];
-
-      changedIds.forEach((id) => {
-        if (id === 'allianceName') {
-          return;
-        }
-        if (id === 'beigeTurns') {
-          resetDraft.beige = 'all';
-          paramsToClear.push('beige');
-        }
-        if (id === 'defSlots') {
-          resetDraft.maxWars = 'all';
-          paramsToClear.push('maxWars');
-        }
-        if (id === 'daysInactive') {
-          resetDraft.inactiveMinDays = 'none';
-          paramsToClear.push('inactiveMinDays');
-        }
-        if (id === 'alliancePosition') {
-          resetDraft.scope = 'all';
-          paramsToClear.push('scope');
-        }
-        if (id === 'nationLoot') {
-          resetDraft.minBeigeLoot = '0';
-          paramsToClear.push('minBeigeLoot');
-        }
-      });
-
-      if (Object.keys(resetDraft).length) {
-        setDraftFilters((prevDraft) => ({ ...prevDraft, ...resetDraft }));
+      if (changedIds.includes('beigeTurns')) {
+        const v = getVal(columnFilters, 'beigeTurns');
+        next.beige = v === 'only' ? 'only' : v === 'hide' ? 'hide' : 'all';
       }
-
-      if (paramsToClear.length) {
-        setSearchParams((prevParams) => {
-          const nextParams = new URLSearchParams(prevParams);
-          paramsToClear.forEach((key) => nextParams.delete(key));
-          return nextParams;
-        }, { replace: true });
+      if (changedIds.includes('defSlots')) {
+        const s = defSlotsFilterCompareKey(getVal(columnFilters, 'defSlots'));
+        if (s === '' || s === '3') {
+          next.maxWars = 'all';
+        } else {
+          next.maxWars = s;
+        }
       }
-    }
-  }, [columnFilters, setSearchParams]);
+      if (changedIds.includes('daysInactive')) {
+        const c = classifyInactiveColumnValue(getVal(columnFilters, 'daysInactive'));
+        next.inactiveMode = c.inactiveMode;
+        next.inactivePreset = c.inactivePreset;
+        next.inactiveCustom = c.inactiveCustom;
+      }
+      if (changedIds.includes('nationLoot')) {
+        const c = classifyLootColumnValue(getVal(columnFilters, 'nationLoot'));
+        next.lootMode = c.lootMode;
+        next.lootPreset = c.lootPreset;
+        next.lootCustom = c.lootCustom;
+      }
+      if (changedIds.includes('alliancePosition')) {
+        const c = classifyAlliancePositionFilter(getVal(columnFilters, 'alliancePosition'));
+        next.scopeMode = c.scopeMode;
+        next.scopePreset = c.scopePreset;
+        next.scopeCustomPositions = c.scopeCustomPositions;
+      }
+      return next;
+    });
+  }, [columnFilters]);
 
   // Apply filters locally in the browser - must be before conditional returns
   const filteredTargets = useMemo(() => {
@@ -495,23 +548,27 @@ export function RaidsPage() {
       filtered = filtered.filter(nation => nation.beigeTurns <= 0);
     }
 
-    // Max wars filter (using defSlots as defensive wars)
+    // Max wars (defSlots = used defensive war count from API)
     if (activeFilters.maxWars !== undefined) {
-      filtered = filtered.filter(nation => (3 - nation.defSlots) <= activeFilters.maxWars!);
+      filtered = filtered.filter((nation) => nation.defSlots <= activeFilters.maxWars!);
     }
 
     // Inactivity filter
     if (activeFilters.inactiveMinDays !== undefined) {
-      filtered = filtered.filter(nation => nation.daysInactive >= activeFilters.inactiveMinDays!);
+      filtered = filtered.filter((nation) => nation.daysInactive >= activeFilters.inactiveMinDays!);
     }
 
-    // Scope filter
-    if (activeFilters.scope === 'apps_or_none') {
-      filtered = filtered.filter(nation => 
-        nation.alliancePosition === 'NOALLIANCE' || nation.alliancePosition === 'APPLICANT'
+    // Alliance position: custom multi-select from URL `positions` takes precedence over preset `scope`
+    if (activeFilters.positionFilter?.length) {
+      const allow = new Set(activeFilters.positionFilter);
+      filtered = filtered.filter((nation) => allow.has(nation.alliancePosition));
+    } else if (activeFilters.scope === 'apps_or_none') {
+      filtered = filtered.filter(
+        (nation) =>
+          nation.alliancePosition === 'NOALLIANCE' || nation.alliancePosition === 'APPLICANT'
       );
     } else if (activeFilters.scope === 'no_alliance') {
-      filtered = filtered.filter(nation => nation.allianceId === '0');
+      filtered = filtered.filter((nation) => nation.allianceId === '0');
     }
 
     // Min beige loot filter (using nationLoot)
@@ -552,25 +609,41 @@ export function RaidsPage() {
     if (draftFilters.alliance.length > 0) {
       filters.push({ id: 'allianceName', value: draftFilters.alliance });
     }
-    if (data?.showBeige && (draftFilters.beige === 'only' || draftFilters.beige === 'hide')) {
+    if (draftFilters.beige === 'only' || draftFilters.beige === 'hide') {
       filters.push({ id: 'beigeTurns', value: draftFilters.beige });
     }
-    if (draftFilters.maxWars !== 'all') {
-      filters.push({ id: 'defSlots', value: draftFilters.maxWars });
+    filters.push({
+      id: 'defSlots',
+      value: draftFilters.maxWars === 'all' ? '3' : draftFilters.maxWars,
+    });
+    const inactiveMin = effectiveInactiveMinString(draftFilters);
+    filters.push({
+      id: 'daysInactive',
+      value: inactiveMin ?? '',
+    });
+    if (draftFilters.scopeMode === 'custom' && draftFilters.scopeCustomPositions.length > 0) {
+      filters.push({ id: 'alliancePosition', value: [...draftFilters.scopeCustomPositions] });
+    } else if (draftFilters.scopeMode === 'preset') {
+      if (draftFilters.scopePreset === 'apps_or_none') {
+        filters.push({ id: 'alliancePosition', value: ['APPLICANT', 'NOALLIANCE'] });
+      } else if (draftFilters.scopePreset === 'no_alliance') {
+        filters.push({ id: 'alliancePosition', value: ['NOALLIANCE'] });
+      }
     }
-    if (draftFilters.inactiveMinDays !== 'none') {
-      filters.push({ id: 'daysInactive', value: draftFilters.inactiveMinDays });
-    }
-    if (draftFilters.scope === 'apps_or_none') {
-      filters.push({ id: 'alliancePosition', value: ['APPLICANT', 'NOALLIANCE'] });
-    } else if (draftFilters.scope === 'no_alliance') {
-      filters.push({ id: 'alliancePosition', value: ['NOALLIANCE'] });
-    }
-    if (draftFilters.minBeigeLoot !== '0') {
-      filters.push({ id: 'nationLoot', value: draftFilters.minBeigeLoot });
+    const lootMinStr = (() => {
+      if (draftFilters.lootMode === 'preset' && draftFilters.lootPreset !== '0') {
+        return draftFilters.lootPreset;
+      }
+      if (draftFilters.lootMode === 'custom' && draftFilters.lootCustom.trim()) {
+        return draftFilters.lootCustom.trim();
+      }
+      return '';
+    })();
+    if (lootMinStr) {
+      filters.push({ id: 'nationLoot', value: lootMinStr });
     }
     return filters;
-  }, [draftFilters, data?.showBeige]);
+  }, [draftFilters]);
 
   const syncColumnFiltersFromDraft = useCallback(() => {
     const mapped = mappedColumnFiltersFromDraft();
@@ -586,24 +659,15 @@ export function RaidsPage() {
 
   const resetFilters = useCallback(() => {
     const nationScore = data?.attacker?.score?.toString() || '';
-    setDraftFilters({
-      alliance: [],
-      beige: 'all',
-      maxWars: 'all',
-      inactiveMinDays: 'none',
-      scope: 'all',
-      minBeigeLoot: '0',
-      performance: false,
-      scoreMode: appliedNationId ? 'yours' : 'custom',
-      yourScore: nationScore,
-      minScore: '',
-      maxScore: '',
-    });
+    setDraftFilters(
+      DEFAULT_RAIDS_DRAFT_FILTERS({
+        scoreMode: appliedNationId ? 'yours' : 'custom',
+        yourScore: nationScore,
+      })
+    );
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      ['alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'minBeigeLoot', 'performance', 'scoreMode', 'yourScore', 'minScore', 'maxScore'].forEach((k) =>
-        next.delete(k)
-      );
+      RAID_FILTER_URL_KEYS.forEach((k) => next.delete(k));
       return next;
     }, { replace: true });
     syncingFromFiltersRef.current = true;
@@ -628,10 +692,8 @@ export function RaidsPage() {
         maxScore: next.get('maxScore'),
       };
 
-      // Clear old filter params
-      FILTER_QUERY_KEYS.forEach(k => next.delete(k));
+      RAID_FILTER_URL_KEYS.forEach((k) => next.delete(k));
 
-      // Apply new filters
       for (const a of draftFilters.alliance) {
         if (a.trim()) next.append('alliance', a.trim());
       }
@@ -641,11 +703,20 @@ export function RaidsPage() {
 
       if (draftFilters.maxWars !== 'all') next.set('maxWars', draftFilters.maxWars);
 
-      if (draftFilters.inactiveMinDays !== 'none') next.set('inactiveMinDays', draftFilters.inactiveMinDays);
+      const inactiveMin = effectiveInactiveMinString(draftFilters);
+      if (inactiveMin) next.set('inactiveMinDays', inactiveMin);
 
-      if (draftFilters.scope !== 'all') next.set('scope', draftFilters.scope);
+      if (draftFilters.scopeMode === 'custom' && draftFilters.scopeCustomPositions.length > 0) {
+        next.set(
+          'positions',
+          draftFilters.scopeCustomPositions.map((p) => encodeURIComponent(p)).join(',')
+        );
+      } else if (draftFilters.scopeMode === 'preset' && draftFilters.scopePreset !== 'all') {
+        next.set('scope', draftFilters.scopePreset);
+      }
 
-      if (draftFilters.minBeigeLoot !== '0') next.set('minBeigeLoot', draftFilters.minBeigeLoot);
+      const lootNum = effectiveLootMinNumber(draftFilters);
+      if (lootNum !== undefined) next.set('minBeigeLoot', String(Math.round(lootNum)));
 
       if (draftFilters.performance) next.set('performance', 'true');
 
@@ -719,7 +790,6 @@ export function RaidsPage() {
   const isInitialLoading = isLoading && !data;
   const discordAuthenticated = data?.discordAuthenticated ?? false;
   const discordLinked = data?.discordLinked ?? false;
-  const showBeige = data?.showBeige ?? false;
 
   return (
     <Container size="xl" py="md">
@@ -803,7 +873,12 @@ export function RaidsPage() {
                         { value: 'hide', label: 'Hide beige nations' },
                       ]}
                       value={draftFilters.beige}
-                      onChange={(val) => setDraftFilters(prev => ({ ...prev, beige: val || 'all' }))}
+                      onChange={(val) =>
+                        setDraftFilters((prev) => ({
+                          ...prev,
+                          beige: (val || 'all') as RaidsDraftFilters['beige'],
+                        }))
+                      }
                     />
                   </Stack>
                 </Paper>
@@ -841,23 +916,76 @@ export function RaidsPage() {
                   <Stack gap={6}>
                     <Group gap="xs" justify="space-between">
                       <Text size="sm" fw={600}>Alliance Membership</Text>
-                      {draftFilters.scope !== 'all' && (
-                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, scope: 'all' }))}>
+                      {(draftFilters.scopeMode === 'custom'
+                        ? draftFilters.scopeCustomPositions.length > 0
+                        : draftFilters.scopePreset !== 'all') && (
+                        <Anchor
+                          size="xs"
+                          onClick={() =>
+                            setDraftFilters((prev) => ({
+                              ...prev,
+                              scopeMode: 'preset',
+                              scopePreset: 'all',
+                              scopeCustomPositions: [],
+                            }))
+                          }
+                        >
                           reset
                         </Anchor>
                       )}
                     </Group>
-                    <Text size="xs" c="dimmed">Limit results by applicant or unaffiliated status.</Text>
+                    <Text size="xs" c="dimmed">Presets match the table, or pick custom positions.</Text>
                     <Select
                       size="sm"
                       data={[
                         { value: 'all', label: 'All nations' },
                         { value: 'apps_or_none', label: 'Applicants + No alliance' },
                         { value: 'no_alliance', label: 'No alliance only' },
+                        { value: 'custom', label: 'Custom positions' },
                       ]}
-                      value={draftFilters.scope}
-                      onChange={(val) => setDraftFilters(prev => ({ ...prev, scope: (val || 'all') as 'all' | 'apps_or_none' | 'no_alliance' }))}
+                      value={
+                        draftFilters.scopeMode === 'custom' ? 'custom' : draftFilters.scopePreset
+                      }
+                      onChange={(val) => {
+                        if (!val || val === 'all') {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            scopeMode: 'preset',
+                            scopePreset: 'all',
+                            scopeCustomPositions: [],
+                          }));
+                        } else if (val === 'custom') {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            scopeMode: 'custom',
+                            scopePreset: 'all',
+                            scopeCustomPositions: prev.scopeCustomPositions,
+                          }));
+                        } else {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            scopeMode: 'preset',
+                            scopePreset: val as 'apps_or_none' | 'no_alliance',
+                            scopeCustomPositions: [],
+                          }));
+                        }
+                      }}
                     />
+                    {draftFilters.scopeMode === 'custom' && (
+                      <MultiSelect
+                        size="sm"
+                        placeholder="Positions (same as table column)"
+                        data={positionFilterOptions}
+                        value={draftFilters.scopeCustomPositions}
+                        onChange={(val) =>
+                          setDraftFilters((prev) => ({ ...prev, scopeCustomPositions: val }))
+                        }
+                        searchable
+                        clearable
+                        hidePickedOptions
+                        maxDropdownHeight={280}
+                      />
+                    )}
                   </Stack>
                 </Paper>
               </Grid.Col>
@@ -881,8 +1009,8 @@ export function RaidsPage() {
                         data={[
                           { value: 'all', label: 'Any' },
                           { value: '0', label: '0' },
-                          { value: '1', label: '≤1' },
-                          { value: '2', label: '≤2' },
+                          { value: '1', label: '1' },
+                          { value: '2', label: '2' },
                         ]}
                         value={draftFilters.maxWars}
                         onChange={(val) => setDraftFilters(prev => ({ ...prev, maxWars: val || 'all' }))}
@@ -900,32 +1028,76 @@ export function RaidsPage() {
                   <Stack gap={6}>
                     <Group gap="xs" justify="space-between">
                       <Text size="sm" fw={600}>Inactivity</Text>
-                      {draftFilters.inactiveMinDays !== 'none' && (
-                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, inactiveMinDays: 'none' }))}>
+                      {draftFilters.inactiveMode !== 'none' && (
+                        <Anchor
+                          size="xs"
+                          onClick={() =>
+                            setDraftFilters((prev) => ({
+                              ...prev,
+                              inactiveMode: 'none',
+                              inactivePreset: '3',
+                              inactiveCustom: '',
+                            }))
+                          }
+                        >
                           reset
                         </Anchor>
                       )}
                     </Group>
-                    <Text size="xs" c="dimmed">Pick a minimum days inactive window.</Text>
-                    <Group gap="xs" align="center" wrap="nowrap">
-                      <Select
+                    <Text size="xs" c="dimmed">Presets or a custom minimum (same as table column).</Text>
+                    <Select
+                      size="sm"
+                      data={[
+                        { value: 'none', label: 'No minimum' },
+                        { value: '3', label: '3+ days' },
+                        { value: '5', label: '5+ days' },
+                        { value: '7', label: '7+ days' },
+                        { value: '14', label: '14+ days' },
+                        { value: '30', label: '30+ days' },
+                        { value: 'custom', label: 'Custom min days' },
+                      ]}
+                      value={
+                        draftFilters.inactiveMode === 'custom'
+                          ? 'custom'
+                          : draftFilters.inactiveMode === 'none'
+                            ? 'none'
+                            : draftFilters.inactivePreset
+                      }
+                      onChange={(val) => {
+                        if (!val || val === 'none') {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            inactiveMode: 'none',
+                            inactivePreset: '3',
+                            inactiveCustom: '',
+                          }));
+                        } else if (val === 'custom') {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            inactiveMode: 'custom',
+                            inactivePreset: '3',
+                            inactiveCustom: prev.inactiveCustom || '',
+                          }));
+                        } else {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            inactiveMode: 'preset',
+                            inactivePreset: val,
+                            inactiveCustom: '',
+                          }));
+                        }
+                      }}
+                    />
+                    {draftFilters.inactiveMode === 'custom' && (
+                      <TextInput
                         size="sm"
-                        style={{ flex: 1 }}
-                        data={[
-                          { value: 'none', label: "Not" },
-                          { value: '3', label: '3+ days' },
-                          { value: '5', label: '5+ days' },
-                          { value: '7', label: '7+ days' },
-                          { value: '14', label: '14+ days' },
-                          { value: '30', label: '30+ days' },
-                        ]}
-                        value={draftFilters.inactiveMinDays}
-                        onChange={(val) => setDraftFilters(prev => ({ ...prev, inactiveMinDays: val || 'none' }))}
+                        placeholder="e.g. 10 or 10k"
+                        value={draftFilters.inactiveCustom}
+                        onChange={(e) =>
+                          setDraftFilters((prev) => ({ ...prev, inactiveCustom: e.currentTarget.value }))
+                        }
                       />
-                      <Text size="sm" c="dimmed">
-                        inactive
-                      </Text>
-                    </Group>
+                    )}
                   </Stack>
                 </Paper>
               </Grid.Col>
@@ -935,13 +1107,23 @@ export function RaidsPage() {
                   <Stack gap={6}>
                     <Group gap="xs" justify="space-between">
                       <Text size="sm" fw={600}>Min Previous Beige Loot</Text>
-                      {draftFilters.minBeigeLoot !== '0' && (
-                        <Anchor size="xs" onClick={() => setDraftFilters(prev => ({ ...prev, minBeigeLoot: '0' }))}>
+                      {draftFilters.lootMode !== 'none' && (
+                        <Anchor
+                          size="xs"
+                          onClick={() =>
+                            setDraftFilters((prev) => ({
+                              ...prev,
+                              lootMode: 'none',
+                              lootPreset: '0',
+                              lootCustom: '',
+                            }))
+                          }
+                        >
                           reset
                         </Anchor>
                       )}
                     </Group>
-                    <Text size="xs" c="dimmed">Require a minimum prior beige payout.</Text>
+                    <Text size="xs" c="dimmed">Presets or custom min (same parsing as table column).</Text>
                     <Select
                       size="sm"
                       data={[
@@ -949,10 +1131,50 @@ export function RaidsPage() {
                         { value: '5000000', label: '$5 million' },
                         { value: '10000000', label: '$10 million' },
                         { value: '20000000', label: '$20 million' },
+                        { value: 'custom', label: 'Custom minimum' },
                       ]}
-                      value={draftFilters.minBeigeLoot}
-                      onChange={(val) => setDraftFilters(prev => ({ ...prev, minBeigeLoot: val || '0' }))}
+                      value={
+                        draftFilters.lootMode === 'custom'
+                          ? 'custom'
+                          : draftFilters.lootMode === 'none'
+                            ? '0'
+                            : draftFilters.lootPreset
+                      }
+                      onChange={(val) => {
+                        if (!val || val === '0') {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            lootMode: 'none',
+                            lootPreset: '0',
+                            lootCustom: '',
+                          }));
+                        } else if (val === 'custom') {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            lootMode: 'custom',
+                            lootPreset: '0',
+                            lootCustom: prev.lootCustom || '',
+                          }));
+                        } else {
+                          setDraftFilters((prev) => ({
+                            ...prev,
+                            lootMode: 'preset',
+                            lootPreset: val,
+                            lootCustom: '',
+                          }));
+                        }
+                      }}
                     />
+                    {draftFilters.lootMode === 'custom' && (
+                      <TextInput
+                        size="sm"
+                        placeholder="e.g. 5m or 7500000"
+                        value={draftFilters.lootCustom}
+                        onChange={(e) =>
+                          setDraftFilters((prev) => ({ ...prev, lootCustom: e.currentTarget.value }))
+                        }
+                      />
+                    )}
                   </Stack>
                 </Paper>
               </Grid.Col>
@@ -1082,10 +1304,9 @@ export function RaidsPage() {
             variant="light"
           >
             <Text size="sm">
-              To set beige reminders, sign in on the website with Discord.
-              {' '}
-              <Text span component="a" href={getDiscordLoginUrl('/raids')} c="blue" fw={600}>
-                Login with Discord
+              To set beige reminders,{' '}
+              <Text span component="a" href={getDiscordLoginUrl('/raids')} c="blue.7" fw={600}>
+                log in with Discord
               </Text>
               {' '}
               to link your web session.
@@ -1161,7 +1382,7 @@ export function RaidsPage() {
             <RaidsTable
               data={filteredTargets}
               allianceSelectOptions={allianceFilterOptions}
-              showBeige={showBeige}
+              positionSelectOptions={positionFilterOptions}
               discordAuthenticated={discordAuthenticated}
               discordLinked={discordLinked}
               onOpenVerifyNationModal={() => setVerifyModalOpen(true)}

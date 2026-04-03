@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect, type ReactNode } from 'react';
+import { useMemo, useCallback, useState, useEffect, useRef, type ReactNode } from 'react';
 import {
   MantineReactTable,
   useMantineReactTable,
@@ -40,29 +40,7 @@ import type { RaidTarget } from '@/types';
 import { addReminder, removeReminder } from '@/api';
 import { getDiscordLoginUrl } from '@/api/auth';
 import { internalNavPath } from '@/lib/internalNavPath';
-
-// --- HELPER FUNCTIONS FOR FILTERING ---
-
-// Parse numeric values that might contain $, %, +, commas, and k/m/b suffix
-const parseNumericValue = (value: unknown): number => {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const s = value.trim().toLowerCase();
-    // Remove common formatting but keep potential k/m/b suffix
-    const cleaned = s.replace(/[,$%+\s]/g, '');
-    const match = cleaned.match(/^(-?\d*\.?\d+)([kmb])?$/i);
-    if (match) {
-      const base = parseFloat(match[1]);
-      const suf = (match[2] || '').toLowerCase();
-      const mult = suf === 'k' ? 1e3 : suf === 'm' ? 1e6 : suf === 'b' ? 1e9 : 1;
-      const num = base * mult;
-      return isNaN(num) ? 0 : num;
-    }
-    const parsed = parseFloat(cleaned.replace(/[^0-9.-]/g, ''));
-    return isNaN(parsed) ? 0 : parsed;
-  }
-  return 0;
-};
+import { parseNumericValue } from '@/lib/raidFilterParsing';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: 'auto',
@@ -140,17 +118,24 @@ const booleanFilter = (row: any, id: string, filterValue: any) => {
   return cellValue === filterBool;
 };
 
-// --- HELPER FOR WRAPPING HEADERS ---
-// This forces the header text to wrap and centers it, overriding default MRT styles.
-// We use a Box with fixed line-height to make multiline headers look good.
+// --- HEADER LABEL ---
+// Up to 2 lines, centered; when the title area shrinks (e.g. filter icon appears), overflow is hidden
+// with an ellipsis on the second line (see .raids-table thead rules for layout vs icons).
 const wrappedHeader = (text: string) => (
   <Box
     style={{
+      display: '-webkit-box',
+      WebkitBoxOrient: 'vertical',
+      WebkitLineClamp: 2,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
       whiteSpace: 'normal',
       wordWrap: 'break-word',
+      overflowWrap: 'break-word',
       textAlign: 'center',
-      lineHeight: '1.1',
+      lineHeight: 1.25,
       width: '100%',
+      minWidth: 0,
     }}
   >
     {text}
@@ -190,20 +175,42 @@ function ReminderColumnCell({ children, fullWidth = false }: { children: ReactNo
 
 // --- CUSTOM FILTER COMPONENTS ---
 
-// Filter component: Min only (for days inactive, income fields, days since war)
-const MinOnlyFilterInput = ({ column }: any) => {
-  const initial = String(column.getFilterValue() ?? '');
-  const [raw, setRaw] = useState<string>(initial);
+function columnFilterString(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  return String(value);
+}
+
+function numberInputValueFromFilterString(s: string): string | number {
+  if (s === '') return '';
+  const n = Number(s);
+  return Number.isFinite(n) ? n : s;
+}
+
+// Filter component: Min only (income, loot, days inactive, etc.)
+const MinOnlyFilterInput = ({ column, placeholder }: any) => {
+  const colStr = columnFilterString(column.getFilterValue());
+  const [raw, setRaw] = useState<string>(colStr);
   const [debounced] = useDebouncedValue(raw, 500);
+  const lastEmittedRef = useRef(colStr);
 
   useEffect(() => {
-    column.setFilterValue(debounced ?? '');
+    const next = debounced ?? '';
+    lastEmittedRef.current = next;
+    column.setFilterValue(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
 
+  // Sidebar / URL sync updates column state without remounting this cell — keep the input in sync.
+  useEffect(() => {
+    if (colStr !== lastEmittedRef.current) {
+      lastEmittedRef.current = colStr;
+      setRaw(colStr);
+    }
+  }, [colStr]);
+
   return (
     <TextInput
-      placeholder="Min (e.g. 10k, 2m)"
+      placeholder={placeholder ?? 'Min (e.g. 10k, 2m)'}
       value={raw}
       onChange={(e) => setRaw(e.currentTarget.value)}
       size="xs"
@@ -213,14 +220,24 @@ const MinOnlyFilterInput = ({ column }: any) => {
 
 // Generic Filter component: Max only (for military units)
 const MaxOnlyFilterInput = ({ column, placeholder }: any) => {
-  const initial = String(column.getFilterValue() ?? '');
-  const [raw, setRaw] = useState<string>(initial);
+  const colStr = columnFilterString(column.getFilterValue());
+  const [raw, setRaw] = useState<string>(colStr);
   const [debounced] = useDebouncedValue(raw, 500);
+  const lastEmittedRef = useRef(colStr);
 
   useEffect(() => {
-    column.setFilterValue(debounced ?? '');
+    const next = debounced ?? '';
+    lastEmittedRef.current = next;
+    column.setFilterValue(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
+
+  useEffect(() => {
+    if (colStr !== lastEmittedRef.current) {
+      lastEmittedRef.current = colStr;
+      setRaw(colStr);
+    }
+  }, [colStr]);
 
   return (
     <TextInput
@@ -232,42 +249,27 @@ const MaxOnlyFilterInput = ({ column, placeholder }: any) => {
   );
 };
 
-// Specialized Filter component: Max only with cap (for defensive slots up to 3)
-const DefSlotsMaxOnlyFilterInput = ({ column }: any) => {
-  const initial = String(column.getFilterValue() ?? '');
-  const [raw, setRaw] = useState<string>(initial);
-  const [debounced] = useDebouncedValue(raw, 400);
-
-  useEffect(() => {
-    const parsed = parseNumericValue(debounced);
-    const clamped = Math.min(Math.max(parsed, 0), 3);
-    column.setFilterValue(String(Number.isFinite(clamped) ? clamped : ''));
-    // reflect clamped value to input to avoid confusion
-    if (parsed !== clamped) setRaw(String(clamped));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
-
-  return (
-    <TextInput
-      placeholder="Max (0-3)"
-      value={raw}
-      onChange={(e) => setRaw(e.currentTarget.value)}
-      size="xs"
-    />
-  );
-};
-
-
 // Numeric-only Min filter (for Days Since War and Win% columns)
 const NumericMinOnlyFilterInput = ({ column, max }: any) => {
-  const initial = column.getFilterValue() ?? '';
-  const [localValue, setLocalValue] = useState<any>(initial);
+  const colStr = columnFilterString(column.getFilterValue());
+  const [localValue, setLocalValue] = useState<any>(() => numberInputValueFromFilterString(colStr));
   const [debounced] = useDebouncedValue(localValue, 400);
+  const lastEmittedRef = useRef(colStr);
 
   useEffect(() => {
+    const next =
+      debounced === '' || debounced === undefined || debounced === null ? '' : String(debounced);
+    lastEmittedRef.current = next;
     column.setFilterValue(debounced ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
+
+  useEffect(() => {
+    if (colStr !== lastEmittedRef.current) {
+      lastEmittedRef.current = colStr;
+      setLocalValue(numberInputValueFromFilterString(colStr));
+    }
+  }, [colStr]);
 
   return (
     <NumberInput
@@ -286,7 +288,8 @@ interface RaidsTableProps {
   data: RaidTarget[];
   /** Alliance names for the column multi-select (from parent: full target list + current picks). Keeps options when filtered rows are empty. */
   allianceSelectOptions?: string[];
-  showBeige: boolean;
+  /** Alliance positions for the column multi-select (from parent: unfiltered targets + picks). Keeps all roles visible while a position filter is active. */
+  positionSelectOptions?: { value: string; label: string }[];
   discordAuthenticated: boolean;
   discordLinked: boolean;
   /** Opens Verify Nation (link PnW account). Used when signed in with Discord but not linked. */
@@ -309,7 +312,7 @@ interface RaidsTableProps {
 export function RaidsTable({
   data,
   allianceSelectOptions,
-  showBeige,
+  positionSelectOptions,
   discordAuthenticated,
   discordLinked,
   onOpenVerifyNationModal,
@@ -393,13 +396,16 @@ export function RaidsTable({
   }, [data, allianceSelectOptions]);
 
   const uniquePositions = useMemo(() => {
-    const positions = new Set(data.map(d => d.alliancePosition).filter(p => p));
+    if (positionSelectOptions !== undefined && positionSelectOptions.length > 0) {
+      return [...positionSelectOptions].sort((a, b) => a.label.localeCompare(b.label));
+    }
+    const positions = new Set(data.map((d) => d.alliancePosition).filter(Boolean));
     const opts = Array.from(positions).map((p) => ({
       value: p as string,
       label: p === 'NOALLIANCE' ? 'None' : (p as string).toLowerCase(),
     }));
     return opts.sort((a, b) => a.label.localeCompare(b.label));
-  }, [data]);
+  }, [data, positionSelectOptions]);
 
   const uniqueColors = useMemo(() => {
     const colors = new Set(data.map(d => d.color));
@@ -461,6 +467,7 @@ export function RaidsTable({
         mantineFilterMultiSelectProps: {
           data: uniquePositions,
           clearable: true,
+          hidePickedOptions: false,
         },
         Cell: ({ cell }) => {
           const value = cell.getValue<string>();
@@ -494,147 +501,141 @@ export function RaidsTable({
           </Badge>
         ),
       },
-      ...(showBeige
-        ? [
-            {
-              accessorKey: 'beigeTurns',
-              header: 'Beige Turns',
-              Header: () => wrappedHeader('Beige Turns'),
-              size: 90,
-              filterFn: beigeFilter,
-              filterVariant: 'select',
-              mantineFilterSelectProps: {
-                data: [
-                  { value: 'only', label: 'Only beige' },
-                  { value: 'hide', label: 'Hide beige' },
-                ],
-                clearable: true,
-              },
-            } as MRT_ColumnDef<RaidTarget>,
-            {
-              id: 'reminder',
-              header: 'Reminder',
-              Header: () =>
-                discordLinked ? (
-                  wrappedHeader('Reminder')
-                ) : (
-                  <Tooltip
-                    label={
-                      discordAuthenticated
-                        ? onOpenVerifyNationModal
-                          ? 'Link your PnW nation via Link nation in each row, the yellow banner, or the sidebar.'
-                          : 'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.'
-                        : 'Use Log in with Discord in each row, the sidebar, or the raids banner.'
-                    }
-                    multiline
-                    maw={280}
-                    withinPortal
+      {
+        accessorKey: 'beigeTurns',
+        header: 'Beige Turns',
+        size: 90,
+        filterFn: beigeFilter,
+        filterVariant: 'select',
+        mantineFilterSelectProps: {
+          data: [
+            { value: 'only', label: 'Only beige' },
+            { value: 'hide', label: 'Hide beige' },
+          ],
+          clearable: true,
+        },
+      } as MRT_ColumnDef<RaidTarget>,
+      {
+        id: 'reminder',
+        header: 'Reminder',
+        Header: () =>
+          discordLinked ? (
+            wrappedHeader('Reminder')
+          ) : (
+            <Tooltip
+              label={
+                discordAuthenticated
+                  ? onOpenVerifyNationModal
+                    ? 'Link your PnW nation via Link nation in each row, the yellow banner, or the sidebar.'
+                    : 'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.'
+                  : 'Use Log in with Discord in each row, the sidebar, or the raids banner.'
+              }
+              multiline
+              maw={280}
+              withinPortal
+            >
+              <Box style={{ cursor: 'help' }}>{wrappedHeader('Reminder')}</Box>
+            </Tooltip>
+          ),
+        size:
+          !discordLinked && discordAuthenticated && onOpenVerifyNationModal
+            ? 128
+            : !discordLinked
+              ? 176
+              : 120,
+        enableSorting: false,
+        enableColumnFilter: false,
+        mantineTableBodyCellProps: {
+          style: { verticalAlign: 'middle' },
+        },
+        Cell: ({ row }: { row: MRT_Row<RaidTarget> }) => {
+          const nation = row.original;
+          if (nation.beigeTurns <= 0) {
+            return (
+              <ReminderColumnCell>
+                <Text size="sm" c="dimmed" ta="center" style={{ width: '100%' }}>
+                  Not beige
+                </Text>
+              </ReminderColumnCell>
+            );
+          }
+          if (!discordLinked) {
+            if (!discordAuthenticated) {
+              return (
+                <ReminderColumnCell fullWidth>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    component="a"
+                    href={getDiscordLoginUrl('/raids')}
+                    leftSection={<IconBrandDiscord size={14} />}
+                    fullWidth
                   >
-                    <Box style={{ cursor: 'help' }}>{wrappedHeader('Reminder')}</Box>
-                  </Tooltip>
-                ),
-              size:
-                !discordLinked && discordAuthenticated && onOpenVerifyNationModal
-                  ? 128
-                  : !discordLinked
-                    ? 176
-                    : 120,
-              enableSorting: false,
-              enableColumnFilter: false,
-              mantineTableBodyCellProps: {
-                style: { verticalAlign: 'middle' },
-              },
-              Cell: ({ row }: { row: MRT_Row<RaidTarget> }) => {
-                const nation = row.original;
-                if (nation.beigeTurns <= 0) {
-                  return (
-                    <ReminderColumnCell>
-                      <Text size="sm" c="dimmed" ta="center" style={{ width: '100%' }}>
-                        Not beige
-                      </Text>
-                    </ReminderColumnCell>
-                  );
-                }
-                if (!discordLinked) {
-                  if (!discordAuthenticated) {
-                    return (
-                      <ReminderColumnCell fullWidth>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          component="a"
-                          href={getDiscordLoginUrl('/raids')}
-                          leftSection={<IconBrandDiscord size={14} />}
-                          fullWidth
-                        >
-                          Log in with Discord
-                        </Button>
-                      </ReminderColumnCell>
-                    );
-                  }
-                  if (onOpenVerifyNationModal) {
-                    return (
-                      <ReminderColumnCell fullWidth>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          fullWidth
-                          onClick={() => onOpenVerifyNationModal()}
-                        >
-                          Link nation
-                        </Button>
-                      </ReminderColumnCell>
-                    );
-                  }
-                  const disabledHint =
-                    'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.';
-                  return (
-                    <ReminderColumnCell fullWidth>
-                      <Tooltip label={disabledHint} multiline maw={280} withinPortal>
-                        <Box component="span" w="100%" style={{ display: 'block' }}>
-                          <ActionIcon
-                            variant="light"
-                            color="gray"
-                            size="lg"
-                            radius="md"
-                            w="100%"
-                            disabled
-                            aria-label={disabledHint}
-                          >
-                            <IconBellOff size={18} />
-                          </ActionIcon>
-                        </Box>
-                      </Tooltip>
-                    </ReminderColumnCell>
-                  );
-                }
-                return (
-                  <ReminderColumnCell fullWidth>
-                    <Tooltip label={nation.hasReminderActive ? 'Remove reminder' : 'Set reminder'}>
-                      <Box component="span" w="100%" style={{ display: 'block' }}>
-                        <ActionIcon
-                          variant={nation.hasReminderActive ? 'filled' : 'light'}
-                          color={nation.hasReminderActive ? 'green' : 'gray'}
-                          size="lg"
-                          radius="md"
-                          w="100%"
-                          onClick={() => handleReminderToggle(row)}
-                          loading={addReminderMutation.isPending || removeReminderMutation.isPending}
-                        >
-                          {nation.hasReminderActive ? <IconBell size={20} /> : <IconBellOff size={20} />}
-                        </ActionIcon>
-                      </Box>
-                    </Tooltip>
-                  </ReminderColumnCell>
-                );
-              },
-            } as MRT_ColumnDef<RaidTarget>,
-          ]
-        : []),
+                    Log in with Discord
+                  </Button>
+                </ReminderColumnCell>
+              );
+            }
+            if (onOpenVerifyNationModal) {
+              return (
+                <ReminderColumnCell fullWidth>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    fullWidth
+                    onClick={() => onOpenVerifyNationModal()}
+                  >
+                    Link nation
+                  </Button>
+                </ReminderColumnCell>
+              );
+            }
+            const disabledHint =
+              'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.';
+            return (
+              <ReminderColumnCell fullWidth>
+                <Tooltip label={disabledHint} multiline maw={280} withinPortal>
+                  <Box component="span" w="100%" style={{ display: 'block' }}>
+                    <ActionIcon
+                      variant="light"
+                      color="gray"
+                      size="lg"
+                      radius="md"
+                      w="100%"
+                      disabled
+                      aria-label={disabledHint}
+                    >
+                      <IconBellOff size={18} />
+                    </ActionIcon>
+                  </Box>
+                </Tooltip>
+              </ReminderColumnCell>
+            );
+          }
+          return (
+            <ReminderColumnCell fullWidth>
+              <Tooltip label={nation.hasReminderActive ? 'Remove reminder' : 'Set reminder'}>
+                <Box component="span" w="100%" style={{ display: 'block' }}>
+                  <ActionIcon
+                    variant={nation.hasReminderActive ? 'filled' : 'light'}
+                    color={nation.hasReminderActive ? 'green' : 'gray'}
+                    size="lg"
+                    radius="md"
+                    w="100%"
+                    onClick={() => handleReminderToggle(row)}
+                    loading={addReminderMutation.isPending || removeReminderMutation.isPending}
+                  >
+                    {nation.hasReminderActive ? <IconBell size={20} /> : <IconBellOff size={20} />}
+                  </ActionIcon>
+                </Box>
+              </Tooltip>
+            </ReminderColumnCell>
+          );
+        },
+      } as MRT_ColumnDef<RaidTarget>,
       {
         accessorKey: 'nationLoot',
         header: 'Beige Loot',
-        Header: () => wrappedHeader('Beige Loot'),
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: minOnlyFilter,
@@ -643,11 +644,12 @@ export function RaidsTable({
       {
         accessorKey: 'daysInactive',
         header: 'Days Inactive',
-        Header: () => wrappedHeader('Days Inactive'),
         size: 105,
         mantineTableBodyCellProps: { align: 'center' },
         filterFn: minOnlyFilter,
-        Filter: MinOnlyFilterInput,
+        Filter: (props) => (
+          <MinOnlyFilterInput {...props} placeholder="Min days (e.g. 7, 30)" />
+        ),
       },
       {
         accessorKey: 'updatedAt',
@@ -718,18 +720,27 @@ export function RaidsTable({
       },
       {
         accessorKey: 'defSlots',
-        header: 'Used Defensive Slots',
-        Header: () => wrappedHeader('Used Defensive Slots'),
-        size: 120,
+        header: 'Used Def. Slots',
+        size: 140,
         mantineTableBodyCellProps: { align: 'center' },
         filterFn: maxOnlyFilter,
-        Filter: DefSlotsMaxOnlyFilterInput,
+        filterVariant: 'select',
+        mantineFilterSelectProps: {
+          data: [
+            { value: '0', label: '0' },
+            { value: '1', label: '1' },
+            { value: '2', label: '2' },
+            { value: '3', label: '3' },
+          ],
+          placeholder: 'Max',
+          clearable: true,
+        },
       },
       {
         accessorKey: 'timeSinceWar',
         header: 'Days Since War',
-        Header: () => wrappedHeader('Days Since War'),
-        size: 90,
+        size: 120,
+        mantineTableBodyCellProps: { align: 'center' },
         filterFn: minOnlyFilter,
         Filter: NumericMinOnlyFilterInput,
       },
@@ -737,7 +748,7 @@ export function RaidsTable({
       {
         accessorKey: 'soldiers',
         header: 'Soldiers',
-        size: 105,
+        size: 110,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
         filterFn: maxOnlyFilter,
@@ -787,7 +798,6 @@ export function RaidsTable({
       {
         accessorKey: 'groundWin',
         header: 'Ground Win %',
-        Header: () => wrappedHeader('Ground Win %'),
         size: 105, // "Ground" needs ~50px + Icon ~20px + Padding
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
@@ -797,7 +807,6 @@ export function RaidsTable({
       {
         accessorKey: 'airWin',
         header: 'Air Win %',
-        Header: () => wrappedHeader('Air Win %'),
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
@@ -807,7 +816,6 @@ export function RaidsTable({
       {
         accessorKey: 'navalWin',
         header: 'Naval Win %',
-        Header: () => wrappedHeader('Naval Win %'),
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
@@ -817,7 +825,6 @@ export function RaidsTable({
       {
         accessorKey: 'totalWin',
         header: 'Total Win %',
-        Header: () => wrappedHeader('Total Win %'),
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => `${cell.getValue<number>()}%`,
@@ -827,7 +834,6 @@ export function RaidsTable({
 
     ],
     [
-      showBeige,
       discordLinked,
       discordAuthenticated,
       onOpenVerifyNationModal,
@@ -844,6 +850,12 @@ export function RaidsTable({
   const table = useMantineReactTable({
     columns,
     data,
+    defaultColumn: {
+      Header: ({ column }) => {
+        const h = column.columnDef.header;
+        return typeof h === 'string' ? wrappedHeader(h) : null;
+      },
+    },
     enableColumnResizing: true,
     enableColumnOrdering: true,
     enableColumnDragging: false,

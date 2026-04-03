@@ -493,7 +493,8 @@ def get_raids() -> tuple[Any, int]:
             },
             'targets': targets,
             'beigeAlerts': [str(x) for x in beige_alerts],
-            'showBeige': beige_only is not False,
+            # Column visibility: always show beige/reminder columns; beige query param only affects filtering.
+            'showBeige': True,
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
             'discordAuthenticated': user_id is not None,
             'discordLinked': discord_linked,

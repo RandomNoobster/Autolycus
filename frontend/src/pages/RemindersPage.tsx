@@ -268,7 +268,7 @@ function RemindersSignInPromo() {
               Continue with Discord
             </Button>
             <Text size="xs" c="dimmed">
-              We use Discord only to know which account owns your reminders — same login as raids.
+              We use Discord only to know which account owns your reminders.
             </Text>
           </Stack>
         </Stack>

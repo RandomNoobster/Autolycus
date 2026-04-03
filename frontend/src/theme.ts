@@ -26,6 +26,11 @@ export const theme = createTheme({
   },
   defaultRadius: 'md',
   components: {
+    Anchor: {
+      defaultProps: {
+        c: 'autolycusOrange.6',
+      },
+    },
     Table: {
       defaultProps: {
         striped: true,

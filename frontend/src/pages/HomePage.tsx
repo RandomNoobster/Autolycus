@@ -24,7 +24,7 @@ import {
   IconBell,
   IconArrowRight,
   IconBrandDiscord,
-  IconClock,
+  IconStar,
 } from '@tabler/icons-react';
 import { getDiscordLoginUrl } from '@/api/auth';
 import { useSidebarDiscordSession } from '@/hooks';
@@ -133,10 +133,10 @@ function HomeRemindersGuestCard() {
         <Stack px="lg" py="md" gap="md">
           <Group gap="sm" align="flex-start" wrap="nowrap">
             <ThemeIcon color="indigo" variant="light" size={26} radius="md" style={{ flexShrink: 0 }}>
-              <IconClock size={14} />
+              <IconStar size={14} />
             </ThemeIcon>
             <Text size="sm" style={{ flex: 1 }}>
-              Custom minute offsets before exit
+              Customize when they get sent and how many reminders you get
             </Text>
           </Group>
 
