@@ -5,7 +5,7 @@
  * Hidden on desktop where the sidebar handles navigation.
  */
 
-import { Group, Title, ActionIcon, useMantineColorScheme, Burger, Image } from '@mantine/core';
+import { Group, ActionIcon, useMantineColorScheme, Burger, Image, Box } from '@mantine/core';
 import { IconSun, IconMoon } from '@tabler/icons-react';
 
 interface AppHeaderProps {
@@ -15,19 +15,29 @@ interface AppHeaderProps {
 
 export function AppHeader({ mobileOpened, toggleMobile }: AppHeaderProps) {
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const isLightMode = colorScheme === 'light';
 
   return (
-    <Group h="100%" px="md" justify="space-between">
-      <Group gap="xs">
+    <Group h="100%" px="xs" justify="space-between" wrap="nowrap">
+      <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
         <Burger opened={mobileOpened} onClick={toggleMobile} size="sm" aria-label="Toggle navigation" />
-        <Image
-          src="/assets/icon.png"
-          alt="Autolycus"
-          w={28}
-          h={28}
-          fallbackSrc="/assets/icon.png"
-        />
-        <Title order={4}>Autolycus</Title>
+        <Box style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
+          <Image
+            src="/splash.webp"
+            alt="Autolycus"
+            h={36}
+            w="auto"
+            maw={180}
+            fit="contain"
+            fallbackSrc="/splash.webp"
+            style={{
+              objectPosition: 'left center',
+              filter: isLightMode
+                ? 'contrast(1.16) saturate(1.08) drop-shadow(0 1px 2px rgba(124, 45, 18, 0.35))'
+                : undefined,
+            }}
+          />
+        </Box>
       </Group>
 
       <ActionIcon

@@ -7,6 +7,7 @@ export {
 export { usePersistedAccessToken } from './usePersistedAccessToken';
 export {
   useSidebarDiscordSession,
+  readDiscordSessionHint,
   type SidebarDiscordSession,
 } from './useSidebarDiscordSession';
 export { useNationId } from './useNationId';

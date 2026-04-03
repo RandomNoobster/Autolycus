@@ -6,6 +6,30 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { getDiscordSession } from '@/api/auth';
 
+const DISCORD_SESSION_HINT_KEY = 'autolycus.discord_session_hint';
+
+/**
+ * Last resolved Discord session role for instant UI (e.g. home reminders promo)
+ * while /api/auth/me is still in flight. Not security-sensitive.
+ */
+export function readDiscordSessionHint(): 'guest' | 'signed_in' | null {
+  try {
+    const v = sessionStorage.getItem(DISCORD_SESSION_HINT_KEY);
+    if (v === 'guest' || v === 'signed_in') return v;
+  } catch {
+    /* private mode */
+  }
+  return null;
+}
+
+function persistDiscordSessionHint(value: 'guest' | 'signed_in') {
+  try {
+    sessionStorage.setItem(DISCORD_SESSION_HINT_KEY, value);
+  } catch {
+    /* private mode */
+  }
+}
+
 export type SidebarDiscordSession =
   | { status: 'loading' }
   | { status: 'guest' }
@@ -36,11 +60,13 @@ export function useSidebarDiscordSession(): SidebarDiscordSession {
         const v = await getDiscordSession();
         if (cancelled) return;
         if (!v.authenticated || !v.discord_user_id) {
+          persistDiscordSessionHint('guest');
           setState({ status: 'guest' });
           hasResolvedRef.current = true;
           return;
         }
         const ts = typeof v.authenticated_at === 'number' ? v.authenticated_at : Math.floor(Date.now() / 1000);
+        persistDiscordSessionHint('signed_in');
         setState({
           status: 'signed_in',
           discordUserId: v.discord_user_id,
@@ -57,6 +83,7 @@ export function useSidebarDiscordSession(): SidebarDiscordSession {
         hasResolvedRef.current = true;
       } catch {
         if (!cancelled) {
+          persistDiscordSessionHint('guest');
           setState({ status: 'guest' });
           hasResolvedRef.current = true;
         }

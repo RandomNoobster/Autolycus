@@ -27,7 +27,7 @@ import {
   IconStar,
 } from '@tabler/icons-react';
 import { getDiscordLoginUrl } from '@/api/auth';
-import { useSidebarDiscordSession } from '@/hooks';
+import { readDiscordSessionHint, useSidebarDiscordSession } from '@/hooks';
 import { internalNavPath } from '@/lib/internalNavPath';
 
 const features = [
@@ -115,15 +115,6 @@ function HomeRemindersGuestCard() {
                 </Title>
               </div>
             </Group>
-            <Image
-              src="/splash.webp"
-              alt=""
-              w={88}
-              h={52}
-              fit="contain"
-              visibleFrom="xs"
-              style={{ flexShrink: 0, opacity: isLight ? 0.92 : 0.85 }}
-            />
           </Group>
           <Text size="sm" c="dimmed" mt="xs">
             Get DM alerts before nations leave beige or vacation mode.
@@ -163,6 +154,9 @@ export function HomePage() {
   const { colorScheme } = useMantineColorScheme();
   const isLightMode = colorScheme === 'light';
   const discordSession = useSidebarDiscordSession();
+  const showRemindersGuestPromo =
+    discordSession.status === 'guest' ||
+    (discordSession.status === 'loading' && readDiscordSessionHint() !== 'signed_in');
 
   const handleNavigate = (path: string) => {
     navigate(internalNavPath(path, location.search));
@@ -202,7 +196,7 @@ export function HomePage() {
 
         <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="lg" w="100%">
           {features.map((feature) => {
-            if (feature.path === '/reminders' && discordSession.status === 'guest') {
+            if (feature.path === '/reminders' && showRemindersGuestPromo) {
               return <HomeRemindersGuestCard key={feature.path} />;
             }
 

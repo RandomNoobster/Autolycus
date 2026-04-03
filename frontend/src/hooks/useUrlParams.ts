@@ -19,7 +19,10 @@ interface UseUrlParamsReturn {
   // The authentication token from URL
   token: string | null;
 
-  // Initial column filters parsed from URL (for deep linking)
+  /** Column filters from non-reserved query params; updates when the URL changes. */
+  columnFiltersFromUrl: MRT_ColumnFiltersState;
+
+  // Same as columnFiltersFromUrl (legacy name)
   initialColumnFilters: MRT_ColumnFiltersState;
 
   // Initial sorting parsed from URL
@@ -44,7 +47,7 @@ interface UseUrlParamsReturn {
 const RESERVED_PARAMS = [
   'token', 'sort', 'sortDir', 'attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId',
   'scoreMode', 'yourScore', 'minScore', 'maxScore',
-  'alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'minBeigeLoot', 'performance',
+  'alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'positions', 'minBeigeLoot', 'performance',
   'code', 'auto', 'redirect',
 ];
 
@@ -124,13 +127,14 @@ export function useUrlParams(): UseUrlParamsReturn {
   // Extract token - always preserve this
   const token = useMemo(() => searchParams.get('token'), [searchParams]);
 
-  // Parse initial state from URL (memoized to prevent re-parsing)
-  const initialColumnFilters = useMemo(
+  const searchParamsKey = useMemo(() => searchParams.toString(), [searchParams]);
+
+  const columnFiltersFromUrl = useMemo(
     () => parseFiltersFromUrl(searchParams),
-    // Only compute on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [searchParams, searchParamsKey]
   );
+
+  const initialColumnFilters = columnFiltersFromUrl;
 
   const initialSorting = useMemo(
     () => parseSortingFromUrl(searchParams),
@@ -222,6 +226,7 @@ export function useUrlParams(): UseUrlParamsReturn {
 
   return {
     token,
+    columnFiltersFromUrl,
     initialColumnFilters,
     initialSorting,
     setColumnFilters,

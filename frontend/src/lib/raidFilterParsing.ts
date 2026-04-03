@@ -88,6 +88,13 @@ export function classifyInactiveColumnValue(value: unknown): {
   return { inactiveMode: 'custom', inactivePreset: '3', inactiveCustom: str };
 }
 
+/** True when the user typed a k/m/b scale suffix (so we keep their string for table + sidebar sync). */
+function lootInputUsesScaleSuffix(str: string): boolean {
+  const s = str.trim().toLowerCase().replace(/[,$%+\s]/g, '');
+  const match = s.match(/^(-?\d*\.?\d+)([kmb])?$/i);
+  return Boolean(match?.[2]);
+}
+
 export function classifyLootColumnValue(value: unknown): {
   lootMode: 'none' | 'preset' | 'custom';
   lootPreset: string;
@@ -101,10 +108,16 @@ export function classifyLootColumnValue(value: unknown): {
     return { lootMode: 'none', lootPreset: '0', lootCustom: '' };
   }
   const num = parseNumericValue(str);
-  for (const p of LOOT_PRESET_AMOUNTS) {
-    if (p === '0') continue;
-    if (Math.abs(num - Number(p)) < 1) {
-      return { lootMode: 'preset', lootPreset: p, lootCustom: '' };
+  const keepRawForSync = lootInputUsesScaleSuffix(str);
+
+  // Only map to dollar presets when the value wasn't entered with k/m/b shorthand.
+  // Otherwise "10m" would collapse to preset 10000000 and the table would show the long form.
+  if (!keepRawForSync) {
+    for (const p of LOOT_PRESET_AMOUNTS) {
+      if (p === '0') continue;
+      if (Math.abs(num - Number(p)) < 1) {
+        return { lootMode: 'preset', lootPreset: p, lootCustom: '' };
+      }
     }
   }
   if (num <= 0) {

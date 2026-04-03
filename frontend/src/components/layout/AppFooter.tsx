@@ -11,18 +11,12 @@ export function AppFooter() {
   ];
 
   return (
-    <Box
-      h="100%"
-      py={8}
-      px="md"
-      style={{}}
-    >
+    <Box h="100%" py={8} px={{ base: 'xs', sm: 'md' }}>
       <Box
+        mx={{ base: 'xs', sm: 'md' }}
+        mb={8}
         style={{
           borderTop: '1px solid var(--mantine-color-dark-4)',
-          marginLeft: 'var(--mantine-spacing-md)',
-          marginRight: 'var(--mantine-spacing-md)',
-          marginBottom: 8,
         }}
       />
       <Container size="xl" h="100%">

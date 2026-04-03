@@ -7,10 +7,10 @@ import {
   Card,
   Container,
   Group,
-  Image,
   List,
   Loader,
   NumberInput,
+  Paper,
   Stack,
   Table,
   Text,
@@ -22,7 +22,15 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { IconBell, IconBrandDiscord, IconClock, IconCloudOff, IconSword } from '@tabler/icons-react';
+import {
+  IconBell,
+  IconBrandDiscord,
+  IconClock,
+  IconCloudOff,
+  IconDeviceFloppy,
+  IconPlus,
+  IconSword,
+} from '@tabler/icons-react';
 
 import { addReminder, fetchReminders, removeReminder, updateReminderConfig } from '@/api';
 import { isBackendUnreachableError, toApiError } from '@/api/errors';
@@ -132,7 +140,7 @@ function RemindersApiUnavailable({
   onRetry: () => void;
 }) {
   return (
-    <Container size="md" py="xl">
+    <Container size="xl" py="xl">
       <Alert
         icon={<IconCloudOff size={22} />}
         title="API unavailable"
@@ -213,15 +221,6 @@ function RemindersSignInPromo() {
                   here or the raids table — same settings as the bot.
                 </Text>
               </Stack>
-              <Image
-                src="/splash.webp"
-                alt=""
-                w={120}
-                h={72}
-                fit="contain"
-                visibleFrom="sm"
-                style={{ flexShrink: 0, opacity: isLight ? 0.92 : 0.85 }}
-              />
             </Group>
           </Box>
 
@@ -327,7 +326,7 @@ export function RemindersPage() {
       setOffsetInput(formatOffsetConfig(ordered));
       notifications.show({
         title: 'Timing saved',
-        message: `Reminders will trigger ${ordered.join(', ')} minutes before beige/VM exit (largest offset = earliest heads-up).`,
+        message: `Reminders will trigger ${ordered.join(', ')} minutes before beige/VM exit.`,
         color: 'green',
       });
       await syncRaidsAndReminders();
@@ -356,7 +355,7 @@ export function RemindersPage() {
 
   if (remindersQuery.isLoading) {
     return (
-      <Container size="lg" py="md">
+      <Container size="xl" py="xl">
         <Group justify="center">
           <Loader />
         </Group>
@@ -378,8 +377,8 @@ export function RemindersPage() {
       );
     }
     return (
-      <Container size="lg" py="md">
-        <Alert icon={<IconBell size={20} />} title="Could not load reminders" color="orange" variant="light">
+      <Container size="xl" py="xl">
+        <Alert icon={<IconBell size={20} />} title="Could not load reminders" color="orange" variant="light" radius="md">
           <Stack gap="sm">
             <Text size="sm" c="dimmed">
               Something went wrong on our side or your session expired.
@@ -407,23 +406,30 @@ export function RemindersPage() {
   const reminders = remindersQuery.data?.reminders ?? [];
 
   return (
-    <Container size="lg" py="md">
-      <Stack gap="md">
-        <Group justify="space-between">
-          <Group gap="xs">
-            <IconBell size={20} />
-            <Title order={2}>Beige Reminders</Title>
-          </Group>
-          <Badge variant="light">{reminders.length} active</Badge>
+    <Container size="xl" py="xl">
+      <Stack gap="xl">
+        <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
+          <div>
+            <Title order={1}>Beige Reminders</Title>
+            <Text c="dimmed" mt="xs" maw={720}>
+              Discord DMs before targets leave beige or vacation mode. Set lead times below; manage nations here or from
+              the raid targets table.
+            </Text>
+          </div>
+          <Badge variant="light" size="lg">
+            {reminders.length} active
+          </Badge>
         </Group>
 
-        <Card withBorder>
-          <Stack gap="sm">
-            <Title order={4}>Timing</Title>
-            <Stack gap="xs">
-              <Text size="sm" c="dimmed">
+        <Paper p="lg" withBorder radius="md">
+          <Stack gap="lg">
+            <div>
+              <Title order={3}>Timing</Title>
+              <Text size="sm" c="dimmed" mt="xs">
                 For each nation on your active reminders list, you get Discord DMs at the times you set below.
               </Text>
+            </div>
+            <Stack gap="xs">
               <Text size="sm" c="dimmed">
                 You can enter a{' '}
                 <Text component="span" fw={600} c="var(--mantine-color-text)">
@@ -458,6 +464,7 @@ export function RemindersPage() {
             <Group>
               <Button
                 loading={updateConfigMutation.isPending}
+                leftSection={<IconDeviceFloppy size={18} stroke={1.5} />}
                 onClick={() => {
                   const parsed = parseOffsetList(offsetInput);
                   if (!parsed) {
@@ -478,69 +485,73 @@ export function RemindersPage() {
               </Text>
             </Group>
           </Stack>
-        </Card>
+        </Paper>
 
-        <Card withBorder>
-          <Stack gap="sm">
-            <Title order={4}>Add reminder</Title>
-            <Group align="end">
-              <NumberInput
-                label="Nation ID"
-                placeholder="123456"
-                hideControls
-                value={nationIdInput}
-                onChange={(v) => setNationIdInput(typeof v === 'number' ? v : '')}
-              />
-              <Button
-                loading={addMutation.isPending}
-                onClick={() => {
-                  if (!nationIdInput || nationIdInput <= 0) {
-                    notifications.show({ title: 'Invalid nation ID', message: 'Enter a valid numeric nation ID.', color: 'red' });
-                    return;
-                  }
-                  addMutation.mutate(Number(nationIdInput));
-                }}
-              >
-                Add
-              </Button>
-            </Group>
+        <Paper p="lg" withBorder radius="md">
+          <Stack gap="lg">
+            <Title order={3}>Add reminder</Title>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!nationIdInput || nationIdInput <= 0) {
+                  notifications.show({ title: 'Invalid nation ID', message: 'Enter a valid numeric nation ID.', color: 'red' });
+                  return;
+                }
+                addMutation.mutate(Number(nationIdInput));
+              }}
+            >
+              <Group align="end">
+                <NumberInput
+                  label="Nation ID"
+                  placeholder="123456"
+                  hideControls
+                  value={nationIdInput}
+                  onChange={(v) => setNationIdInput(typeof v === 'number' ? v : '')}
+                />
+                <Button type="submit" loading={addMutation.isPending} leftSection={<IconPlus size={18} stroke={1.5} />}>
+                  Add
+                </Button>
+              </Group>
+            </form>
           </Stack>
-        </Card>
+        </Paper>
 
-        <Card withBorder>
-          <Stack gap="sm">
-            <Title order={4}>Active reminders</Title>
+        <Paper p="lg" withBorder radius="md">
+          <Stack gap="lg">
+            <Title order={3}>Active reminders</Title>
             {reminders.length === 0 ? (
               <Text c="dimmed" size="sm">No active reminders yet. Add one above or from the raids page.</Text>
             ) : (
-              <Table striped highlightOnHover withTableBorder>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Nation</Table.Th>
-                    <Table.Th>Leader</Table.Th>
-                    <Table.Th>Beige turns</Table.Th>
-                    <Table.Th>VM turns</Table.Th>
-                    <Table.Th />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {reminders.map((reminder) => (
-                    <ReminderTableRow
-                      key={reminder.nationId}
-                      reminder={reminder}
-                      animateEnter={reminder.nationId === lastAddedNationId}
-                      removePending={removeMutation.isPending}
-                      onRemove={() => removeMutation.mutate(reminder.nationId)}
-                      onEnterAnimationEnd={() => {
-                        setLastAddedNationId((id) => (id === reminder.nationId ? null : id));
-                      }}
-                    />
-                  ))}
-                </Table.Tbody>
-              </Table>
+              <Box maw="100%" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <Table striped highlightOnHover withTableBorder style={{ minWidth: 'max-content' }}>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Nation</Table.Th>
+                      <Table.Th>Leader</Table.Th>
+                      <Table.Th>Beige turns</Table.Th>
+                      <Table.Th>VM turns</Table.Th>
+                      <Table.Th />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {reminders.map((reminder) => (
+                      <ReminderTableRow
+                        key={reminder.nationId}
+                        reminder={reminder}
+                        animateEnter={reminder.nationId === lastAddedNationId}
+                        removePending={removeMutation.isPending}
+                        onRemove={() => removeMutation.mutate(reminder.nationId)}
+                        onEnterAnimationEnd={() => {
+                          setLastAddedNationId((id) => (id === reminder.nationId ? null : id));
+                        }}
+                      />
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Box>
             )}
           </Stack>
-        </Card>
+        </Paper>
       </Stack>
     </Container>
   );

@@ -112,3 +112,12 @@ a:not([data-variant]):hover {
   color: var(--mantine-color-autolycusOrange-5);
   text-decoration: underline;
 }
+
+@keyframes damage-skeleton-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(380%);
+  }
+}

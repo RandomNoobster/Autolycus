@@ -5,7 +5,6 @@ This module provides endpoints for generating secure tokens for accessing
 protected resources without requiring pre-existing Discord bot interaction.
 """
 import logging
-import asyncio
 import json
 import urllib.parse
 import urllib.request
@@ -19,8 +18,8 @@ from flask import Blueprint, current_app, jsonify, redirect, request, session
 from api.security import generate_token
 from api.security import require_discord_session
 from database.mongo import get_sync_db
-from logic.api_client import call as call_pnw
-from logic.verification import verify_discord_nation_link
+from logic.api_client import query_sync
+from logic.verification import verify_discord_nation_link_sync
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +316,7 @@ def get_linked_nation() -> tuple[Any, int]:
             }}
             """
             try:
-                response = asyncio.run(call_pnw(query, api_key=api_key))
+                response = query_sync(query, api_key=api_key)
                 data = (
                     ((response or {}).get("data") or {})
                     .get("nations", {})
@@ -336,6 +335,42 @@ def get_linked_nation() -> tuple[Any, int]:
         "nation_id": nation_id_text or None,
         "nation_name": nation_name,
         "flag_url": flag_url,
+    }), 200
+
+
+@auth_bp.route('/unlink-nation', methods=['POST'])
+@require_discord_session
+def unlink_linked_nation() -> tuple[Any, int]:
+    """Remove PnW nation link for the current Discord user (keeps other profile data)."""
+    user_id = getattr(request, "session_user_id", None)
+    if user_id is None:
+        return jsonify({
+            "error": "Authentication required",
+            "message": "Please sign in with Discord.",
+            "code": "AUTH_REQUIRED",
+        }), 401
+
+    mongo_db = get_sync_db()
+    if mongo_db is None:
+        return jsonify({
+            "error": "Database unavailable",
+            "message": "MongoDB is not configured.",
+            "code": "DB_UNAVAILABLE",
+        }), 503
+
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": "Invalid user id",
+            "message": "user_id must be numeric.",
+            "code": "INVALID_USER",
+        }), 400
+
+    result = mongo_db.global_users.update_one({"user": uid}, {"$unset": {"id": ""}})
+    return jsonify({
+        "success": True,
+        "removed": result.modified_count > 0,
     }), 200
 
 
@@ -384,15 +419,20 @@ def verify_discord_link() -> tuple[Any, int]:
                 "code": "API_KEY_NOT_CONFIGURED",
             }), 503
 
-        async def _call_func(query: str) -> dict[str, Any]:
-            return await call_pnw(query, api_key=api_key)
+        mongo_db = get_sync_db()
+        if mongo_db is None:
+            return jsonify({
+                "error": "Database unavailable",
+                "message": "MongoDB is not configured.",
+                "code": "DB_UNAVAILABLE",
+            }), 503
 
-        result = asyncio.run(verify_discord_nation_link(
+        result = verify_discord_nation_link_sync(
             discord_user_id=int(user_id),
             discord_username=username,
             nation_input=nation_input,
-            call_func=_call_func,
-        ))
+            api_key=api_key,
+        )
 
         if result["ok"]:
             return jsonify({

@@ -1,6 +1,6 @@
 import { Alert, Button, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { verifyDiscordLink } from '@/api/auth';
 import type { ApiError } from '@/types';
@@ -37,7 +37,7 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
       setSuccessMessage(
         result.relinked
           ? 'Verification updated. Your Discord account is now linked to the new nation.'
-          : 'Verification successful. Your linked nation defaults are now active.'
+          : 'Verification successful. Your nation is now linked to your Discord account.'
       );
       onVerified?.();
     },
@@ -48,28 +48,41 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
     },
   });
 
+  useEffect(() => {
+    if (!opened) {
+      setSuccessMessage(null);
+      setErrorMessage(null);
+      verifyMutation.reset();
+    }
+  }, [opened, verifyMutation]);
+
+  function submitVerify(event?: React.FormEvent) {
+    event?.preventDefault();
+    if (verifyMutation.isPending) return;
+    setSuccessMessage(null);
+    setErrorMessage(null);
+    verifyMutation.mutate();
+  }
+
   return (
     <Modal opened={opened} onClose={onClose} title="Verify Nation" centered>
       <Stack gap="sm">
         <Text size="sm" c="dimmed">
-          Link your Discord account to your Politics & War nation to enable linked defaults.
+          Link your Discord account to your Politics & War nation to enable extra features.
         </Text>
-        <TextInput
-          label="Nation ID"
-          placeholder="Nation ID or nation link"
-          value={nationInput}
-          onChange={(event) => setNationInput(event.currentTarget.value)}
-        />
-        <Button
-          onClick={() => {
-            setSuccessMessage(null);
-            setErrorMessage(null);
-            verifyMutation.mutate();
-          }}
-          loading={verifyMutation.isPending}
-        >
-          Verify
-        </Button>
+        <form onSubmit={submitVerify}>
+          <Stack gap="sm">
+            <TextInput
+              label="Nation ID"
+              placeholder="Nation ID or nation link"
+              value={nationInput}
+              onChange={(event) => setNationInput(event.currentTarget.value)}
+            />
+            <Button type="submit" loading={verifyMutation.isPending}>
+              Verify
+            </Button>
+          </Stack>
+        </form>
         {successMessage && (
           <Alert color="green" variant="light" title="Verified">
             {successMessage}

@@ -1,3 +1,5 @@
+import type { MRT_ColumnFiltersState } from 'mantine-react-table';
+
 import {
   classifyInactiveColumnValue,
   classifyLootColumnValue,
@@ -219,6 +221,48 @@ export function migrateLegacyRaidsDraftBlob(stored: Record<string, unknown>): Pa
   }
 
   return out;
+}
+
+/** MRT column filter rows derived from sidebar / URL-backed draft (mapped columns). */
+export function buildMappedColumnFiltersFromDraft(d: RaidsDraftFilters): MRT_ColumnFiltersState {
+  const filters: MRT_ColumnFiltersState = [];
+  if (d.alliance.length > 0) {
+    filters.push({ id: 'allianceName', value: d.alliance });
+  }
+  if (d.beige === 'only' || d.beige === 'hide') {
+    filters.push({ id: 'beigeTurns', value: d.beige });
+  }
+  filters.push({
+    id: 'defSlots',
+    value: d.maxWars === 'all' ? '3' : d.maxWars,
+  });
+  const inactiveMin = effectiveInactiveMinString(d);
+  filters.push({
+    id: 'daysInactive',
+    value: inactiveMin ?? '',
+  });
+  if (d.scopeMode === 'custom' && d.scopeCustomPositions.length > 0) {
+    filters.push({ id: 'alliancePosition', value: [...d.scopeCustomPositions] });
+  } else if (d.scopeMode === 'preset') {
+    if (d.scopePreset === 'apps_or_none') {
+      filters.push({ id: 'alliancePosition', value: ['APPLICANT', 'NOALLIANCE'] });
+    } else if (d.scopePreset === 'no_alliance') {
+      filters.push({ id: 'alliancePosition', value: ['NOALLIANCE'] });
+    }
+  }
+  const lootMinStr = (() => {
+    if (d.lootMode === 'preset' && d.lootPreset !== '0') {
+      return d.lootPreset;
+    }
+    if (d.lootMode === 'custom' && d.lootCustom.trim()) {
+      return d.lootCustom.trim();
+    }
+    return '';
+  })();
+  if (lootMinStr) {
+    filters.push({ id: 'nationLoot', value: lootMinStr });
+  }
+  return filters;
 }
 
 export function effectiveInactiveMinString(d: RaidsDraftFilters): string | null {

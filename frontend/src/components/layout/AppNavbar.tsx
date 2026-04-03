@@ -16,6 +16,7 @@ import {
   Switch,
   Image,
   Button,
+  Modal,
   useMantineColorScheme,
 } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
@@ -30,9 +31,11 @@ import {
   IconExternalLink,
   IconSun,
   IconMoon,
+  IconUnlink,
+  IconReplace,
 } from '@tabler/icons-react';
 import { useDelayedFlag, useSidebarDiscordSession } from '@/hooks';
-import { getLinkedNation } from '@/api/auth';
+import { getLinkedNation, unlinkDiscordNation } from '@/api/auth';
 import { VerifyNationModal } from '@/components/common';
 import { DiscordSidebarCard } from '@/components/layout/DiscordSidebarCard';
 import { internalNavPath } from '@/lib/internalNavPath';
@@ -97,16 +100,25 @@ const externalLinks: NavItem[] = [
 interface AppNavbarProps {
   /** Called after a navigation event so the parent can close the mobile drawer. */
   onNavigate?: () => void;
+  /** Below `sm` breakpoint: full-height flex + spacer are disabled so the drawer can scroll. */
+  isMobileLayout?: boolean;
 }
 
-export function AppNavbar({ onNavigate }: AppNavbarProps) {
+export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const discordSession = useSidebarDiscordSession();
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false);
   const [linkedNationHover, setLinkedNationHover] = useState(false);
-  const { data: linkedNationData, isFetched: linkedNationFetched, isLoading: linkedNationLoading } = useQuery({
+  const [unlinkingNation, setUnlinkingNation] = useState(false);
+  const {
+    data: linkedNationData,
+    isFetched: linkedNationFetched,
+    isLoading: linkedNationLoading,
+    refetch: refetchLinkedNation,
+  } = useQuery({
     queryKey: ['linkedNation'],
     queryFn: async () => {
       try {
@@ -136,7 +148,7 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
   };
 
   return (
-    <Stack gap="xs" h="100%">
+    <Stack gap="xs" {...(isMobileLayout ? {} : { h: '100%' })}>
       {/* Branding — visible in sidebar (desktop) */}
       <Group gap="xs" py={4} justify="center">
         <Image
@@ -238,8 +250,8 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
         ))}
       </Stack>
 
-      {/* Spacer */}
-      <div style={{ flexGrow: 1 }} />
+      {/* Spacer — desktop only; on mobile it blocks scrolling in the fixed-height drawer */}
+      {!isMobileLayout && <div style={{ flexGrow: 1 }} />}
 
       <Divider my="xs" label="Discord" labelPosition="center" />
 
@@ -257,81 +269,107 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
             <div style={{ height: 32 }} />
           )
         ) : linkedNationId ? (
-          <a
-            href={`https://politicsandwar.com/nation/id=${linkedNationId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onMouseEnter={() => setLinkedNationHover(true)}
-            onMouseLeave={() => setLinkedNationHover(false)}
-            style={{
-              display: 'block',
-              position: 'relative',
-              width: '100%',
-              overflow: 'hidden',
-              borderRadius: 'var(--mantine-radius-sm)',
-              border: '1px solid transparent',
-              backgroundImage:
-                isLightMode
-                  ? 'linear-gradient(rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.96)), linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(249, 115, 22, 0.35))'
-                  : 'linear-gradient(var(--mantine-color-dark-7), var(--mantine-color-dark-7)), linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(249, 115, 22, 0.5))',
-              backgroundOrigin: 'border-box',
-              backgroundClip: 'padding-box, border-box',
-              padding: '8px 10px',
-              boxShadow: isLightMode
-                ? '0 2px 8px rgba(15, 23, 42, 0.06)'
-                : '0 2px 10px rgba(0, 0, 0, 0.25)',
-              textDecoration: 'none',
-              color: isLightMode ? 'var(--mantine-color-black)' : 'var(--mantine-color-white)',
-              cursor: 'pointer',
-              transition: 'box-shadow 120ms ease',
-            }}
-          >
-            <Image
-              src={linkedNationData?.flag_url || undefined}
-              alt={linkedNationData?.nation_name ? `${linkedNationData.nation_name} flag background` : 'Nation flag background'}
-              fallbackSrc="https://politicsandwar.com/img/flags/defaultflag.svg"
+          <>
+            <a
+              href={`https://politicsandwar.com/nation/id=${linkedNationId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onMouseEnter={() => setLinkedNationHover(true)}
+              onMouseLeave={() => setLinkedNationHover(false)}
               style={{
-                position: 'absolute',
-                inset: 0,
-                zIndex: 0,
+                display: 'block',
+                position: 'relative',
                 width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                opacity: isLightMode ? 0.1 : 0.14,
-                filter: 'saturate(1.1) blur(1px)',
-                pointerEvents: 'none',
+                overflow: 'hidden',
+                borderRadius: 'var(--mantine-radius-sm)',
+                border: '1px solid transparent',
+                backgroundImage:
+                  isLightMode
+                    ? 'linear-gradient(rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.96)), linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(249, 115, 22, 0.35))'
+                    : 'linear-gradient(var(--mantine-color-dark-7), var(--mantine-color-dark-7)), linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(249, 115, 22, 0.5))',
+                backgroundOrigin: 'border-box',
+                backgroundClip: 'padding-box, border-box',
+                padding: '8px 10px',
+                boxShadow: isLightMode
+                  ? '0 2px 8px rgba(15, 23, 42, 0.06)'
+                  : '0 2px 10px rgba(0, 0, 0, 0.25)',
+                textDecoration: 'none',
+                color: isLightMode ? 'var(--mantine-color-black)' : 'var(--mantine-color-white)',
+                cursor: 'pointer',
+                transition: 'box-shadow 120ms ease',
               }}
-            />
-            <div
-              aria-hidden
-              style={{
-                position: 'absolute',
-                inset: 0,
-                zIndex: 1,
-                backgroundColor: linkedNationHover
-                  ? isLightMode
-                    ? 'rgba(0, 0, 0, 0.04)'
-                    : 'rgba(255, 255, 255, 0.06)'
-                  : 'transparent',
-                transition: 'background-color 120ms ease',
-                pointerEvents: 'none',
-              }}
-            />
-            <Group gap={8} wrap="nowrap" justify="center" align="center" style={{ position: 'relative', zIndex: 2 }}>
+            >
               <Image
                 src={linkedNationData?.flag_url || undefined}
-                alt={linkedNationData?.nation_name ? `${linkedNationData.nation_name} flag` : 'Nation flag'}
-                w={20}
-                h={20}
-                radius="sm"
+                alt={linkedNationData?.nation_name ? `${linkedNationData.nation_name} flag background` : 'Nation flag background'}
                 fallbackSrc="https://politicsandwar.com/img/flags/defaultflag.svg"
-                style={{ objectFit: 'cover', flexShrink: 0 }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  opacity: isLightMode ? 0.1 : 0.14,
+                  filter: 'saturate(1.1) blur(1px)',
+                  pointerEvents: 'none',
+                }}
               />
-              <Text size="sm" fw={600} lh={1.2} ta="center" style={{ color: 'inherit' }}>
-                {linkedNationData?.nation_name || 'Linked nation'} (ID: {linkedNationId})
-              </Text>
-            </Group>
-          </a>
+              <div
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 1,
+                  backgroundColor: linkedNationHover
+                    ? isLightMode
+                      ? 'rgba(0, 0, 0, 0.04)'
+                      : 'rgba(255, 255, 255, 0.06)'
+                    : 'transparent',
+                  transition: 'background-color 120ms ease',
+                  pointerEvents: 'none',
+                }}
+              />
+              <Group gap={8} wrap="nowrap" justify="center" align="center" style={{ position: 'relative', zIndex: 2 }}>
+                <Image
+                  src={linkedNationData?.flag_url || undefined}
+                  alt={linkedNationData?.nation_name ? `${linkedNationData.nation_name} flag` : 'Nation flag'}
+                  w={20}
+                  h={20}
+                  radius="sm"
+                  fallbackSrc="https://politicsandwar.com/img/flags/defaultflag.svg"
+                  style={{ objectFit: 'cover', flexShrink: 0 }}
+                />
+                <Text size="sm" fw={600} lh={1.2} ta="center" style={{ color: 'inherit' }}>
+                  {linkedNationData?.nation_name || 'Linked nation'} (ID: {linkedNationId})
+                </Text>
+              </Group>
+            </a>
+            <Stack gap={2}>
+              <Group justify="flex-start" mt={4}>
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  color="gray"
+                  leftSection={<IconUnlink size={12} />}
+                  onClick={() => setUnlinkConfirmOpen(true)}
+                >
+                  Remove Link
+                </Button>
+              </Group>
+              <Group justify="flex-start">
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  color="gray"
+                  leftSection={<IconReplace size={12} />}
+                  onClick={() => setVerifyModalOpen(true)}
+                >
+                  Change Nation
+                </Button>
+              </Group>
+            </Stack>
+          </>
         ) : (
           <>
             <Text size="xs" c="dimmed" ta="center">
@@ -350,9 +388,49 @@ export function AppNavbar({ onNavigate }: AppNavbarProps) {
           </>
         )}
       </Stack>
+      <Modal
+        opened={unlinkConfirmOpen}
+        onClose={() => {
+          if (!unlinkingNation) setUnlinkConfirmOpen(false);
+        }}
+        title="Remove nation link"
+        centered
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Remove the link between your Discord account and this nation? You can link again later with Verify Nation.
+          </Text>
+          <Group justify="flex-end" gap="xs">
+            <Button variant="default" disabled={unlinkingNation} onClick={() => setUnlinkConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              loading={unlinkingNation}
+              onClick={async () => {
+                if (unlinkingNation) return;
+                setUnlinkingNation(true);
+                try {
+                  await unlinkDiscordNation();
+                  await refetchLinkedNation();
+                  setUnlinkConfirmOpen(false);
+                } finally {
+                  setUnlinkingNation(false);
+                }
+              }}
+            >
+              Remove link
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
       <VerifyNationModal
         opened={verifyModalOpen}
         onClose={() => setVerifyModalOpen(false)}
+        onVerified={() => {
+          void refetchLinkedNation();
+        }}
       />
 
       <Divider my="xs" />

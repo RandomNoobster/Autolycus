@@ -25,9 +25,9 @@ import {
   Skeleton,
   TextInput,
 } from '@mantine/core';
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { IconX, IconBrandDiscord, IconDownload } from '@tabler/icons-react';
+import { IconX, IconBrandDiscord, IconDownload, IconInfoCircle } from '@tabler/icons-react';
 import type {
   MRT_ColumnFiltersState,
   MRT_ColumnOrderState,
@@ -58,11 +58,18 @@ import type { RaidsDraftFilters } from '@/lib/raidsDraftState';
 import {
   DEFAULT_RAIDS_DRAFT_FILTERS,
   buildRaidsDraftFromSearchParams,
+  buildMappedColumnFiltersFromDraft,
   migrateLegacyRaidsDraftBlob,
   migrateStoredAlliance,
   effectiveInactiveMinString,
   effectiveLootMinNumber,
 } from '@/lib/raidsDraftState';
+import {
+  RAIDS_FILTERS_LOCAL_STORAGE_KEY,
+  RAIDS_MAPPED_FILTER_COLUMN_IDS,
+  parseRaidsFiltersStorageJson,
+  serializeRaidsFiltersStorageV2,
+} from '@/lib/raidsFiltersStorage';
 
 type TableSettings = {
   columnVisibility: MRT_VisibilityState;
@@ -73,9 +80,9 @@ type TableSettings = {
 
 const DEFAULT_TABLE_SETTINGS: TableSettings = {
   columnVisibility: {
-    id: false,
+    id: true,
     nationName: true,
-    leaderName: false,
+    leaderName: true,
     allianceName: true,
     alliancePosition: true,
     numCities: true,
@@ -85,18 +92,18 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
     nationLoot: true,
     daysInactive: true,
     updatedAt: true,
-    monetaryNetIncome: false,
-    netCashIncome: false,
-    taxable: false,
-    treasures: false,
+    monetaryNetIncome: true,
+    netCashIncome: true,
+    taxable: true,
+    treasures: true,
     defSlots: true,
     timeSinceWar: true,
-    soldiers: false,
-    tanks: false,
-    aircraft: false,
-    ships: false,
-    missiles: false,
-    nukes: false,
+    soldiers: true,
+    tanks: true,
+    aircraft: true,
+    ships: true,
+    missiles: true,
+    nukes: true,
     groundWin: true,
     airWin: true,
     navalWin: true,
@@ -143,14 +150,7 @@ const RAIDS_TABLE_PERSISTENCE_DEFAULTS = {
   density: DEFAULT_TABLE_SETTINGS.density,
 };
 
-const MAPPED_COLUMN_IDS = new Set([
-  'allianceName',
-  'beigeTurns',
-  'defSlots',
-  'daysInactive',
-  'alliancePosition',
-  'nationLoot',
-]);
+const MAPPED_COLUMN_IDS = RAIDS_MAPPED_FILTER_COLUMN_IDS;
 
 
 function mergeColumnFilters(
@@ -192,7 +192,7 @@ const RAID_FILTER_URL_KEYS = [
 ] as const;
 
 export function RaidsPage() {
-  const { initialColumnFilters, initialSorting } = useUrlParams();
+  const { columnFiltersFromUrl, initialSorting } = useUrlParams();
   const { nationId: savedNationId, parseNationId, setNationId } = useNationId();
   const [searchParams, setSearchParams] = useRaidsSearchParams();
 
@@ -289,9 +289,18 @@ export function RaidsPage() {
     DEFAULT_TABLE_SETTINGS.columnFilters
   );
   const syncingFromFiltersRef = useRef(false);
-  const urlFiltersAppliedRef = useRef(false);
   const filtersRestoredRef = useRef(false);
-  const FILTER_STORAGE_KEY = 'autolycus-raids-filters-v1';
+  /**
+   * After hydrating from localStorage, draft URL sync + persist effects must not run in the same
+   * passive effect pass as the restore: they would still see the pre-restore draft/columnFilters and
+   * overwrite the URL, table filters, and localStorage with defaults.
+   */
+  const suppressDraftUrlSyncAndPersistRef = useRef(false);
+  const searchParamsKey = useMemo(() => searchParams.toString(), [searchParams]);
+
+  useLayoutEffect(() => {
+    suppressDraftUrlSyncAndPersistRef.current = false;
+  });
 
   // Fetch raids data - must be before any conditional returns
   const {
@@ -366,20 +375,30 @@ export function RaidsPage() {
     }
 
     try {
-      const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+      const raw = localStorage.getItem(RAIDS_FILTERS_LOCAL_STORAGE_KEY);
       if (!raw) {
         filtersRestoredRef.current = true;
         return;
       }
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const migrated = migrateLegacyRaidsDraftBlob(parsed);
-      if (parsed.alliance !== undefined) {
-        migrated.alliance = migrateStoredAlliance(parsed.alliance);
+      const parsedRoot = JSON.parse(raw) as unknown;
+      const storageParsed = parseRaidsFiltersStorageJson(parsedRoot);
+      if (!storageParsed) {
+        filtersRestoredRef.current = true;
+        return;
+      }
+      const { draftRecord, extras } = storageParsed;
+      const migrated = migrateLegacyRaidsDraftBlob(draftRecord);
+      if (draftRecord.alliance !== undefined) {
+        migrated.alliance = migrateStoredAlliance(draftRecord.alliance);
       }
       const merged: RaidsDraftFilters = {
         ...buildRaidsDraftFromSearchParams(searchParams, savedNationId, ''),
         ...migrated,
       };
+      const mapped = buildMappedColumnFiltersFromDraft(merged);
+      suppressDraftUrlSyncAndPersistRef.current = true;
+      syncingFromFiltersRef.current = true;
+      setColumnFilters([...mapped, ...extras]);
       setDraftFilters(merged);
 
       setSearchParams((prev) => {
@@ -439,11 +458,11 @@ export function RaidsPage() {
   }, [savedNationId, appliedNationId]);
 
   useEffect(() => {
-    if (urlFiltersAppliedRef.current || !initialColumnFilters.length) return;
-    urlFiltersAppliedRef.current = true;
+    if (!filtersRestoredRef.current) return;
+    if (!columnFiltersFromUrl.length) return;
     syncingFromFiltersRef.current = true;
-    setColumnFilters((prev) => mergeColumnFilters(prev, initialColumnFilters));
-  }, [initialColumnFilters]);
+    setColumnFilters((prev) => mergeColumnFilters(prev, columnFiltersFromUrl));
+  }, [searchParamsKey, columnFiltersFromUrl]);
 
   // Sync draft filters when column filters change from table interaction (URL follows draft effect).
   useEffect(() => {
@@ -595,55 +614,23 @@ export function RaidsPage() {
 
     // Performance filter
     if (activeFilters.performance) {
-      filtered = filtered.filter(nation => {
+      filtered = filtered.filter((nation) => {
         const loot = parseFloat(nation.nationLoot.replace(/[^0-9.-]/g, ''));
-        return nation.monetaryNetIncome > 0 && loot > 0;
+        return (
+          nation.groundWin >= 40 &&
+          nation.monetaryNetIncome > 0 &&
+          loot > 0
+        );
       });
     }
 
     return filtered;
   }, [data?.targets, activeFilters]);
 
-  const mappedColumnFiltersFromDraft = useCallback((): MRT_ColumnFiltersState => {
-    const filters: MRT_ColumnFiltersState = [];
-    if (draftFilters.alliance.length > 0) {
-      filters.push({ id: 'allianceName', value: draftFilters.alliance });
-    }
-    if (draftFilters.beige === 'only' || draftFilters.beige === 'hide') {
-      filters.push({ id: 'beigeTurns', value: draftFilters.beige });
-    }
-    filters.push({
-      id: 'defSlots',
-      value: draftFilters.maxWars === 'all' ? '3' : draftFilters.maxWars,
-    });
-    const inactiveMin = effectiveInactiveMinString(draftFilters);
-    filters.push({
-      id: 'daysInactive',
-      value: inactiveMin ?? '',
-    });
-    if (draftFilters.scopeMode === 'custom' && draftFilters.scopeCustomPositions.length > 0) {
-      filters.push({ id: 'alliancePosition', value: [...draftFilters.scopeCustomPositions] });
-    } else if (draftFilters.scopeMode === 'preset') {
-      if (draftFilters.scopePreset === 'apps_or_none') {
-        filters.push({ id: 'alliancePosition', value: ['APPLICANT', 'NOALLIANCE'] });
-      } else if (draftFilters.scopePreset === 'no_alliance') {
-        filters.push({ id: 'alliancePosition', value: ['NOALLIANCE'] });
-      }
-    }
-    const lootMinStr = (() => {
-      if (draftFilters.lootMode === 'preset' && draftFilters.lootPreset !== '0') {
-        return draftFilters.lootPreset;
-      }
-      if (draftFilters.lootMode === 'custom' && draftFilters.lootCustom.trim()) {
-        return draftFilters.lootCustom.trim();
-      }
-      return '';
-    })();
-    if (lootMinStr) {
-      filters.push({ id: 'nationLoot', value: lootMinStr });
-    }
-    return filters;
-  }, [draftFilters]);
+  const mappedColumnFiltersFromDraft = useCallback(
+    (): MRT_ColumnFiltersState => buildMappedColumnFiltersFromDraft(draftFilters),
+    [draftFilters]
+  );
 
   const syncColumnFiltersFromDraft = useCallback(() => {
     const mapped = mappedColumnFiltersFromDraft();
@@ -673,7 +660,7 @@ export function RaidsPage() {
     syncingFromFiltersRef.current = true;
     setColumnFilters((prev) => prev.filter((f) => !MAPPED_COLUMN_IDS.has(f.id)));
     try {
-      localStorage.removeItem(FILTER_STORAGE_KEY);
+      localStorage.removeItem(RAIDS_FILTERS_LOCAL_STORAGE_KEY);
     } catch (error) {
       console.warn('Failed to clear raids filter storage', error);
     }
@@ -682,6 +669,7 @@ export function RaidsPage() {
   // Keep URL + localStorage in sync with draft UI (no debounce — debounced URL lag caused scoreMode query to fight the visible filters).
   useEffect(() => {
     if (!filtersRestoredRef.current) return;
+    if (suppressDraftUrlSyncAndPersistRef.current) return;
 
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -753,13 +741,20 @@ export function RaidsPage() {
     }, { replace: true });
 
     syncColumnFiltersFromDraftRef.current();
+  }, [draftFilters, setSearchParams]);
 
+  useEffect(() => {
+    if (!filtersRestoredRef.current) return;
+    if (suppressDraftUrlSyncAndPersistRef.current) return;
     try {
-      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(draftFilters));
+      localStorage.setItem(
+        RAIDS_FILTERS_LOCAL_STORAGE_KEY,
+        serializeRaidsFiltersStorageV2(draftFilters, columnFilters)
+      );
     } catch (error) {
       console.warn('Failed to persist raids filters', error);
     }
-  }, [draftFilters, setSearchParams]);
+  }, [draftFilters, columnFilters]);
 
   type ColumnFiltersUpdater = MRT_ColumnFiltersState | ((prev: MRT_ColumnFiltersState) => MRT_ColumnFiltersState);
 
@@ -1303,26 +1298,34 @@ export function RaidsPage() {
             color="blue"
             variant="light"
           >
-            <Text size="sm">
-              To set beige reminders,{' '}
-              <Text span component="a" href={getDiscordLoginUrl('/raids')} c="blue.7" fw={600}>
-                log in with Discord
-              </Text>
-              {' '}
-              to link your web session.
-            </Text>
+            <Stack gap="sm" align="flex-start">
+              <Text size="sm">Log in with Discord to set beige reminders.</Text>
+              <Button
+                component="a"
+                href={getDiscordLoginUrl('/raids')}
+                size="md"
+                color="indigo"
+                variant="filled"
+                leftSection={<IconBrandDiscord size={14} />}
+                style={{ textDecoration: 'none' }}
+                styles={{ root: { textDecoration: 'none' } }}
+              >
+                Login with Discord
+              </Button>
+            </Stack>
           </Alert>
         )}
         {!isLoading && discordAuthenticated && !discordLinked && (
-          <Alert color="yellow" variant="light" title="Nation not linked">
-            <Group justify="space-between" align="center">
+          <Alert icon={<IconInfoCircle size={16} />} title="Reminder setup" color="blue" variant="light">
+            <Stack gap="sm" align="flex-start">
               <Text size="sm">
-                You are signed in with Discord, but your nation is not linked yet.
+                Link your Politics & War nation using the button below to enable beige reminders, or use{' '}
+                <strong>/verify</strong> in the Discord bot.
               </Text>
-              <Button size="xs" onClick={() => setVerifyModalOpen(true)}>
-                Verify Nation
+              <Button size="xs" variant="light" color="blue" onClick={() => setVerifyModalOpen(true)}>
+                Link Nation
               </Button>
-            </Group>
+            </Stack>
           </Alert>
         )}
         <VerifyNationModal

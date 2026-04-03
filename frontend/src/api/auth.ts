@@ -89,3 +89,10 @@ export function verifyDiscordLink(data: VerifyLinkRequest): Promise<VerifyLinkRe
 export function getLinkedNation(): Promise<LinkedNationResponse> {
   return apiGet<LinkedNationResponse>('/api/auth/linked-nation');
 }
+
+export function unlinkDiscordNation(): Promise<{ success: boolean; removed?: boolean }> {
+  return apiPost<{ success: boolean; removed?: boolean }, Record<string, never>>(
+    '/api/auth/unlink-nation',
+    {}
+  );
+}

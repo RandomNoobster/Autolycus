@@ -455,18 +455,26 @@ export function BuildsPage() {
                   <Accordion.Panel>
                     <Stack gap="md">
                       {/* Military Upkeep Toggle */}
-                      <Group gap="xs">
-                        <Switch
-                          label="Include Military Upkeep"
-                          description="Assume max military units and include their upkeep costs in calculations"
-                          {...form.getInputProps('includeMilitaryUpkeep', { type: 'checkbox' })}
-                        />
-                        <Tooltip label="When enabled, calculations assume you have maximum military units and deduct their upkeep from net income.">
-                          <ActionIcon variant="subtle" size="sm">
-                            <IconInfoCircle size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
+                      <Switch
+                        label={
+                          <Group component="span" gap={6} wrap="nowrap" align="center">
+                            Include Military Upkeep
+                            <Tooltip label="When enabled, calculations assume you have maximum military units and deduct their upkeep from net income.">
+                              <ActionIcon
+                                variant="subtle"
+                                size="sm"
+                                aria-label="More about military upkeep"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <IconInfoCircle size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        }
+                        description="Assume max military units and include their upkeep costs in calculations"
+                        {...form.getInputProps('includeMilitaryUpkeep', { type: 'checkbox' })}
+                      />
 
                       {form.values.includeMilitaryUpkeep && (
                         <Stack gap={4}>
@@ -491,18 +499,26 @@ export function BuildsPage() {
                       )}
 
                       {/* Market Data Toggle */}
-                      <Group gap="xs" align="flex-start">
-                        <Switch
-                          label="Use Live Market Prices"
-                          description="Switch between live prices and 30-day average"
-                          {...form.getInputProps('useLiveMarket', { type: 'checkbox' })}
-                        />
-                        <Tooltip label="Live uses the latest tradeprices tick from the P&W API. 30-day average is the mean of the last 30 tradeprices records (roughly one per day).">
-                          <ActionIcon variant="subtle" size="sm">
-                            <IconInfoCircle size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
+                      <Switch
+                        label={
+                          <Group component="span" gap={6} wrap="nowrap" align="center">
+                            Use Live Market Prices
+                            <Tooltip label="Live uses the latest tradeprices tick from the P&W API. 30-day average is the mean of the last 30 tradeprices records (roughly one per day).">
+                              <ActionIcon
+                                variant="subtle"
+                                size="sm"
+                                aria-label="More about market prices"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <IconInfoCircle size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        }
+                        description="Switch between live prices and 30-day average"
+                        {...form.getInputProps('useLiveMarket', { type: 'checkbox' })}
+                      />
 
                       {gameData && (
                         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">

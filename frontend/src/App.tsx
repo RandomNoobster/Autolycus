@@ -31,7 +31,7 @@ function App() {
         breakpoint: 'sm',
         collapsed: { desktop: false, mobile: !mobileOpened },
       }}
-      padding="md"
+      padding={{ base: 'xs', sm: 'md' }}
     >
       {isMobile && (
         <AppShell.Header>
@@ -39,8 +39,17 @@ function App() {
         </AppShell.Header>
       )}
 
-      <AppShell.Navbar p="md">
-        <AppNavbar onNavigate={closeMobile} />
+      <AppShell.Navbar
+        p={{ base: 'xs', sm: 'md' }}
+        styles={{
+          navbar: {
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehaviorY: 'contain',
+          },
+        }}
+      >
+        <AppNavbar onNavigate={closeMobile} isMobileLayout={isMobile} />
       </AppShell.Navbar>
 
       <AppShell.Main>

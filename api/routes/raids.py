@@ -256,7 +256,13 @@ def get_raids() -> tuple[Any, int]:
             try:
                 uid = int(user_id)
                 user_profile = mongo_db.global_users.find_one({'user': uid})
-                discord_linked = user_profile is not None
+                # Match /api/auth/linked-nation: reminder-only stubs have no PnW nation id.
+                nation_id_text = (
+                    str(user_profile.get("id")).strip()
+                    if user_profile and user_profile.get("id") is not None
+                    else ""
+                )
+                discord_linked = bool(nation_id_text)
             except (TypeError, ValueError):
                 user_profile = None
                 discord_linked = False
@@ -433,7 +439,7 @@ def get_raids() -> tuple[Any, int]:
                     continue
 
                 if performance_filter:
-                    if ground_win < 0.4 or nation_loot_value == 0 or net_cash_income < 10000:
+                    if ground_win < 40 or nation_loot_value == 0 or net_cash_income < 10000:
                         continue
 
             alliance_color = alliance_obj.get('color') or (alliances_by_id.get(alliance_id, {}) or {}).get('color')

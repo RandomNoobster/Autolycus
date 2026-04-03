@@ -2,15 +2,21 @@ import { useMemo, useCallback, useState, useEffect, useRef, type ReactNode } fro
 import {
   MantineReactTable,
   useMantineReactTable,
+  MRT_ShowHideColumnsButton,
+  MRT_ShowHideColumnsMenu,
+  MRT_ToggleDensePaddingButton,
+  MRT_ToggleFiltersButton,
+  MRT_ToggleFullScreenButton,
+  MRT_ToggleGlobalFilterButton,
   type MRT_ColumnDef,
   type MRT_Row,
   type MRT_ColumnFiltersState,
   type MRT_ColumnOrderState,
   type MRT_DensityState,
   type MRT_VisibilityState,
+  type MRT_TableInstance,
 } from 'mantine-react-table';
 import {
-  ActionIcon,
   Anchor,
   Badge,
   Text,
@@ -25,7 +31,7 @@ import {
   Menu,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useDebouncedValue } from '@mantine/hooks';
+import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   IconBell,
@@ -45,6 +51,14 @@ import { parseNumericValue } from '@/lib/raidFilterParsing';
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: 'auto',
 });
+
+/** Body cell padding for raids table (Reminder column must repeat these — MRT merges props shallowly). */
+const RAIDS_BODY_CELL_PAD = {
+  paddingTop: 2,
+  paddingBottom: 2,
+  paddingLeft: 6,
+  paddingRight: 6,
+} as const;
 
 const formatRelativeUpdatedAt = (unixSeconds: number): string => {
   const nowMs = Date.now();
@@ -158,7 +172,7 @@ function ReminderColumnCell({ children, fullWidth = false }: { children: ReactNo
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        minHeight: 36,
+        minHeight: 22,
         ...(fullWidth ? { alignSelf: 'stretch' as const } : {}),
       }}
     >
@@ -284,6 +298,198 @@ const NumericMinOnlyFilterInput = ({ column, max }: any) => {
 };
 
 
+const DENSITY_NEXT: Record<MRT_DensityState, MRT_DensityState> = {
+  md: 'xs',
+  xl: 'md',
+  xs: 'xl',
+};
+
+const TOOLBAR_ICON_SZ = 18;
+
+/** Same controls as MRT's default toolbar; desktop uses text+icon as one Button; mobile keeps MRT ActionIcons (App breakpoint: 48em). */
+function RaidsTableToolbarInternalActions({ table }: { table: MRT_TableInstance<RaidTarget> }) {
+  const isMobile = useMediaQuery('(max-width: 48em)', false, {
+    getInitialValueInEffect: false,
+  });
+  const showLabels = !isMobile;
+
+  const {
+    columnFilterDisplayMode,
+    enableColumnFilters,
+    enableColumnOrdering,
+    enableColumnPinning,
+    enableDensityToggle,
+    enableFilters,
+    enableFullScreenToggle,
+    enableGlobalFilter,
+    enableHiding,
+    initialState,
+    icons: {
+      IconSearch,
+      IconSearchOff,
+      IconFilter,
+      IconFilterOff,
+      IconColumns,
+      IconMaximize,
+      IconMinimize,
+      IconBaselineDensityLarge,
+      IconBaselineDensityMedium,
+      IconBaselineDensitySmall,
+    },
+    localization: {
+      showHideSearch,
+      showHideFilters,
+      showHideColumns,
+      toggleFullScreen,
+      toggleDensity,
+    },
+  } = table.options;
+
+  const {
+    getState,
+    refs: { searchInputRef },
+    setShowGlobalFilter,
+    setShowColumnFilters,
+    setIsFullScreen,
+    setDensity,
+  } = table;
+
+  const toolbarLabel = {
+    search: 'Search',
+    filters: 'Filters',
+    columns: 'Columns',
+    density: toggleDensity,
+    fullscreen: 'Full screen',
+  } as const;
+
+  if (!showLabels) {
+    return (
+      <>
+        {enableFilters &&
+          enableGlobalFilter &&
+          !initialState?.showGlobalFilter && (
+            <MRT_ToggleGlobalFilterButton key="search" table={table} />
+          )}
+        {enableFilters &&
+          enableColumnFilters &&
+          columnFilterDisplayMode !== 'popover' && (
+            <MRT_ToggleFiltersButton key="filters" table={table} />
+          )}
+        {(enableHiding || enableColumnOrdering || enableColumnPinning) && (
+          <MRT_ShowHideColumnsButton key="columns" table={table} />
+        )}
+        {enableDensityToggle && <MRT_ToggleDensePaddingButton key="density" table={table} />}
+        {enableFullScreenToggle && <MRT_ToggleFullScreenButton key="fullscreen" table={table} />}
+      </>
+    );
+  }
+
+  const { globalFilter, showGlobalFilter, showColumnFilters, isFullScreen, density } = getState();
+
+  const densityIcon =
+    density === 'xs' ? (
+      <IconBaselineDensitySmall size={TOOLBAR_ICON_SZ} />
+    ) : density === 'md' ? (
+      <IconBaselineDensityMedium size={TOOLBAR_ICON_SZ} />
+    ) : (
+      <IconBaselineDensityLarge size={TOOLBAR_ICON_SZ} />
+    );
+
+  return (
+    <Group gap={4} wrap="wrap" justify="flex-end" align="center">
+      {enableFilters && enableGlobalFilter && !initialState?.showGlobalFilter && (
+        <Tooltip key="search" label={showHideSearch} withinPortal>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="sm"
+            fw={500}
+            disabled={!!globalFilter}
+            aria-label={showHideSearch}
+            leftSection={
+              showGlobalFilter ? <IconSearchOff size={TOOLBAR_ICON_SZ} /> : <IconSearch size={TOOLBAR_ICON_SZ} />
+            }
+            onClick={() => {
+              setShowGlobalFilter(!showGlobalFilter);
+              setTimeout(() => searchInputRef.current?.focus(), 100);
+            }}
+          >
+            {toolbarLabel.search}
+          </Button>
+        </Tooltip>
+      )}
+      {enableFilters && enableColumnFilters && columnFilterDisplayMode !== 'popover' && (
+        <Tooltip key="filters" label={showHideFilters} withinPortal>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="sm"
+            fw={500}
+            aria-label={showHideFilters}
+            leftSection={
+              showColumnFilters ? <IconFilterOff size={TOOLBAR_ICON_SZ} /> : <IconFilter size={TOOLBAR_ICON_SZ} />
+            }
+            onClick={() => setShowColumnFilters((c) => !c)}
+          >
+            {toolbarLabel.filters}
+          </Button>
+        </Tooltip>
+      )}
+      {(enableHiding || enableColumnOrdering || enableColumnPinning) && (
+        <Menu key="columns" closeOnItemClick={false} withinPortal>
+          <Tooltip label={showHideColumns} withinPortal>
+            <Menu.Target>
+              <Button
+                variant="subtle"
+                color="gray"
+                size="sm"
+                fw={500}
+                aria-label={showHideColumns}
+                leftSection={<IconColumns size={TOOLBAR_ICON_SZ} />}
+              >
+                {toolbarLabel.columns}
+              </Button>
+            </Menu.Target>
+          </Tooltip>
+          <MRT_ShowHideColumnsMenu table={table} />
+        </Menu>
+      )}
+      {enableDensityToggle && (
+        <Tooltip key="density" label={toggleDensity} withinPortal>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="sm"
+            fw={500}
+            aria-label={toggleDensity}
+            leftSection={densityIcon}
+            onClick={() => setDensity((d) => DENSITY_NEXT[d])}
+          >
+            {toolbarLabel.density}
+          </Button>
+        </Tooltip>
+      )}
+      {enableFullScreenToggle && (
+        <Tooltip key="fullscreen" label={toggleFullScreen} withinPortal>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="sm"
+            fw={500}
+            aria-label={toggleFullScreen}
+            leftSection={
+              isFullScreen ? <IconMinimize size={TOOLBAR_ICON_SZ} /> : <IconMaximize size={TOOLBAR_ICON_SZ} />
+            }
+            onClick={() => setIsFullScreen((v) => !v)}
+          >
+            {toolbarLabel.fullscreen}
+          </Button>
+        </Tooltip>
+      )}
+    </Group>
+  );
+}
+
 interface RaidsTableProps {
   data: RaidTarget[];
   /** Alliance names for the column multi-select (from parent: full target list + current picks). Keeps options when filtered rows are empty. */
@@ -292,8 +498,8 @@ interface RaidsTableProps {
   positionSelectOptions?: { value: string; label: string }[];
   discordAuthenticated: boolean;
   discordLinked: boolean;
-  /** Opens Verify Nation (link PnW account). Used when signed in with Discord but not linked. */
-  onOpenVerifyNationModal?: () => void;
+  /** Opens the Verify Nation modal (same flow as banner / sidebar Link Nation). */
+  onOpenVerifyNationModal: () => void;
   initialSorting?: { id: string; desc: boolean }[];
   columnVisibility: MRT_VisibilityState;
   columnOrder: MRT_ColumnOrderState;
@@ -505,6 +711,7 @@ export function RaidsTable({
         accessorKey: 'beigeTurns',
         header: 'Beige Turns',
         size: 90,
+        mantineTableBodyCellProps: { align: 'center' },
         filterFn: beigeFilter,
         filterVariant: 'select',
         mantineFilterSelectProps: {
@@ -525,9 +732,7 @@ export function RaidsTable({
             <Tooltip
               label={
                 discordAuthenticated
-                  ? onOpenVerifyNationModal
-                    ? 'Link your PnW nation via Link nation in each row, the yellow banner, or the sidebar.'
-                    : 'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.'
+                  ? 'Link your PnW nation via Link nation in each row, the Reminder setup banner above the table, or the sidebar.'
                   : 'Use Log in with Discord in each row, the sidebar, or the raids banner.'
               }
               multiline
@@ -538,15 +743,12 @@ export function RaidsTable({
             </Tooltip>
           ),
         size:
-          !discordLinked && discordAuthenticated && onOpenVerifyNationModal
-            ? 128
-            : !discordLinked
-              ? 176
-              : 120,
+          !discordLinked && discordAuthenticated ? 128 : !discordLinked ? 176 : 138,
         enableSorting: false,
         enableColumnFilter: false,
         mantineTableBodyCellProps: {
-          style: { verticalAlign: 'middle' },
+          align: 'center',
+          style: { verticalAlign: 'middle', ...RAIDS_BODY_CELL_PAD },
         },
         Cell: ({ row }: { row: MRT_Row<RaidTarget> }) => {
           const nation = row.original;
@@ -564,11 +766,12 @@ export function RaidsTable({
               return (
                 <ReminderColumnCell fullWidth>
                   <Button
-                    size="xs"
+                    size="compact-xs"
                     variant="light"
+                    radius="sm"
                     component="a"
                     href={getDiscordLoginUrl('/raids')}
-                    leftSection={<IconBrandDiscord size={14} />}
+                    leftSection={<IconBrandDiscord size={12} />}
                     fullWidth
                   >
                     Log in with Discord
@@ -576,58 +779,40 @@ export function RaidsTable({
                 </ReminderColumnCell>
               );
             }
-            if (onOpenVerifyNationModal) {
-              return (
-                <ReminderColumnCell fullWidth>
-                  <Button
-                    size="xs"
-                    variant="light"
-                    fullWidth
-                    onClick={() => onOpenVerifyNationModal()}
-                  >
-                    Link nation
-                  </Button>
-                </ReminderColumnCell>
-              );
-            }
-            const disabledHint =
-              'Link your PnW nation using Verify Nation on this site or /verify in the Discord bot, then refresh.';
             return (
               <ReminderColumnCell fullWidth>
-                <Tooltip label={disabledHint} multiline maw={280} withinPortal>
-                  <Box component="span" w="100%" style={{ display: 'block' }}>
-                    <ActionIcon
-                      variant="light"
-                      color="gray"
-                      size="lg"
-                      radius="md"
-                      w="100%"
-                      disabled
-                      aria-label={disabledHint}
-                    >
-                      <IconBellOff size={18} />
-                    </ActionIcon>
-                  </Box>
-                </Tooltip>
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  radius="sm"
+                  fullWidth
+                  onClick={() => onOpenVerifyNationModal()}
+                >
+                  Link nation
+                </Button>
               </ReminderColumnCell>
             );
           }
           return (
-            <ReminderColumnCell fullWidth>
+            <ReminderColumnCell>
               <Tooltip label={nation.hasReminderActive ? 'Remove reminder' : 'Set reminder'}>
-                <Box component="span" w="100%" style={{ display: 'block' }}>
-                  <ActionIcon
-                    variant={nation.hasReminderActive ? 'filled' : 'light'}
-                    color={nation.hasReminderActive ? 'green' : 'gray'}
-                    size="lg"
-                    radius="md"
-                    w="100%"
-                    onClick={() => handleReminderToggle(row)}
-                    loading={addReminderMutation.isPending || removeReminderMutation.isPending}
-                  >
-                    {nation.hasReminderActive ? <IconBell size={20} /> : <IconBellOff size={20} />}
-                  </ActionIcon>
-                </Box>
+                <Button
+                  size="compact-xs"
+                  variant={nation.hasReminderActive ? 'filled' : 'light'}
+                  color={nation.hasReminderActive ? 'green' : 'gray'}
+                  radius="sm"
+                  leftSection={
+                    nation.hasReminderActive ? (
+                      <IconBell size={14} stroke={1.5} />
+                    ) : (
+                      <IconBellOff size={14} stroke={1.5} />
+                    )
+                  }
+                  onClick={() => handleReminderToggle(row)}
+                  loading={addReminderMutation.isPending || removeReminderMutation.isPending}
+                >
+                  {nation.hasReminderActive ? 'Remove' : 'Add'}
+                </Button>
               </Tooltip>
             </ReminderColumnCell>
           );
@@ -671,7 +856,9 @@ export function RaidsTable({
           const relative = formatRelativeUpdatedAt(Number(ts));
           return (
             <Tooltip label={exact} withArrow withinPortal>
-              <Text span>{relative}</Text>
+              <Text span size="sm">
+                {relative}
+              </Text>
             </Tooltip>
           );
         },
@@ -847,6 +1034,13 @@ export function RaidsTable({
     ]
   );
 
+  const renderToolbarInternalActions = useCallback(
+    ({ table: t }: { table: MRT_TableInstance<RaidTarget> }) => (
+      <RaidsTableToolbarInternalActions table={t} />
+    ),
+    []
+  );
+
   const table = useMantineReactTable({
     columns,
     data,
@@ -865,6 +1059,7 @@ export function RaidsTable({
     enableColumnFilters: true,
     enableFilters: true,
     enableDensityToggle: false,
+    enableFilterMatchHighlighting: false,
 
     filterFns: {
       minOnly: minOnlyFilter,
@@ -902,12 +1097,17 @@ export function RaidsTable({
       className: 'raids-table',
       style: { minWidth: '100%' },
       striped: true,
+      verticalSpacing: 0,
     },
     mantineTableHeadCellProps: {
       style: {
-        padding: '4px',
+        padding: '2px 4px',
         verticalAlign: 'bottom',
       },
+    },
+    mantineTableBodyCellProps: {
+      fz: 'sm',
+      style: { ...RAIDS_BODY_CELL_PAD },
     },
     mantineTableBodyRowProps: ({ row }) => ({
       onContextMenu: (event) => {
@@ -925,6 +1125,7 @@ export function RaidsTable({
       withBorder: true,
       px: 'lg',
     },
+    renderToolbarInternalActions,
   });
 
   return (
@@ -996,14 +1197,14 @@ export function RaidsTable({
             disabled={(() => {
               if (!contextMenu || contextMenu.nation.beigeTurns <= 0) return true;
               if (discordLinked) return false;
-              if (discordAuthenticated && onOpenVerifyNationModal) return false;
+              if (discordAuthenticated) return false;
               return true;
             })()}
             onClick={() => {
               if (!contextMenu) return;
               const nation = contextMenu.nation;
               if (nation.beigeTurns <= 0) return;
-              if (!discordLinked && discordAuthenticated && onOpenVerifyNationModal) {
+              if (!discordLinked && discordAuthenticated) {
                 setContextMenu(null);
                 onOpenVerifyNationModal();
                 return;
@@ -1011,11 +1212,7 @@ export function RaidsTable({
               if (discordLinked) toggleReminderForNation(nation);
             }}
           >
-            {!discordLinked &&
-            discordAuthenticated &&
-            onOpenVerifyNationModal &&
-            contextMenu &&
-            contextMenu.nation.beigeTurns > 0
+            {!discordLinked && discordAuthenticated && contextMenu && contextMenu.nation.beigeTurns > 0
               ? 'Link nation to set reminders'
               : contextMenu?.nation.hasReminderActive
                 ? 'Remove beige reminder'
@@ -1024,22 +1221,6 @@ export function RaidsTable({
         </Menu.Dropdown>
       </Menu>
       <MantineReactTable table={table} />
-      {discordAuthenticated && !discordLinked && (
-        <Alert icon={<IconInfoCircle size={16} />} title="Reminder setup" color="yellow" variant="light">
-          <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-            <Text size="sm">
-              Link your Politics & War nation in <strong>Verify Nation</strong> (same as the yellow banner above
-              {onOpenVerifyNationModal ? ' or the Link nation buttons in the Reminder column' : ''}) to enable beige
-              reminders. You can also use <strong>/verify</strong> in the Discord bot.
-            </Text>
-            {onOpenVerifyNationModal ? (
-              <Button size="xs" variant="default" onClick={() => onOpenVerifyNationModal()}>
-                Verify Nation
-              </Button>
-            ) : null}
-          </Group>
-        </Alert>
-      )}
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
         Hide or show columns, reorder them and filter columns by using the controls in the top-right of the table.
         Right-click any row to open a context menu with quick links to the nation page, alliance page, declare war page, or to set a beige reminder.

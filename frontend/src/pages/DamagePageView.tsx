@@ -15,7 +15,6 @@ import {
   Paper,
   Autocomplete,
   Button,
-  Skeleton,
   SimpleGrid,
   NumberInput,
   Select,
@@ -34,8 +33,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 
 import { calculateDamage, fetchDamage, searchNations } from "@/api";
 import { getLinkedNation } from "@/api/auth";
-import { DamageDashboard } from "@/components/damage";
-import { LoadingState, ErrorState } from "@/components/common";
+import { DamageDashboard, DamagePageSkeleton } from "@/components/damage";
+import { ErrorState } from "@/components/common";
 import type {
   ApiError,
   DamageCalculationInput,
@@ -1118,11 +1117,7 @@ export function DamagePage() {
               Enter nation IDs above to see damage calculations
             </Text>
 
-            <Skeleton height={300} radius="md" animate={false} />
-            <SimpleGrid cols={2}>
-              <Skeleton height={400} radius="md" animate={false} />
-              <Skeleton height={400} radius="md" animate={false} />
-            </SimpleGrid>
+            <DamagePageSkeleton />
           </Stack>
         </Stack>
       </Container>
@@ -1130,7 +1125,11 @@ export function DamagePage() {
   }
 
   if (isLoading) {
-    return <LoadingState message="Loading damage analysis..." />;
+    return (
+      <Container size="xl" py="md">
+        <DamagePageSkeleton showPageHeader animated />
+      </Container>
+    );
   }
 
   if (error && !activeData) {
