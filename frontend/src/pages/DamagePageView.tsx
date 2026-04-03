@@ -5,7 +5,9 @@
  */
 
 import {
+  Alert,
   Box,
+  Card,
   Container,
   Title,
   Text,
@@ -23,21 +25,41 @@ import {
   Grid,
   SegmentedControl,
   Loader,
+  Image,
+  List,
+  Progress,
+  ThemeIcon,
+  useMantineColorScheme,
+  useMantineTheme,
 } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQuery } from "@tanstack/react-query";
-import { IconSearch, IconCalculator } from "@tabler/icons-react";
+import {
+  IconBrandDiscord,
+  IconCalculator,
+  IconSearch,
+  IconSword,
+  IconTarget,
+} from "@tabler/icons-react";
 import { useDebouncedValue } from "@mantine/hooks";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
-import { calculateDamage, fetchDamage, searchNations } from "@/api";
-import { getLinkedNation } from "@/api/auth";
+import {
+  calculateDamage,
+  fetchDamage,
+  fetchLinkedActiveWars,
+  searchNations,
+} from "@/api";
+import { getDiscordLoginUrl, getLinkedNation } from "@/api/auth";
+import { toApiError } from "@/api/errors";
 import { DamageDashboard, DamagePageSkeleton } from "@/components/damage";
 import { ErrorState } from "@/components/common";
 import type {
   ApiError,
   DamageCalculationInput,
+  DamageLinkedActiveWarsResponse,
+  DamageLinkedWarPreset,
   DamageResponse,
   DamageWarType,
 } from "@/types";
@@ -768,6 +790,83 @@ const NationAutocompleteField = memo(function NationAutocompleteField({
 
 type DamageForm = ReturnType<typeof useForm<DamageCalculationInput>>;
 
+interface DamageNationSearchRowProps {
+  form: DamageForm;
+  nation1Query: string;
+  nation2Query: string;
+  onCommitNation1: (value: string) => void;
+  onCommitNation2: (value: string) => void;
+}
+
+function DamageNationSearchRow({
+  form,
+  nation1Query,
+  nation2Query,
+  onCommitNation1,
+  onCommitNation2,
+}: DamageNationSearchRowProps) {
+  const navigate = useNavigate();
+
+  return (
+    <Paper p="md" withBorder radius="md">
+      <Stack gap="sm">
+        <Flex
+          direction={{ base: "column", sm: "row" }}
+          gap="sm"
+          align={{ base: "stretch", sm: "flex-end" }}
+          wrap="nowrap"
+        >
+          <Box flex={{ sm: 1 }} miw={{ sm: 0 }}>
+            <NationAutocompleteField
+              label="Nation 1 ID, name, or leader"
+              value={nation1Query}
+              onCommit={onCommitNation1}
+            />
+          </Box>
+          <Box flex={{ sm: 1 }} miw={{ sm: 0 }}>
+            <NationAutocompleteField
+              label="Nation 2 ID, name, or leader"
+              value={nation2Query}
+              onCommit={onCommitNation2}
+            />
+          </Box>
+          <Button
+            variant="light"
+            type="button"
+            onClick={async () => {
+              const nation1Id =
+                form.values.nation1Id ||
+                (await resolveNationId(nation1Query));
+              const nation2Id =
+                form.values.nation2Id ||
+                (await resolveNationId(nation2Query));
+              if (nation1Id && nation2Id) {
+                navigate(`/damage?nation1=${nation1Id}&nation2=${nation2Id}`);
+              }
+            }}
+          >
+            Reload Nations
+          </Button>
+        </Flex>
+      </Stack>
+    </Paper>
+  );
+}
+
+function DamageCalculatorPageHeader() {
+  return (
+    <Group justify="space-between" align="flex-start">
+      <Stack gap="xs">
+        <Title order={2}>Damage Calculator</Title>
+        <Text c="dimmed">
+          Analyze war damage between two nations. Use this to plan attacks and
+          maximize efficiency.
+        </Text>
+      </Stack>
+    </Group>
+  );
+}
+
 interface NationDamageModifiersProps {
   form: DamageForm;
   basePath: "nation1" | "nation2";
@@ -858,6 +957,371 @@ const NationDamageModifiers = memo(function NationDamageModifiers({
   );
 });
 
+function PresetFlagImage({
+  src,
+  alt,
+  w,
+  h,
+}: {
+  src: string | null | undefined;
+  alt: string;
+  w: number;
+  h: number;
+}) {
+  const [visible, setVisible] = useState(!!src);
+  if (!src || !visible) return null;
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      w={w}
+      h={h}
+      radius="sm"
+      fit="contain"
+      style={{ flexShrink: 0 }}
+      onError={() => setVisible(false)}
+    />
+  );
+}
+
+function DamageDiscordPerkPromo() {
+  const { colorScheme } = useMantineColorScheme();
+  const isLight = colorScheme === "light";
+  const loginUrl = getDiscordLoginUrl("/damage");
+
+  return (
+    <Card
+      padding={0}
+      radius="md"
+      withBorder
+      style={{
+        overflow: "hidden",
+        borderColor: isLight
+          ? "var(--mantine-color-indigo-2)"
+          : "var(--mantine-color-dark-4)",
+        background: isLight
+          ? "linear-gradient(145deg, rgba(99, 102, 241, 0.06) 0%, rgba(249, 115, 22, 0.08) 50%, rgba(255, 255, 255, 0.95) 100%)"
+          : "linear-gradient(145deg, rgba(88, 101, 242, 0.12) 0%, rgba(249, 115, 22, 0.1) 45%, var(--mantine-color-dark-7) 100%)",
+        boxShadow: isLight
+          ? "0 12px 40px rgba(15, 23, 42, 0.06)"
+          : "0 16px 48px rgba(0, 0, 0, 0.35)",
+      }}
+    >
+      <Stack gap={0}>
+        <Box
+          px="lg"
+          pt="md"
+          pb="sm"
+          style={{
+            borderBottom: `1px solid ${isLight ? "var(--mantine-color-gray-2)" : "var(--mantine-color-dark-5)"}`,
+          }}
+        >
+          <Group gap="sm" wrap="nowrap" align="flex-start">
+            <ThemeIcon
+              size={44}
+              radius="md"
+              variant="gradient"
+              gradient={{ from: "indigo", to: "orange", deg: 125 }}
+            >
+              <IconCalculator size={22} stroke={1.5} />
+            </ThemeIcon>
+            <Stack gap="xs" style={{ flex: 1, minWidth: 0 }}>
+              <div>
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed" lts={1.2}>
+                  Discord perk
+                </Text>
+                <Title order={3} style={{ lineHeight: 1.25 }}>
+                  Your live active wars
+                </Title>
+              </div>
+              <Text size="sm" c="dimmed">
+                Link your P&amp;W nation through Discord to open the damage
+                calculator on any active war in one click — with nation and
+                alliance flags.
+              </Text>
+            </Stack>
+          </Group>
+        </Box>
+
+        <Stack px="lg" py="md" gap="sm">
+          <List spacing="xs" size="sm" center>
+            <List.Item
+              icon={
+                <ThemeIcon color="indigo" variant="light" size={26} radius="md">
+                  <IconSword size={14} />
+                </ThemeIcon>
+              }
+            >
+              Presets for every war you are in right now
+            </List.Item>
+            <List.Item
+              icon={
+                <ThemeIcon color="indigo" variant="light" size={26} radius="md">
+                  <IconTarget size={14} />
+                </ThemeIcon>
+              }
+            >
+              Uses the same live data as the rest of the calculator
+            </List.Item>
+          </List>
+
+          <Button
+            component="a"
+            href={loginUrl}
+            size="sm"
+            fullWidth
+            color="indigo"
+            variant="filled"
+            leftSection={<IconBrandDiscord size={18} />}
+          >
+            Continue with Discord
+          </Button>
+          <Text size="xs" c="dimmed">
+            We use Discord to attach your nation to your browser session.
+          </Text>
+        </Stack>
+      </Stack>
+    </Card>
+  );
+}
+
+/** Same tints as DamageTable attacker (blue) / defender (red) columns. */
+const DAMAGE_PRESET_ATTACKER_BG = "rgba(34, 139, 230, 0.12)";
+const DAMAGE_PRESET_DEFENDER_BG = "rgba(250, 82, 82, 0.12)";
+const DAMAGE_PRESET_ATTACKER_ACCENT = "rgb(34, 139, 230)";
+const DAMAGE_PRESET_DEFENDER_ACCENT = "rgb(250, 82, 82)";
+
+interface DamageWarPresetsSectionProps {
+  wars: DamageLinkedWarPreset[];
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  onRetry: () => void;
+  onSelectWar: (w: DamageLinkedWarPreset) => void;
+  /** Current URL pair: Nation 1 = your nation, Nation 2 = opponent (highlights matching preset). */
+  selectedNation1Id?: number | null;
+  selectedNation2Id?: number | null;
+}
+
+function DamageWarPresetsSection({
+  wars,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  onSelectWar,
+  selectedNation1Id = null,
+  selectedNation2Id = null,
+}: DamageWarPresetsSectionProps) {
+  const { colorScheme } = useMantineColorScheme();
+  const theme = useMantineTheme();
+  const isDark = colorScheme === "dark";
+
+  if (isLoading) {
+    return (
+      <Stack gap="xs">
+        <Text size="sm" fw={600}>
+          Your active wars
+        </Text>
+        <Group gap="xs">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">
+            Loading your wars…
+          </Text>
+        </Group>
+      </Stack>
+    );
+  }
+
+  if (isError) {
+    const ae = toApiError(error);
+    return (
+      <Alert color="red" title="Couldn’t load active wars" variant="light">
+        <Text size="sm">{ae.message}</Text>
+        <Button variant="light" size="xs" mt="sm" onClick={() => onRetry()}>
+          Try again
+        </Button>
+      </Alert>
+    );
+  }
+
+  const canHighlightSelection =
+    selectedNation1Id != null &&
+    selectedNation2Id != null &&
+    !Number.isNaN(selectedNation1Id) &&
+    !Number.isNaN(selectedNation2Id);
+
+  return (
+    <Stack gap="sm">
+      <Text size="sm" fw={600}>
+        Your active wars
+      </Text>
+      {wars.length === 0 ? (
+        <Text size="sm" c="dimmed">
+          No active wars right now.
+        </Text>
+      ) : (
+        <Group gap="sm" align="stretch" wrap="wrap">
+          {wars.map((w) => {
+            const offensive = w.linked_stance === "offensive";
+            const accent = isDark
+              ? offensive
+                ? theme.colors.blue[4]
+                : theme.colors.red[5]
+              : offensive
+                ? DAMAGE_PRESET_ATTACKER_ACCENT
+                : DAMAGE_PRESET_DEFENDER_ACCENT;
+            const bg = isDark
+              ? offensive
+                ? "rgba(96, 167, 255, 0.14)"
+                : "rgba(255, 130, 130, 0.12)"
+              : offensive
+                ? DAMAGE_PRESET_ATTACKER_BG
+                : DAMAGE_PRESET_DEFENDER_BG;
+            const statusColor = isDark
+              ? offensive
+                ? ("blue.3" as const)
+                : ("red.4" as const)
+              : offensive
+                ? ("blue.6" as const)
+                : ("red.6" as const);
+            const subtleText = isDark ? ("gray.5" as const) : ("dimmed" as const);
+            const allianceText = isDark ? ("gray.4" as const) : ("dimmed" as const);
+            const res = Math.min(100, Math.max(0, w.linked_resistance));
+            const maps = Math.min(12, Math.max(0, w.linked_maps));
+            const isSelected =
+              canHighlightSelection &&
+              w.opponent_id === selectedNation2Id &&
+              (w.attacker_id === selectedNation1Id ||
+                w.defender_id === selectedNation1Id);
+
+            const progressStyles = isDark
+              ? {
+                  root: { backgroundColor: theme.colors.dark[5] },
+                  section: {
+                    backgroundColor: offensive
+                      ? theme.colors.blue[4]
+                      : theme.colors.red[5],
+                  },
+                }
+              : undefined;
+
+            const cardShadow = isSelected
+              ? isDark
+                ? `0 0 0 2px ${accent}, 0 0 0 6px rgba(0, 0, 0, 0.55)`
+                : `0 0 0 2px ${accent}, 0 0 0 4px var(--mantine-color-body)`
+              : isDark
+                ? "0 2px 8px rgba(0, 0, 0, 0.35)"
+                : undefined;
+
+            return (
+              <Paper
+                key={`${w.attacker_id}-${w.defender_id}`}
+                component="button"
+                type="button"
+                withBorder={!isDark}
+                radius="md"
+                p="sm"
+                onClick={() => onSelectWar(w)}
+                aria-label={`Open damage calculator versus ${w.opponent_name}`}
+                aria-pressed={isSelected}
+                style={{
+                  cursor: "pointer",
+                  textAlign: "left",
+                  width: "100%",
+                  maxWidth: 280,
+                  backgroundColor: bg,
+                  border: isDark
+                    ? `1px solid ${theme.colors.dark[4]}`
+                    : undefined,
+                  borderLeft: `4px solid ${accent}`,
+                  boxShadow: cardShadow,
+                  transition: "box-shadow 120ms ease",
+                }}
+              >
+                <Stack gap={6} align="stretch">
+                  <Group gap="sm" wrap="nowrap" align="flex-start">
+                    <PresetFlagImage
+                      src={w.opponent_flag_url}
+                      alt=""
+                      w={28}
+                      h={20}
+                    />
+                    <Stack gap={2} align="flex-start" style={{ minWidth: 0, flex: 1 }}>
+                      <Text
+                        size="10px"
+                        fw={700}
+                        tt="uppercase"
+                        c={statusColor}
+                        lts={0.6}
+                      >
+                        {offensive ? "Attacking" : "Defending"}
+                      </Text>
+                      <Text
+                        size="sm"
+                        fw={600}
+                        lineClamp={1}
+                        style={
+                          isDark ? { color: theme.white } : undefined
+                        }
+                      >
+                        vs {w.opponent_name}
+                      </Text>
+                      {w.opponent_alliance_name ? (
+                        <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                          <PresetFlagImage
+                            src={w.opponent_alliance_flag_url}
+                            alt=""
+                            w={18}
+                            h={18}
+                          />
+                          <Text size="xs" c={allianceText} lineClamp={1}>
+                            {w.opponent_alliance_name}
+                          </Text>
+                        </Group>
+                      ) : null}
+                    </Stack>
+                  </Group>
+                  <Stack gap={4}>
+                    <Group justify="space-between" gap="xs" wrap="nowrap">
+                      <Text size="10px" c={subtleText} tt="uppercase" fw={600}>
+                        Resistance
+                      </Text>
+                      <Text size="10px" c={subtleText} ff="monospace" fw={500}>
+                        {res}/100
+                      </Text>
+                    </Group>
+                    <Progress
+                      value={res}
+                      size="xs"
+                      color={offensive ? "blue" : "red"}
+                      styles={progressStyles}
+                    />
+                    <Group justify="space-between" gap="xs" wrap="nowrap">
+                      <Text size="10px" c={subtleText} tt="uppercase" fw={600}>
+                        MAPs
+                      </Text>
+                      <Text size="10px" c={subtleText} ff="monospace" fw={500}>
+                        {maps}/12
+                      </Text>
+                    </Group>
+                    <Progress
+                      value={(maps / 12) * 100}
+                      size="xs"
+                      color={offensive ? "blue" : "red"}
+                      styles={progressStyles}
+                    />
+                  </Stack>
+                </Stack>
+              </Paper>
+            );
+          })}
+        </Group>
+      )}
+    </Stack>
+  );
+}
+
 export function DamagePage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -902,7 +1366,7 @@ export function DamagePage() {
         : Promise.resolve([]),
     enabled: debouncedInputNation2.length >= 1,
   });
-  const { data: linkedNationData } = useQuery({
+  const { data: linkedNationData, isFetched: linkedNationFetched } = useQuery({
     queryKey: ["linkedNation"],
     queryFn: async () => {
       try {
@@ -913,6 +1377,31 @@ export function DamagePage() {
     },
     retry: false,
   });
+
+  const showLinkedWarPresets = Boolean(
+    linkedNationData?.linked && linkedNationData?.nation_id,
+  );
+
+  const linkedWarsQuery = useQuery<DamageLinkedActiveWarsResponse>({
+    queryKey: ["damage-linked-wars", linkedNationData?.nation_id],
+    queryFn: fetchLinkedActiveWars,
+    enabled: showLinkedWarPresets,
+    staleTime: 120_000,
+    retry: false,
+  });
+
+  const onSelectLinkedWar = useCallback(
+    (w: DamageLinkedWarPreset) => {
+      const raw = linkedNationData?.nation_id;
+      const linkedId =
+        raw != null && String(raw).trim() !== ""
+          ? Number(String(raw).trim())
+          : NaN;
+      if (!Number.isFinite(linkedId) || linkedId <= 0) return;
+      navigate(`/damage?nation1=${linkedId}&nation2=${w.opponent_id}`);
+    },
+    [navigate, linkedNationData?.nation_id],
+  );
 
   const inputNation1OptionsData = useMemo(
     () =>
@@ -1056,6 +1545,10 @@ export function DamagePage() {
         <Stack gap="lg">
           <Title order={1}>Damage Calculator</Title>
 
+          {linkedNationFetched && !linkedNationData?.linked ? (
+            <DamageDiscordPerkPromo />
+          ) : null}
+
           <Paper p="md" withBorder>
             <form onSubmit={handleSubmit}>
               <Stack gap="md">
@@ -1111,6 +1604,19 @@ export function DamagePage() {
             </form>
           </Paper>
 
+          {showLinkedWarPresets ? (
+            <Paper p="md" withBorder>
+              <DamageWarPresetsSection
+                wars={linkedWarsQuery.data?.wars ?? []}
+                isLoading={linkedWarsQuery.isLoading}
+                isError={linkedWarsQuery.isError}
+                error={linkedWarsQuery.error}
+                onRetry={() => void linkedWarsQuery.refetch()}
+                onSelectWar={onSelectLinkedWar}
+              />
+            </Paper>
+          ) : null}
+
           <Stack gap="md">
             <Title order={2}>Damage Analysis</Title>
             <Text c="dimmed">
@@ -1127,7 +1633,60 @@ export function DamagePage() {
   if (isLoading) {
     return (
       <Container size="xl" py="md">
-        <DamagePageSkeleton showPageHeader animated />
+        <Stack gap="md">
+          <DamageCalculatorPageHeader />
+
+          <Paper p="lg" withBorder radius="md">
+            <Stack gap="lg">
+              <div>
+                <Title order={3}>Damage Inputs</Title>
+                <Text size="sm" c="dimmed">
+                  Adjust the assumptions below and re-run the calculator with
+                  custom inputs.
+                </Text>
+              </div>
+
+              <DamageNationSearchRow
+                form={form}
+                nation1Query={nation1Query}
+                nation2Query={nation2Query}
+                onCommitNation1={(value) => {
+                  setHasTouchedNation1Input(true);
+                  commitNation1Query(value);
+                }}
+                onCommitNation2={commitNation2Query}
+              />
+
+              {showLinkedWarPresets ? (
+                <Paper p="md" withBorder radius="md">
+                  <DamageWarPresetsSection
+                    wars={linkedWarsQuery.data?.wars ?? []}
+                    isLoading={linkedWarsQuery.isLoading}
+                    isError={linkedWarsQuery.isError}
+                    error={linkedWarsQuery.error}
+                    onRetry={() => void linkedWarsQuery.refetch()}
+                    onSelectWar={onSelectLinkedWar}
+                    selectedNation1Id={parsedNation1}
+                    selectedNation2Id={parsedNation2}
+                  />
+                </Paper>
+              ) : null}
+
+              <Paper p="md" withBorder radius="md">
+                <Group gap="sm" wrap="nowrap">
+                  <Loader size="sm" />
+                  <Text size="sm" c="dimmed">
+                    Loading nation stats and form defaults…
+                  </Text>
+                </Group>
+              </Paper>
+            </Stack>
+          </Paper>
+
+          <Paper p="lg" withBorder radius="md">
+            <DamagePageSkeleton variant="results" animated />
+          </Paper>
+        </Stack>
       </Container>
     );
   }
@@ -1170,15 +1729,7 @@ export function DamagePage() {
   return (
     <Container size="xl" py="md">
       <Stack gap="md">
-        <Group justify="space-between" align="flex-start">
-          <Stack gap="xs">
-            <Title order={2}>Damage Calculator</Title>
-            <Text c="dimmed">
-              Analyze war damage between two nations. Use this to plan attacks
-              and maximize efficiency.
-            </Text>
-          </Stack>
-        </Group>
+        <DamageCalculatorPageHeader />
 
         <Paper p="lg" withBorder radius="md">
           <form onSubmit={form.onSubmit(handleCalculate)}>
@@ -1191,53 +1742,31 @@ export function DamagePage() {
                 </Text>
               </div>
 
-              <Paper p="md" withBorder radius="md">
-                <Stack gap="sm">
-                  <Flex
-                    direction={{ base: "column", sm: "row" }}
-                    gap="sm"
-                    align={{ base: "stretch", sm: "flex-end" }}
-                    wrap="nowrap"
-                  >
-                    <Box flex={{ sm: 1 }} miw={{ sm: 0 }}>
-                      <NationAutocompleteField
-                        label="Nation 1 ID, name, or leader"
-                        value={nation1Query}
-                        onCommit={(value) => {
-                          setHasTouchedNation1Input(true);
-                          commitNation1Query(value);
-                        }}
-                      />
-                    </Box>
-                    <Box flex={{ sm: 1 }} miw={{ sm: 0 }}>
-                      <NationAutocompleteField
-                        label="Nation 2 ID, name, or leader"
-                        value={nation2Query}
-                        onCommit={commitNation2Query}
-                      />
-                    </Box>
-                    <Button
-                      variant="light"
-                      type="button"
-                      onClick={async () => {
-                        const nation1Id =
-                          form.values.nation1Id ||
-                          (await resolveNationId(nation1Query));
-                        const nation2Id =
-                          form.values.nation2Id ||
-                          (await resolveNationId(nation2Query));
-                        if (nation1Id && nation2Id) {
-                          navigate(
-                            `/damage?nation1=${nation1Id}&nation2=${nation2Id}`,
-                          );
-                        }
-                      }}
-                    >
-                      Reload Nations
-                    </Button>
-                  </Flex>
-                </Stack>
-              </Paper>
+              <DamageNationSearchRow
+                form={form}
+                nation1Query={nation1Query}
+                nation2Query={nation2Query}
+                onCommitNation1={(value) => {
+                  setHasTouchedNation1Input(true);
+                  commitNation1Query(value);
+                }}
+                onCommitNation2={commitNation2Query}
+              />
+
+              {showLinkedWarPresets ? (
+                <Paper p="md" withBorder radius="md">
+                  <DamageWarPresetsSection
+                    wars={linkedWarsQuery.data?.wars ?? []}
+                    isLoading={linkedWarsQuery.isLoading}
+                    isError={linkedWarsQuery.isError}
+                    error={linkedWarsQuery.error}
+                    onRetry={() => void linkedWarsQuery.refetch()}
+                    onSelectWar={onSelectLinkedWar}
+                    selectedNation1Id={parsedNation1}
+                    selectedNation2Id={parsedNation2}
+                  />
+                </Paper>
+              ) : null}
 
               <Grid gutter="lg">
                 <Grid.Col span={{ base: 12, md: 6 }}>

@@ -13,6 +13,8 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from api.security import optional_discord_session
+from database.mongo import get_sync_db
 from logic import queries
 from api.calculations.damage_calc import calculate_damage
 from database.sqlite_cache import get_all_nations
@@ -209,6 +211,106 @@ def calculate_damage_custom() -> tuple[Any, int]:
         }), 500
 
 
+@damage_bp.route('/linked-active-wars', methods=['GET'])
+@optional_discord_session
+def get_linked_active_wars() -> tuple[Any, int]:
+    """Active wars for the Discord-linked nation (live PnW), for damage presets."""
+    user_id = getattr(request, "session_user_id", None)
+    if user_id is None:
+        return jsonify({
+            "linked": False,
+            "nation_id": None,
+            "wars": [],
+        }), 200
+
+    mongo_db = get_sync_db()
+    if mongo_db is None:
+        return jsonify({
+            "error": "Database unavailable",
+            "message": "MongoDB is not configured.",
+            "code": "DB_UNAVAILABLE",
+        }), 503
+
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": "Invalid user id",
+            "message": "user_id must be numeric.",
+            "code": "INVALID_USER",
+        }), 400
+
+    profile = mongo_db.global_users.find_one({"user": uid}) or {}
+    raw_nid = profile.get("id")
+    nation_id_text = str(raw_nid).strip() if raw_nid is not None else ""
+    if not nation_id_text:
+        return jsonify({
+            "linked": False,
+            "nation_id": None,
+            "wars": [],
+        }), 200
+
+    try:
+        linked_id = int(nation_id_text)
+    except ValueError:
+        return jsonify({
+            "linked": False,
+            "nation_id": None,
+            "wars": [],
+        }), 200
+
+    if not _API_KEY:
+        return jsonify({
+            "error": "Configuration error",
+            "message": "API_KEY is not set.",
+            "code": "CONFIG_ERROR",
+        }), 503
+
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        raw_wars = loop.run_until_complete(
+            _fetch_linked_nation_active_wars_raw(linked_id)
+        )
+    except RuntimeError as exc:
+        logger.error("linked-active-wars PnW failure: %s", exc, exc_info=True)
+        return jsonify({
+            "error": "Upstream API error",
+            "message": "Could not load active wars from Politics & War.",
+            "code": "LINKED_WARS_FETCH_FAILED",
+        }), 502
+    except Exception as exc:
+        logger.error("linked-active-wars unexpected: %s", exc, exc_info=True)
+        return jsonify({
+            "error": "Internal server error",
+            "message": "An unexpected error occurred while loading active wars.",
+            "code": "INTERNAL_ERROR",
+        }), 500
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+    seen: set = set()
+    wars_out: list[dict[str, Any]] = []
+    for war in raw_wars:
+        if not isinstance(war, dict):
+            continue
+        item = _build_linked_war_preset_item(war, linked_id)
+        if not item:
+            continue
+        key = (item["attacker_id"], item["defender_id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        wars_out.append(item)
+
+    return jsonify({
+        "linked": True,
+        "nation_id": nation_id_text,
+        "wars": wars_out,
+    }), 200
+
+
 @damage_bp.route('/nations/search', methods=['GET'])
 def search_nations() -> tuple[Any, int]:
     """
@@ -325,6 +427,249 @@ def _parse_int(value: Any) -> int | None:
         return parsed if parsed > 0 else None
     except (TypeError, ValueError):
         return None
+
+
+def _war_turns_left(war: dict[str, Any]) -> int:
+    for key in ("turns_left", "turnsleft"):
+        raw = war.get(key)
+        if raw is None:
+            continue
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _war_att_def_ids(war: dict[str, Any]) -> tuple[int | None, int | None]:
+    att = _parse_int(war.get("att_id") or war.get("attid"))
+    deff = _parse_int(war.get("def_id") or war.get("defid"))
+    return att, deff
+
+
+def _control_nation_id(war: dict[str, Any]) -> int | None:
+    for key in ("ground_control", "groundcontrol"):
+        raw = war.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            v = int(raw)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _air_superiority_id(war: dict[str, Any]) -> int | None:
+    for key in ("air_superiority", "airsuperiority"):
+        raw = war.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            v = int(raw)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _naval_blockade_id(war: dict[str, Any]) -> int | None:
+    for key in ("naval_blockade", "navalblockade"):
+        raw = war.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            v = int(raw)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _war_bool(war: dict[str, Any], *keys: str) -> bool:
+    for key in keys:
+        if key in war and war[key] is not None:
+            return bool(war[key])
+    return False
+
+
+def _war_nonneg_int(war: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        if key in war and war[key] is not None:
+            try:
+                return max(0, int(war[key]))
+            except (TypeError, ValueError):
+                continue
+    return 0
+
+
+def _normalize_damage_war_type(raw: Any) -> str:
+    s = str(raw or "ORDINARY").strip().upper()
+    if s in ("RAID", "ORDINARY", "ATTRITION"):
+        return s
+    return "ORDINARY"
+
+
+def _alliance_display(alliance: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    if not alliance:
+        return None, None
+    name = str(alliance.get("name") or "").strip()
+    acronym = str(alliance.get("acronym") or "").strip()
+    label = name or acronym or None
+    flag = str(alliance.get("flag") or "").strip() or None
+    return label, flag
+
+
+def _nation_flag_name(
+    nation: dict[str, Any],
+) -> tuple[str | None, str | None, str | None]:
+    nid = _parse_int(nation.get("id"))
+    nname = str(nation.get("nation_name") or nation.get("nationName") or "").strip()
+    flag = str(nation.get("flag") or "").strip() or None
+    return (str(nid) if nid else None), (nname or None), flag
+
+
+def _opponent_nation_blob(
+    war: dict[str, Any], linked_id: int
+) -> dict[str, Any]:
+    attacker = war.get("attacker") if isinstance(war.get("attacker"), dict) else {}
+    defender = war.get("defender") if isinstance(war.get("defender"), dict) else {}
+    att_id, def_id = _war_att_def_ids(war)
+    if att_id == linked_id:
+        return defender
+    if def_id == linked_id:
+        return attacker
+    return {}
+
+
+def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[str, Any] | None:
+    att_id, def_id = _war_att_def_ids(war)
+    if not att_id or not def_id:
+        return None
+    if linked_id not in (att_id, def_id):
+        return None
+    if _war_turns_left(war) <= 0:
+        return None
+
+    opp = _opponent_nation_blob(war, linked_id)
+    opp_id = _parse_int(opp.get("id"))
+    if not opp_id:
+        opp_id = def_id if att_id == linked_id else att_id
+    _, opp_name, opp_flag = _nation_flag_name(opp) if opp else (None, None, None)
+    if not opp_name:
+        opp_name = f"Nation {opp_id}"
+    alliance = opp.get("alliance") if isinstance(opp.get("alliance"), dict) else None
+    al_name, al_flag = _alliance_display(alliance)
+
+    wtype = _normalize_damage_war_type(war.get("war_type") or war.get("warType"))
+    gc = _control_nation_id(war)
+    air = _air_superiority_id(war)
+    naval = _naval_blockade_id(war)
+
+    war_payload = {
+        "attackerId": att_id,
+        "defenderId": def_id,
+        "warType": wtype,
+        "groundControlId": gc,
+        "airSuperiorityId": air,
+        "navalBlockadeId": naval,
+        "attackerFortified": _war_bool(war, "att_fortify", "attFortify"),
+        "defenderFortified": _war_bool(war, "def_fortify", "defFortify"),
+        "attackerPeace": _war_bool(war, "att_peace", "attpeace", "attPeace"),
+        "defenderPeace": _war_bool(war, "def_peace", "defpeace", "defPeace"),
+    }
+
+    wid = war.get("id")
+    try:
+        war_id = int(wid) if wid is not None else None
+    except (TypeError, ValueError):
+        war_id = None
+
+    linked_is_attacker = att_id == linked_id
+    if linked_is_attacker:
+        linked_resistance = _war_nonneg_int(
+            war, "att_resistance", "attResistance"
+        )
+        linked_maps = _war_nonneg_int(
+            war, "att_points", "attpoints", "attPoints"
+        )
+        linked_stance = "offensive"
+    else:
+        linked_resistance = _war_nonneg_int(
+            war, "def_resistance", "defResistance"
+        )
+        linked_maps = _war_nonneg_int(
+            war, "def_points", "defpoints", "defPoints"
+        )
+        linked_stance = "defensive"
+
+    return {
+        "war_id": war_id,
+        "attacker_id": att_id,
+        "defender_id": def_id,
+        "opponent_id": opp_id,
+        "opponent_name": opp_name,
+        "opponent_flag_url": opp_flag,
+        "opponent_alliance_name": al_name,
+        "opponent_alliance_flag_url": al_flag,
+        "linked_stance": linked_stance,
+        "linked_resistance": linked_resistance,
+        "linked_maps": linked_maps,
+        "war": war_payload,
+    }
+
+
+async def _fetch_linked_nation_active_wars_raw(nation_id: int) -> list[dict[str, Any]]:
+    query = f"""
+{{
+  nations(id: [{nation_id}]) {{
+    data {{
+      id
+      wars(active: true, limit: 40) {{
+        id
+        war_type
+        turns_left
+        att_id
+        def_id
+        ground_control
+        air_superiority
+        naval_blockade
+        att_peace
+        def_peace
+        att_fortify
+        def_fortify
+        att_resistance
+        def_resistance
+        att_points
+        def_points
+        attacker {{
+          id
+          nation_name
+          flag
+          alliance {{ name acronym flag }}
+        }}
+        defender {{
+          id
+          nation_name
+          flag
+          alliance {{ name acronym flag }}
+        }}
+      }}
+    }}
+  }}
+}}
+"""
+    response = await _call_pnw(query)
+    if response.get("errors"):
+        err = response["errors"]
+        logger.error("PnW linked-active-wars GraphQL errors: %s", err)
+        raise RuntimeError("Politics & War API returned errors for active wars query")
+    nations = (
+        (response.get("data") or {}).get("nations") or {}
+    ).get("data") or []
+    if not nations:
+        return []
+    return nations[0].get("wars") or []
 
 
 def _apply_nation_overrides(nation: dict[str, Any], overrides: dict[str, Any]) -> None:

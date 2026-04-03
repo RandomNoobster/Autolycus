@@ -411,6 +411,31 @@ export interface DamageWarInput {
   defenderPeace: boolean;
 }
 
+/** One active war row from GET /api/damage/linked-active-wars (preset for calculator). */
+export interface DamageLinkedWarPreset {
+  war_id: number | null;
+  attacker_id: number;
+  defender_id: number;
+  opponent_id: number;
+  opponent_name: string;
+  opponent_flag_url: string | null;
+  opponent_alliance_name: string | null;
+  opponent_alliance_flag_url: string | null;
+  /** Linked nation is war declarer (attacker) vs defender. */
+  linked_stance: 'offensive' | 'defensive';
+  /** Remaining resistance for the linked nation’s side (game scale 0–100). */
+  linked_resistance: number;
+  /** MAPs remaining for the linked nation’s side (max 12). */
+  linked_maps: number;
+  war: DamageWarInput;
+}
+
+export interface DamageLinkedActiveWarsResponse {
+  linked: boolean;
+  nation_id: string | null;
+  wars: DamageLinkedWarPreset[];
+}
+
 export interface DamageCalculationInput {
   nation1Id: number;
   nation2Id: number;

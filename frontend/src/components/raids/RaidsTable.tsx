@@ -17,6 +17,7 @@ import {
   type MRT_TableInstance,
 } from 'mantine-react-table';
 import {
+  ActionIcon,
   Anchor,
   Badge,
   Text,
@@ -37,6 +38,7 @@ import {
   IconBell,
   IconBellOff,
   IconBrandDiscord,
+  IconDownload,
   IconExternalLink,
   IconInfoCircle,
 } from '@tabler/icons-react';
@@ -47,6 +49,7 @@ import { addReminder, removeReminder } from '@/api';
 import { getDiscordLoginUrl } from '@/api/auth';
 import { internalNavPath } from '@/lib/internalNavPath';
 import { parseNumericValue } from '@/lib/raidFilterParsing';
+import { buildRaidsCsv, downloadCsv, raidsCsvFilename } from '@/lib/raidsCsvExport';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: 'auto',
@@ -312,6 +315,7 @@ function RaidsTableToolbarInternalActions({ table }: { table: MRT_TableInstance<
     getInitialValueInEffect: false,
   });
   const showLabels = !isMobile;
+  const canExportCsv = table.getPrePaginationRowModel().rows.length > 0;
 
   const {
     columnFilterDisplayMode,
@@ -380,6 +384,27 @@ function RaidsTableToolbarInternalActions({ table }: { table: MRT_TableInstance<
         )}
         {enableDensityToggle && <MRT_ToggleDensePaddingButton key="density" table={table} />}
         {enableFullScreenToggle && <MRT_ToggleFullScreenButton key="fullscreen" table={table} />}
+        <Tooltip
+          key="csv"
+          label={
+            canExportCsv
+              ? 'Download filtered rows as CSV (includes all pages)'
+              : 'No rows match the current filters'
+          }
+          withinPortal
+        >
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="lg"
+            radius="sm"
+            disabled={!canExportCsv}
+            aria-label="Download CSV"
+            onClick={() => downloadCsv(raidsCsvFilename(), buildRaidsCsv(table))}
+          >
+            <IconDownload size={TOOLBAR_ICON_SZ} />
+          </ActionIcon>
+        </Tooltip>
       </>
     );
   }
@@ -435,6 +460,28 @@ function RaidsTableToolbarInternalActions({ table }: { table: MRT_TableInstance<
           </Button>
         </Tooltip>
       )}
+      <Tooltip
+        key="csv"
+        label={
+          canExportCsv
+            ? 'Download filtered rows as CSV (includes all pages)'
+            : 'No rows match the current filters'
+        }
+        withinPortal
+      >
+        <Button
+          variant="subtle"
+          color="gray"
+          size="sm"
+          fw={500}
+          disabled={!canExportCsv}
+          aria-label="Download CSV"
+          leftSection={<IconDownload size={TOOLBAR_ICON_SZ} />}
+          onClick={() => downloadCsv(raidsCsvFilename(), buildRaidsCsv(table))}
+        >
+          CSV
+        </Button>
+      </Tooltip>
       {(enableHiding || enableColumnOrdering || enableColumnPinning) && (
         <Menu key="columns" closeOnItemClick={false} withinPortal>
           <Tooltip label={showHideColumns} withinPortal>
@@ -1124,6 +1171,9 @@ export function RaidsTable({
       radius: 'md',
       withBorder: true,
       px: 'lg',
+    },
+    mantineTopToolbarProps: {
+      className: 'raids-mrt-top-toolbar',
     },
     renderToolbarInternalActions,
   });

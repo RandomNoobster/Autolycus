@@ -3,6 +3,40 @@ from __future__ import annotations
 import discord
 
 EMBED_COLOR = 0xff5100
+SUCCESS_EMBED_COLOR = 0x57F287
+UNLINK_EMBED_COLOR = 0x5865F2
+_DEFAULT_EMBED_FOOTER = "Contact randomnoobster for help or bug reports"
+
+
+def verification_success_embed(*, relinked: bool) -> discord.Embed:
+    if relinked:
+        title = "Verification updated"
+        description = (
+            "Your Discord account is now linked to your **new** nation. "
+            'Commands that use "you" will target this nation from now on.'
+        )
+    else:
+        title = "Nation linked"
+        description = (
+            "Your Discord account is linked to your Politics & War nation. "
+            "Autolycus can recognize you in slash commands that need a nation."
+        )
+    embed = discord.Embed(title=title, description=description, color=SUCCESS_EMBED_COLOR)
+    embed.set_footer(text=_DEFAULT_EMBED_FOOTER)
+    return embed
+
+
+def verification_unlinked_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title="Account unlinked",
+        description=(
+            "Your Discord account is no longer tied to a Politics & War nation. "
+            "Run `/verify` whenever you want to link again."
+        ),
+        color=UNLINK_EMBED_COLOR,
+    )
+    embed.set_footer(text=_DEFAULT_EMBED_FOOTER)
+    return embed
 
 
 def embed_pager(title: str, fields: list[dict[str, str]], description: str = "", color: int = EMBED_COLOR, inline: bool = True) -> list[discord.Embed]:

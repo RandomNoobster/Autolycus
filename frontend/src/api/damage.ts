@@ -3,7 +3,11 @@
  */
 
 import { apiGet, apiPost } from './client';
-import type { DamageCalculationInput, DamageResponse } from '@/types';
+import type {
+  DamageCalculationInput,
+  DamageLinkedActiveWarsResponse,
+  DamageResponse,
+} from '@/types';
 
 /**
  * Fetch damage calculator data.
@@ -23,6 +27,11 @@ export function calculateDamage(
   input: DamageCalculationInput
 ): Promise<DamageResponse> {
   return apiPost<DamageResponse, DamageCalculationInput>('/api/damage/calculate', input);
+}
+
+/** Active wars for the Discord-linked nation (session cookie). */
+export function fetchLinkedActiveWars(): Promise<DamageLinkedActiveWarsResponse> {
+  return apiGet<DamageLinkedActiveWarsResponse>('/api/damage/linked-active-wars');
 }
 
 export interface NationSearchResult {

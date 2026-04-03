@@ -101,6 +101,28 @@ body {
   flex-shrink: 0;
 }
 
+/*
+ * Raids top toolbar: MRT table paper uses overflow:hidden, and the toolbar action row is flex
+ * with nowrap + min-width:auto on children, so buttons were clipped. Wrap the row and allow
+ * the right-side cluster to shrink so inner controls (Group) can wrap.
+ */
+.raids-mrt-top-toolbar [class*='actions-container'] {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 6px;
+  column-gap: 4px;
+}
+
+.raids-mrt-top-toolbar [class*='actions-container'] > *:last-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.raids-mrt-top-toolbar .mrt-toolbar-internal-buttons {
+  min-width: 0;
+}
+
 /* Link styling — Mantine v7 Button/Text/Anchor roots often set data-variant on <a>.
    Global color + underline on :hover fights Button variant hover (dim) and adds underlines. */
 a:not([data-variant]) {

@@ -24,7 +24,7 @@ from database import sqlite_cache as db_utils
 from database.users import delete_verification
 from bot.discord_utils import help_data, helpers
 from bot.discord_utils import errors as err_util
-from bot.discord_utils.embeds import nation_overview_embed
+from bot.discord_utils.embeds import nation_overview_embed, verification_success_embed, verification_unlinked_embed
 from bot.discord_utils.loading_display import LoadingDisplay
 from logic.api_client import call, paginate_call
 from logic.builds import calculate_builds as calculate_builds_logic
@@ -504,33 +504,59 @@ class Background(commands.Cog):
             )
 
             if result["ok"]:
-                if result["relinked"]:
-                    await ctx.respond("Verification updated! Your Discord account is now linked to the new nation.")
-                else:
-                    await ctx.respond("You have successfully verified your nation!")
+                embed = verification_success_embed(relinked=result["relinked"])
+                await ctx.respond(embed=embed)
                 return
 
             code = result["code"]
             resolved_nation_id = result["nation_id"] or nation_id
             if code == "OWNERSHIP_MISMATCH":
-                await ctx.respond(
-                    f'1. Go to <https://politicsandwar.com/nation/edit/>\n'
-                    f'2. Scroll down to where it says "Discord Username"\n'
-                    f'3. Type `{ctx.author.name}` in the adjacent field\n'
-                    f'4. Come back to discord\n'
-                    f'5. Type `/verify {resolved_nation_id}` again'
+                steps = (
+                    f"1. Go to [nation settings](https://politicsandwar.com/nation/edit/)\n"
+                    f'2. Find **Discord Username** and set it to `{ctx.author.name}`\n'
+                    f"3. Save, then run `/verify {resolved_nation_id}` again here"
                 )
+                embed = discord.Embed(
+                    title="Discord name does not match",
+                    description=(
+                        "We require your in-game **Discord Username** field to match "
+                        "your Discord name before we can link the account.\n\n" + steps
+                    ),
+                    color=0xFEE75C,
+                )
+                embed.set_footer(text="Contact randomnoobster for help or bug reports")
+                await ctx.respond(embed=embed)
                 return
             if code == "NOT_FOUND":
-                await ctx.respond(f"I could not find a nation with an id of `{resolved_nation_id}`")
+                await ctx.respond(
+                    embed=err_util.error_embed(
+                        "Nation not found",
+                        f"There is no nation with id `{resolved_nation_id}`. Check the id or link and try again.",
+                    )
+                )
                 return
             if code == "LINK_CONFLICT":
-                await ctx.respond("That nation is already linked to another Discord account.")
+                await ctx.respond(
+                    embed=err_util.error_embed(
+                        "Already linked",
+                        "That nation is already linked to a different Discord account.",
+                    )
+                )
                 return
             if code == "INVALID_NATION_ID":
-                await ctx.respond("Please provide a valid nation id or nation link.")
+                await ctx.respond(
+                    embed=err_util.error_embed(
+                        "Invalid input",
+                        "Please provide a valid nation id or a politicsandwar.com nation URL.",
+                    )
+                )
                 return
-            await ctx.respond("Verification failed. Please try again in a moment.")
+            await ctx.respond(
+                embed=err_util.error_embed(
+                    "Verification failed",
+                    "Something went wrong. Please try again in a moment.",
+                )
+            )
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="verify")
             return
@@ -551,9 +577,14 @@ class Background(commands.Cog):
         try:
             user = await delete_verification(ctx.author.id)
             if user is None:
-                await ctx.respond("You are not verified!")
+                await ctx.respond(
+                    embed=err_util.error_embed(
+                        "Not linked",
+                        "Your Discord account is not linked to any nation. Use `/verify` to link one.",
+                    )
+                )
             else:
-                await ctx.respond("Your discord account was successfully unlinked from your nation.")
+                await ctx.respond(embed=verification_unlinked_embed())
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="unverify")
             return

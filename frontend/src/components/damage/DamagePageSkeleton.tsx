@@ -81,17 +81,27 @@ function ScenarioTableSkeleton({ animate }: { animate: boolean }) {
   );
 }
 
+export type DamagePageSkeletonVariant = 'full' | 'results';
+
 export interface DamagePageSkeletonProps {
   /** When true, reserve space for the page title + subtitle (full-page loading). */
   showPageHeader?: boolean;
   /** Pulse/shimmer; use only while data is loading (not for static preview before submit). */
   animated?: boolean;
+  /**
+   * `full` — placeholder for the whole calculator (e.g. before nations are chosen).
+   * `results` — chart + tables only (page chrome and nation fields stay real).
+   */
+  variant?: DamagePageSkeletonVariant;
 }
 
 export function DamagePageSkeleton({
   showPageHeader = false,
   animated = false,
+  variant = 'full',
 }: DamagePageSkeletonProps) {
+  const resultsOnly = variant === 'results';
+
   return (
     <Stack gap="lg">
       {showPageHeader ? (
@@ -101,13 +111,17 @@ export function DamagePageSkeleton({
         </Stack>
       ) : null}
 
-      <Group gap="xs" wrap="nowrap">
-        <Skeleton height={36} w={108} radius="md" animate={animated} />
-        <Skeleton height={36} w={124} radius="md" animate={animated} />
-        <Skeleton height={36} w={88} radius="md" animate={animated} />
-      </Group>
+      {!resultsOnly ? (
+        <>
+          <Group gap="xs" wrap="nowrap">
+            <Skeleton height={36} w={108} radius="md" animate={animated} />
+            <Skeleton height={36} w={124} radius="md" animate={animated} />
+            <Skeleton height={36} w={88} radius="md" animate={animated} />
+          </Group>
 
-      <Skeleton height={14} maw={480} w="100%" radius="sm" animate={animated} />
+          <Skeleton height={14} maw={480} w="100%" radius="sm" animate={animated} />
+        </>
+      ) : null}
 
       <ChartSkeleton animate={animated} />
 
