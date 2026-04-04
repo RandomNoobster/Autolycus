@@ -74,6 +74,7 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL-}
         VITE_AUTH_TOKEN_API_KEY: ${VITE_AUTH_TOKEN_API_KEY-}
+        VITE_SITE_ORIGIN: ${VITE_SITE_ORIGIN:-${AUTOLYCUS_WEB_BASE_URL:-}}
     ports:
       - "8080:80"
     expose:

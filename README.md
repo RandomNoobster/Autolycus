@@ -65,6 +65,7 @@ Optional but needed for some features:
 - `DISCORD_BOT_API_KEY` — shared secret for bot-only auth endpoints (legacy token issuance; not required for website `/raids` login)
 - `AUTH_TOKEN_API_KEY` — shared secret for `POST /api/auth/token/generate` if you use that flow from the web app
 - `VITE_API_URL` / `VITE_AUTH_TOKEN_API_KEY` — frontend build-time values (usually left empty for same-origin `/api`)
+- `VITE_SITE_ORIGIN` — public site URL without a trailing slash (for `og:image`, canonical links in `index.html`). Docker builds can inherit this from `AUTOLYCUS_WEB_BASE_URL` when `VITE_SITE_ORIGIN` is unset
 - `REDIS_URL` — optional Redis cache backend (leave unset for in-memory cache in local dev)
 
 ### 3) Run services
@@ -236,6 +237,8 @@ WAITRESS_CHANNEL_TIMEOUT=30
 # Frontend (build-time)
 # Leave VITE_API_URL empty to use same-domain /api via reverse proxy
 VITE_API_URL=
+# Optional: explicit origin for social previews (compose can use AUTOLYCUS_WEB_BASE_URL instead)
+# VITE_SITE_ORIGIN=https://your-host
 # If you set AUTH_TOKEN_API_KEY above, set the same secret here so the SPA can call token generation
 VITE_AUTH_TOKEN_API_KEY=
 

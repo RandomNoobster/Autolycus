@@ -90,6 +90,7 @@ Table preferences (column visibility, order, density) are saved to localStorage.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VITE_API_URL` | API base URL | (empty, uses proxy) |
+| `VITE_SITE_ORIGIN` | Public site origin for `index.html` social meta (no trailing slash) | (empty → relative URLs in `dist/index.html`) |
 
 ## API Proxy
 
