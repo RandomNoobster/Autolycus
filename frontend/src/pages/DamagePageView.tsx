@@ -1048,8 +1048,7 @@ function DamageDiscordPerkPromo() {
               </div>
               <Text size="sm" c="dimmed">
                 Link your P&amp;W nation through Discord to open the damage
-                calculator on any active war in one click — with nation and
-                alliance flags.
+                calculator on any active war in one click.
               </Text>
             </Stack>
           </Group>
@@ -1089,7 +1088,7 @@ function DamageDiscordPerkPromo() {
             Continue with Discord
           </Button>
           <Text size="xs" c="dimmed">
-            We use Discord to attach your nation to your browser session.
+            We use Discord to link your nation to this browser session.
           </Text>
         </Stack>
       </Stack>
@@ -1617,6 +1616,8 @@ export function DamagePage() {
     },
     retry: false,
     enabled: !!nation1 && !!nation2,
+    staleTime: 120_000,
+    gcTime: 600_000,
   });
 
   useEffect(() => {

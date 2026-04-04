@@ -443,6 +443,12 @@ export interface DamageLinkedActiveWarsResponse {
   wars: DamageLinkedWarPreset[];
 }
 
+/** GET /api/stats/public */
+export interface PublicStatsResponse {
+  /** Count of MongoDB ``global_users`` documents; null if unavailable. */
+  registered_users: number | null;
+}
+
 export interface DamageCalculationInput {
   nation1Id: number;
   nation2Id: number;

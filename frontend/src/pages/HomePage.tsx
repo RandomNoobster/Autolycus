@@ -26,6 +26,8 @@ import {
   IconBrandDiscord,
   IconStar,
 } from '@tabler/icons-react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchPublicStats } from '@/api';
 import { getDiscordLoginUrl } from '@/api/auth';
 import { readDiscordSessionHint, useSidebarDiscordSession } from '@/hooks';
 import { internalNavPath } from '@/lib/internalNavPath';
@@ -64,6 +66,43 @@ const features = [
     color: 'orange',
   },
 ];
+
+/** Social proof from GET /api/stats/public (Mongo ``global_users`` count). */
+function HomeRegisteredUsersBlurb({
+  count,
+  isLoading,
+}: {
+  count: number | null;
+  isLoading: boolean;
+}) {
+  if (isLoading) return null;
+  if (count === null) return null;
+  if (count <= 0) {
+    return (
+      <Text size="sm" c="dimmed" maw={520}>
+        Be among the first registered users—link your nation with Discord.
+      </Text>
+    );
+  }
+  const formatted = count.toLocaleString();
+  const rest =
+    count === 1
+      ? ' other registered user already using Autolycus with Discord.'
+      : ' other registered users already using Autolycus with Discord.';
+  return (
+    <Text size="sm" maw={520}>
+      <Text span c="dimmed">
+        Join{' '}
+      </Text>
+      <Text span fw={700}>
+        {formatted}
+      </Text>
+      <Text span c="dimmed">
+        {rest}
+      </Text>
+    </Text>
+  );
+}
 
 function HomeRemindersGuestCard() {
   const { colorScheme } = useMantineColorScheme();
@@ -158,6 +197,15 @@ export function HomePage() {
     discordSession.status === 'guest' ||
     (discordSession.status === 'loading' && readDiscordSessionHint() !== 'signed_in');
 
+  const publicStatsQuery = useQuery({
+    queryKey: ['home', 'public-stats'],
+    queryFn: fetchPublicStats,
+    staleTime: 300_000,
+    gcTime: 600_000,
+  });
+  const registeredUsers = publicStatsQuery.data?.registered_users ?? null;
+  const isLoadingPublicStats = publicStatsQuery.isLoading;
+
   const handleNavigate = (path: string) => {
     navigate(internalNavPath(path, location.search));
   };
@@ -192,6 +240,10 @@ export function HomePage() {
             Your comprehensive toolkit for Politics & War. Access raid targets,
             city builds, and damage calculations.
           </Text>
+          <HomeRegisteredUsersBlurb
+            count={registeredUsers}
+            isLoading={isLoadingPublicStats}
+          />
         </Stack>
 
         <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="lg" w="100%">

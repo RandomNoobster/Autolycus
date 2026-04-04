@@ -25,6 +25,7 @@ import {
   Skeleton,
   TextInput,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { IconX, IconBrandDiscord, IconDownload, IconInfoCircle } from '@tabler/icons-react';
@@ -215,6 +216,9 @@ export function RaidsPage() {
   const [appliedNationId, setAppliedNationId] = useState(resolvedNationId);
   const [draftNationId, setDraftNationId] = useState(resolvedNationId);
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const isNarrowNationCard = useMediaQuery('(max-width: 48em)', false, {
+    getInitialValueInEffect: false,
+  });
 
   useEffect(() => {
     const nextNationId = attackerNationIdParam || linkedNationId || savedNationId;
@@ -790,11 +794,43 @@ export function RaidsPage() {
     <Container size="xl" py="md">
       <Stack gap="md">
         {/* Nation Configuration */}
-        <Paper withBorder radius="md" p="lg" style={{ position: 'relative' }}>
+        <Paper withBorder radius="md" p="lg">
           <Stack gap="xs">
-            <Group gap="xs">
-              <Title order={3}>Your Nation</Title>
-              <Badge color="blue" variant="light">Optional</Badge>
+            <Group
+              justify={isNarrowNationCard ? 'flex-start' : 'space-between'}
+              align="flex-start"
+              wrap="wrap"
+              gap="sm"
+            >
+              <Group gap="xs" wrap="wrap" align="center">
+                <Title order={3} style={{ lineHeight: 1.2 }}>
+                  Your Nation
+                </Title>
+                <Badge color="blue" variant="light">
+                  Optional
+                </Badge>
+              </Group>
+              {data?.attacker && appliedNationId && !isLoading && (
+                <Group
+                  gap="xs"
+                  wrap="wrap"
+                  align="center"
+                  justify={isNarrowNationCard ? 'flex-start' : 'flex-end'}
+                  w={isNarrowNationCard ? '100%' : 'auto'}
+                  style={{ flex: '1 1 auto', minWidth: 0, maxWidth: '100%' }}
+                >
+                  <Text
+                    size="sm"
+                    c="dimmed"
+                    style={{ wordBreak: 'break-word', maxWidth: '100%' }}
+                  >
+                    {data.attacker.nation_name}
+                  </Text>
+                  <Badge variant="light" color="blue" style={{ flexShrink: 0 }}>
+                    Score: {data.attacker.score?.toFixed(2) || 'N/A'}
+                  </Badge>
+                </Group>
+              )}
             </Group>
             <Text size="sm" c="dimmed">
               Load your nation to pull your score automatically and keep the win% + score range aligned to you.
@@ -825,17 +861,6 @@ export function RaidsPage() {
             <Alert color="yellow" variant="light" title="Temporary Override" mt="sm">
               You are currently overriding your linked nation ({linkedNationId}) for this page.
             </Alert>
-          )}
-          
-          {data?.attacker && appliedNationId && !isLoading && (
-            <Group gap="xs" style={{ position: 'absolute', top: 16, right: 16 }}>
-              <Text size="sm" c="dimmed">
-                {data.attacker.nation_name}
-              </Text>
-              <Badge variant="light" color="blue">
-                Score: {data.attacker.score?.toFixed(2) || 'N/A'}
-              </Badge>
-            </Group>
           )}
         </Paper>
 

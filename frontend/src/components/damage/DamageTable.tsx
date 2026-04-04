@@ -4,14 +4,16 @@
  * Table showing detailed attack statistics.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   MantineReactTable,
   useMantineReactTable,
   type MRT_ColumnDef,
+  type MRT_ColumnPinningState,
   type MRT_VisibilityState,
 } from 'mantine-react-table';
 import { Box, Center, Group, Text, UnstyledButton } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 
 import type { AttackStats, ResourceType } from '@/types';
@@ -135,27 +137,8 @@ const BREAKDOWN_INNER_BODY_PAD = {
   paddingLeft: COST_CLUSTER_BODY_PAD.paddingLeft + 4,
 };
 
-/**
- * Cost block wash: `fixed` ties every cell in the cluster to one viewport-aligned gradient
- * (same trick as thead). Per-cell `cover` + scroll looked like repeating ribs per column.
- * Row/cell transitions are disabled on `.damage-mrt-table` to keep hover repaints tolerable.
- */
-function costClusterHeadSurface(cluster: ReturnType<typeof getCostClusterTheme>) {
-  return {
-    backgroundImage: cluster.sectionWash,
-    backgroundAttachment: 'fixed' as const,
-    backgroundSize: 'cover' as const,
-    backgroundRepeat: 'no-repeat' as const,
-  };
-}
-
-function costClusterBodySurface(cluster: ReturnType<typeof getCostClusterTheme>) {
-  return {
-    backgroundImage: cluster.sectionWash,
-    backgroundAttachment: 'fixed' as const,
-    backgroundSize: 'cover' as const,
-    backgroundRepeat: 'no-repeat' as const,
-  };
+function costClusterFill(cluster: ReturnType<typeof getCostClusterTheme>) {
+  return { backgroundColor: cluster.costBg };
 }
 
 /* Up to 2 lines, centered; overflow ellipsis on second line (see .damage-mrt-table thead in index.css). */
@@ -292,31 +275,25 @@ function wrapWarPartyBreakdownGroup(
   onBreakdownToggle: () => void,
   leaves: MRT_ColumnDef<CombinedAttackRow>[],
 ): MRT_ColumnDef<CombinedAttackRow>[] {
-  const cellTint = headTintForSlot(nationSlot);
   const cluster = getCostClusterTheme(nationSlot);
   const sectionDividerHead = sectionStart
     ? {}
-    : { borderLeft: cluster.interNationDividerLeft };
+    : { borderLeft: cluster.hairline };
 
-  /** Attacker group: soften right seam vs defender. Defender group: soften left seam; keep strong outer right rail. */
   const mergedBreakdownGroupHeadStyle = sectionStart
     ? {
         ...COST_CLUSTER_HEAD_PAD,
-        ...cellTint,
-        ...costClusterHeadSurface(cluster),
+        ...costClusterFill(cluster),
         verticalAlign: 'middle' as const,
-        borderLeft: cluster.interNationDividerLeft,
-        borderRight: cluster.interNationBorderRight,
-        boxShadow: `${cluster.interNationRailInsetLeft}, ${cluster.interNationRailClose}`,
+        borderLeft: cluster.hairline,
+        borderRight: cluster.strongEdge,
       }
     : {
         ...COST_CLUSTER_HEAD_PAD,
-        ...cellTint,
-        ...costClusterHeadSurface(cluster),
+        ...costClusterFill(cluster),
         verticalAlign: 'middle' as const,
         ...sectionDividerHead,
-        borderRight: cluster.breakdownGroupHeadRight,
-        boxShadow: `${cluster.interNationRailInsetLeft}, ${cluster.railClose}`,
+        borderRight: cluster.strongEdge,
       };
 
   return [
@@ -348,7 +325,6 @@ function buildWarPartyBreakdownLeaves(
   sectionStart: boolean,
   breakdownExpanded: boolean,
 ): MRT_ColumnDef<CombinedAttackRow>[] {
-  const cellTint = headTintForSlot(nationSlot);
   const cluster = getCostClusterTheme(nationSlot);
   const costKey: keyof CombinedAttackRow = role === 'attacker' ? 'attackerCost' : 'defenderCost';
 
@@ -362,49 +338,29 @@ function buildWarPartyBreakdownLeaves(
   /** First column of defender block: soft seam vs attacker cost columns. */
   const sectionDividerHead = sectionStart
     ? {}
-    : { borderLeft: cluster.interNationDividerLeft };
+    : { borderLeft: cluster.hairline };
   const sectionDividerBody = sectionStart
     ? {}
-    : { borderLeft: cluster.interNationDividerLeft };
+    : { borderLeft: cluster.hairline };
 
   const lastBreakdownHeadExtra =
     role === 'defender'
       ? {}
       : {
-          borderRight: cluster.interNationBorderRight,
-          boxShadow: cluster.interNationRailClose,
+          borderRight: cluster.strongEdge,
         };
 
   const costHeaderLabel = `${partyName} Cost`;
   const sumHeaderLabel = `${partyName} Sum`;
 
-  /**
-   * Collapsed: outer vertical seam between nations uses interNation* (thinner / lower contrast).
-   * Defender Cost: left matches nation seam. Attacker Cost: left matches same seam vs Net Dealt;
-   * right matches seam vs defender Cost.
-   */
   const costLeafEdgeChrome =
     role === 'defender'
       ? breakdownExpanded
-        ? {
-            boxShadow: cluster.interNationRailInsetLeft,
-            borderRight: cluster.innerRule,
-          }
-        : {
-            boxShadow: `${cluster.interNationRailInsetLeft}, ${cluster.railClose}`,
-            borderRight: cluster.breakdownGroupHeadRight,
-          }
+        ? { borderRight: cluster.hairline }
+        : { borderRight: cluster.strongEdge }
       : breakdownExpanded
-        ? {
-            borderLeft: cluster.interNationDividerLeft,
-            boxShadow: cluster.interNationRailInsetLeft,
-            borderRight: cluster.innerRule,
-          }
-        : {
-            borderLeft: cluster.interNationDividerLeft,
-            boxShadow: `${cluster.interNationRailInsetLeft}, ${cluster.interNationRailClose}`,
-            borderRight: cluster.interNationBorderRight,
-          };
+        ? { borderLeft: cluster.hairline, borderRight: cluster.hairline }
+        : { borderLeft: cluster.hairline, borderRight: cluster.strongEdge };
 
   const costLeafColumn = {
     accessorKey: costKey,
@@ -417,8 +373,7 @@ function buildWarPartyBreakdownLeaves(
       style: {
         ...PRE_COST_BODY_PAD,
         textAlign: 'right',
-        ...cellTint,
-        ...costClusterBodySurface(cluster),
+        ...costClusterFill(cluster),
         ...costLeafEdgeChrome,
         ...sectionDividerBody,
       },
@@ -426,8 +381,7 @@ function buildWarPartyBreakdownLeaves(
     mantineTableHeadCellProps: {
       style: {
         ...PRE_COST_HEAD_PAD,
-        ...cellTint,
-        ...costClusterHeadSurface(cluster),
+        ...costClusterFill(cluster),
         ...costLeafEdgeChrome,
         ...sectionDividerHead,
         verticalAlign: 'bottom' as const,
@@ -449,15 +403,13 @@ function buildWarPartyBreakdownLeaves(
         style: {
           ...COST_CLUSTER_BODY_PAD,
           textAlign: 'right',
-          ...cellTint,
-          ...costClusterBodySurface(cluster),
+          ...costClusterFill(cluster),
         },
       },
       mantineTableHeadCellProps: {
         style: {
           ...COST_CLUSTER_HEAD_PAD,
-          ...cellTint,
-          ...costClusterHeadSurface(cluster),
+          ...costClusterFill(cluster),
           verticalAlign: 'bottom' as const,
         },
       },
@@ -474,17 +426,15 @@ function buildWarPartyBreakdownLeaves(
         style: {
           ...BREAKDOWN_INNER_BODY_PAD,
           textAlign: 'right',
-          ...cellTint,
-          ...costClusterBodySurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
         },
       },
       mantineTableHeadCellProps: {
         style: {
           ...BREAKDOWN_INNER_HEAD_PAD,
-          ...cellTint,
-          ...costClusterHeadSurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
           verticalAlign: 'bottom' as const,
         },
       },
@@ -501,17 +451,15 @@ function buildWarPartyBreakdownLeaves(
         style: {
           ...BREAKDOWN_INNER_BODY_PAD,
           textAlign: 'right',
-          ...cellTint,
-          ...costClusterBodySurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
         },
       },
       mantineTableHeadCellProps: {
         style: {
           ...BREAKDOWN_INNER_HEAD_PAD,
-          ...cellTint,
-          ...costClusterHeadSurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
           verticalAlign: 'bottom' as const,
         },
       },
@@ -528,17 +476,15 @@ function buildWarPartyBreakdownLeaves(
         style: {
           ...BREAKDOWN_INNER_BODY_PAD,
           textAlign: 'right',
-          ...cellTint,
-          ...costClusterBodySurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
         },
       },
       mantineTableHeadCellProps: {
         style: {
           ...BREAKDOWN_INNER_HEAD_PAD,
-          ...cellTint,
-          ...costClusterHeadSurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
           verticalAlign: 'bottom' as const,
         },
       },
@@ -555,17 +501,15 @@ function buildWarPartyBreakdownLeaves(
         style: {
           ...BREAKDOWN_INNER_BODY_PAD,
           textAlign: 'right',
-          ...cellTint,
-          ...costClusterBodySurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
         },
       },
       mantineTableHeadCellProps: {
         style: {
           ...BREAKDOWN_INNER_HEAD_PAD,
-          ...cellTint,
-          ...costClusterHeadSurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
           verticalAlign: 'bottom' as const,
         },
       },
@@ -582,23 +526,16 @@ function buildWarPartyBreakdownLeaves(
         style: {
           ...BREAKDOWN_INNER_BODY_PAD,
           textAlign: 'right',
-          ...cellTint,
-          ...costClusterBodySurface(cluster),
-          borderLeft: cluster.innerRule,
-          ...(role === 'defender'
-            ? {}
-            : {
-                borderRight: cluster.interNationBorderRight,
-                boxShadow: cluster.interNationRailClose,
-              }),
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
+          ...(role === 'defender' ? {} : { borderRight: cluster.strongEdge }),
         },
       },
       mantineTableHeadCellProps: {
         style: {
           ...BREAKDOWN_INNER_HEAD_PAD,
-          ...cellTint,
-          ...costClusterHeadSurface(cluster),
-          borderLeft: cluster.innerRule,
+          ...costClusterFill(cluster),
+          borderLeft: cluster.hairline,
           verticalAlign: 'bottom' as const,
           ...(role === 'defender' ? {} : lastBreakdownHeadExtra),
         },
@@ -618,21 +555,17 @@ function buildWarPartyBreakdownLeaves(
               style: {
                 ...BREAKDOWN_INNER_BODY_PAD,
                 textAlign: 'right',
-                ...cellTint,
-                ...costClusterBodySurface(cluster),
-                borderLeft: cluster.innerRule,
-                boxShadow: cluster.railClose,
+                ...costClusterFill(cluster),
+                borderLeft: cluster.hairline,
               },
             },
             mantineTableHeadCellProps: {
               style: {
                 ...BREAKDOWN_INNER_HEAD_PAD,
-                ...cellTint,
-                ...costClusterHeadSurface(cluster),
-                borderLeft: cluster.innerRule,
+                ...costClusterFill(cluster),
+                borderLeft: cluster.hairline,
                 verticalAlign: 'bottom' as const,
-                borderRight: cluster.breakdownGroupHeadRight,
-                boxShadow: cluster.railClose,
+                borderRight: cluster.strongEdge,
               },
             },
             Cell: ({ cell }) => `$${(cell.getValue() as number).toLocaleString()}`,
@@ -665,6 +598,36 @@ export function DamageTable({
 
   const [attackerBreakdownOpen, setAttackerBreakdownOpen] = useState(false);
   const [defenderBreakdownOpen, setDefenderBreakdownOpen] = useState(false);
+
+  const isNarrowViewport = useMediaQuery('(max-width: 48em)', false, {
+    getInitialValueInEffect: true,
+  });
+
+  const [columnPinning, setColumnPinning] = useState<MRT_ColumnPinningState>({
+    left: ['label'],
+  });
+
+  useEffect(() => {
+    if (isNarrowViewport) {
+      setColumnPinning({ left: [] });
+    } else {
+      setColumnPinning({ left: ['label'] });
+    }
+  }, [isNarrowViewport]);
+
+  const handleColumnPinningChange = useCallback(
+    (
+      updater:
+        | MRT_ColumnPinningState
+        | ((prev: MRT_ColumnPinningState) => MRT_ColumnPinningState),
+    ) => {
+      if (isNarrowViewport) return;
+      setColumnPinning((prev) =>
+        typeof updater === 'function' ? updater(prev) : updater,
+      );
+    },
+    [isNarrowViewport],
+  );
 
   const toggleAttackerBreakdown = useCallback(() => {
     setAttackerBreakdownOpen((o) => !o);
@@ -739,20 +702,13 @@ export function DamageTable({
 
   const columns = useMemo<MRT_ColumnDef<CombinedAttackRow>[]>(() => {
     const attackerCluster = getCostClusterTheme(attackerNationSlot);
-    /**
-     * Attack Type | Net Dealt uses the same recipe as Net Dealt | first cost column:
-     * outward colored line + glow on the left column’s right edge; neutral hairline + inset on the right column’s left edge.
-     */
     const attackTypeVsNetSeam = {
-      borderRight: attackerCluster.interNationBorderRight,
-      boxShadow: attackerCluster.interNationRailClose,
+      borderRight: attackerCluster.strongEdge,
     };
 
-    /** Bilateral verticals: mirrors first attacker Cost cell (left) partnering with Net’s right seam. */
     const netDealtColumnSeams = {
-      borderLeft: attackerCluster.interNationDividerLeft,
-      borderRight: attackerCluster.interNationBorderRight,
-      boxShadow: `${attackerCluster.interNationRailInsetLeft}, ${attackerCluster.interNationRailClose}`,
+      borderLeft: attackerCluster.hairline,
+      borderRight: attackerCluster.strongEdge,
     };
 
     const attackerLeaves = buildWarPartyBreakdownLeaves(
@@ -865,10 +821,9 @@ export function DamageTable({
     state: {
       columnVisibility: mergedColumnVisibility,
       density,
+      columnPinning,
     },
-    initialState: {
-      columnPinning: { left: ['label'] },
-    },
+    onColumnPinningChange: handleColumnPinningChange,
     onColumnVisibilityChange: handleColumnVisibilityChange,
     onDensityChange: setDensity,
     mantinePaperProps: {
@@ -878,7 +833,7 @@ export function DamageTable({
     mantineTableProps: {
       className: 'damage-mrt-table',
       striped: false,
-      highlightOnHover: true,
+      highlightOnHover: false,
       verticalSpacing: 0,
       /*
        * `fixed` + width 100% forces all columns to share one viewport — raising one `size`

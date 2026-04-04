@@ -33,6 +33,7 @@ from api.routes.auth import auth_bp
 from api.routes.builds import builds_bp
 from api.routes.damage import damage_bp
 from api.routes.raids import raids_bp
+from api.routes.stats import stats_bp
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def create_app(config_object: Optional[object] = None) -> Flask:
     app.register_blueprint(raids_bp)
     app.register_blueprint(builds_bp)
     app.register_blueprint(damage_bp)
+    app.register_blueprint(stats_bp)
 
     # Security headers
     @app.after_request

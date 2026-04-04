@@ -128,8 +128,7 @@ body {
 
 /*
  * MRT rows use `transition: all 150ms` and cells use padding transitions. With many cost
- * cells (gradients, shadows), row hover repaints feel laggy and two rows can look active at
- * once. Disable transitions for this table only.
+ * cells, row hover repaints can feel laggy. Disable transitions for this table only.
  */
 .damage-mrt-table tbody > tr,
 .damage-mrt-table tbody > tr > td {
