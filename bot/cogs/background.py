@@ -10,7 +10,7 @@ import logging
 import os
 import traceback
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import discord
 from discord.ext import commands
@@ -20,7 +20,10 @@ from bot.discord_utils import errors as err_util
 from database import mongo as db_mongo
 from database.sqlite_cache import get_nation_by_id, get_nations_db_path
 from bot.discord_utils.embeds import EMBED_COLOR
-from logic import api_client, common
+from logic import api_client, common, queries
+from logic.common import compute_beige_loot
+from logic.merge_utils import get_query
+from logic.revenue import pre_revenue_calc, revenue_calc_sync
 
 load_dotenv()
 
@@ -307,6 +310,55 @@ class General(commands.Cog):
         time_delta = abs((reminder_time - now).total_seconds())
         return time_delta < REMINDER_THRESHOLD
 
+    async def _load_reminder_nation_and_revenue(
+        self, nation_id: str
+    ) -> tuple[Optional[dict], Optional[int], Optional[dict[str, float]], Optional[dict[str, Any]]]:
+        """Load cached nation from SQLite and optionally compute revenue + prices for embed."""
+        nation_payload = await asyncio.to_thread(
+            get_nation_by_id, get_nations_db_path(), nation_id
+        )
+        nation = nation_payload.get("nation")
+        data_timestamp = self._extract_data_timestamp(
+            nation,
+            nation_payload.get("last_fetched"),
+        )
+        if not nation or not API_KEY:
+            return nation, data_timestamp, None, None
+        try:
+            _, colors, prices, treasures, radiation, seasonal_mod = await pre_revenue_calc(
+                message=None,
+                query_for_nation=False,
+                parsed_nation=nation,
+                call_func=lambda q: api_client.call(q, API_KEY),
+                get_query_func=get_query,
+                queries_module=queries,
+            )
+        except Exception as e:
+            logger.warning(
+                "Reminder game context unavailable for nation %s: %s",
+                nation_id,
+                e,
+            )
+            return nation, data_timestamp, None, None
+        try:
+            revenue = revenue_calc_sync(
+                nation,
+                radiation,
+                treasures,
+                prices,
+                colors,
+                seasonal_mod,
+                include_spies=False,
+            ) or {}
+        except Exception as e:
+            logger.warning(
+                "revenue_calc_sync failed for reminder nation %s: %s",
+                nation_id,
+                e,
+            )
+            return nation, data_timestamp, prices, None
+        return nation, data_timestamp, prices, revenue
+
     async def _send_reminder(
         self,
         user: dict,
@@ -326,13 +378,8 @@ class General(commands.Cog):
         """
         try:
             disc_user = await self.bot.fetch_user(user["user"])
-            nation_payload = await asyncio.to_thread(
-                get_nation_by_id, get_nations_db_path(), nation_id
-            )
-            nation = nation_payload.get("nation")
-            data_timestamp = self._extract_data_timestamp(
-                nation,
-                nation_payload.get("last_fetched"),
+            nation, data_timestamp, prices, revenue = (
+                await self._load_reminder_nation_and_revenue(nation_id)
             )
             embed = self._build_reminder_embed(
                 nation=nation,
@@ -341,6 +388,8 @@ class General(commands.Cog):
                 vm_turns=vm_turns,
                 data_timestamp=data_timestamp,
                 preemptive=False,
+                prices=prices,
+                revenue_result=revenue,
             )
             await disc_user.send(embed=embed)
             logger.info(f"Reminder sent to {user['user']} about {nation_id}")
@@ -446,6 +495,52 @@ class General(commands.Cog):
             pass
         return None
 
+    @staticmethod
+    def _economy_embed_lines(
+        nation: Optional[dict],
+        prices: Optional[dict[str, float]],
+        revenue_result: Optional[dict[str, Any]],
+    ) -> str:
+        """Previous beige loot, net income, and alliance tax (matches raids API semantics)."""
+        loot_val = 0
+        if nation:
+            try:
+                loot_val = int(nation.get("nation_loot_value") or 0)
+            except (TypeError, ValueError):
+                loot_val = 0
+        if loot_val <= 0 and nation and prices:
+            computed = compute_beige_loot(nation, prices)
+            if computed is not None:
+                loot_val = computed
+        loot_line = f"${loot_val:,}" if loot_val > 0 else "Unknown"
+
+        if revenue_result and revenue_result.get("monetary_net_num") is not None:
+            try:
+                mn = int(round(float(revenue_result["monetary_net_num"])))
+                net_line = f"${mn:,}"
+            except (TypeError, ValueError):
+                net_line = "Unknown"
+        else:
+            net_line = "Unknown"
+
+        tax_line = "Unknown"
+        if nation:
+            alliance_obj = nation.get("alliance") if isinstance(nation.get("alliance"), dict) else {}
+            alliance_color = alliance_obj.get("color") if alliance_obj else None
+            nation_color = nation.get("color") or ""
+            if nation_color and alliance_color:
+                tax_line = (
+                    "Yes"
+                    if str(nation_color).lower() == str(alliance_color).lower()
+                    else "No"
+                )
+
+        return (
+            f"Previous beige loot: **{loot_line}**\n"
+            f"Net income: **{net_line}**\n"
+            f"Paying alliance tax: **{tax_line}**"
+        )
+
     def _build_reminder_embed(
         self,
         nation: Optional[dict],
@@ -454,6 +549,8 @@ class General(commands.Cog):
         vm_turns: int,
         data_timestamp: Optional[int],
         preemptive: bool,
+        prices: Optional[dict[str, float]] = None,
+        revenue_result: Optional[dict[str, Any]] = None,
     ) -> discord.Embed:
         """Build a rich embed for beige/vacation reminders.
 
@@ -464,11 +561,16 @@ class General(commands.Cog):
             vm_turns: Remaining vacation mode turns.
             data_timestamp: Unix timestamp of cached data update.
             preemptive: True if the nation exited early.
+            prices: Trade prices for beige loot backfill (optional).
+            revenue_result: Output of revenue_calc_sync (optional).
 
         Returns:
             Discord embed for the reminder.
         """
         nation_url = f"https://politicsandwar.com/nation/id={nation_id}"
+        declare_war_url = (
+            f"https://politicsandwar.com/nation/war/declare/id={nation_id}"
+        )
         nation_name = nation.get("nation_name") if nation else f"Nation {nation_id}"
         leader_name = nation.get("leader_name") if nation else "Unknown"
         alliance_name = "None"
@@ -483,7 +585,8 @@ class General(commands.Cog):
         embed.description = (
             f"Leader: **{leader_name}**\n"
             f"Alliance: **{alliance_name}**\n"
-            f"[Open nation profile]({nation_url})"
+            f"[Open nation profile]({nation_url})\n"
+            f"[Declare war]({declare_war_url})"
         )
 
         flag_url = nation.get("flag") if nation else None
@@ -515,6 +618,12 @@ class General(commands.Cog):
             status_lines.append("No active beige/VM turns")
 
         embed.add_field(name="Status", value="\n".join(status_lines), inline=False)
+
+        embed.add_field(
+            name="Economy",
+            value=self._economy_embed_lines(nation, prices, revenue_result),
+            inline=False,
+        )
 
         if nation:
             soldiers = nation.get("soldiers", 0)
@@ -571,13 +680,8 @@ class General(commands.Cog):
 
             try:
                 disc_user = await self.bot.fetch_user(user["user"])
-                nation_payload = await asyncio.to_thread(
-                    get_nation_by_id, get_nations_db_path(), nation_id
-                )
-                nation = nation_payload.get("nation")
-                data_timestamp = self._extract_data_timestamp(
-                    nation,
-                    nation_payload.get("last_fetched"),
+                nation, data_timestamp, prices, revenue = (
+                    await self._load_reminder_nation_and_revenue(nation_id)
                 )
                 embed = self._build_reminder_embed(
                     nation=nation,
@@ -586,6 +690,8 @@ class General(commands.Cog):
                     vm_turns=0,
                     data_timestamp=data_timestamp,
                     preemptive=True,
+                    prices=prices,
+                    revenue_result=revenue,
                 )
                 await disc_user.send(embed=embed)
                 logger.info(

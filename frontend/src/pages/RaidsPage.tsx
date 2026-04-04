@@ -1366,8 +1366,10 @@ export function RaidsPage() {
         <Stack gap="xs">
           <Title order={2}>Raid Targets</Title>
           <Text c="dimmed">
-            Find profitable targets to raid. Click column headers to sort,
-            use filters to narrow down results.
+            Find profitable targets to raid. Click a column header to sort by
+            that column. Hold Shift and click another header to add a secondary
+            sort (tie-breaker); sorted headers show a small badge (1 = first,
+            2 = second). Use filters to narrow down results.
           </Text>
         </Stack>
 
