@@ -407,10 +407,18 @@ def _extract_nation_data(results: dict[str, Any], nation_key: str) -> dict[str, 
     nation_info = results.get(nation_key, {})
     cities = nation_info.get('cities') or []
     
+    raw_flag = nation_info.get("flag")
+    if raw_flag is None or raw_flag == "":
+        flag_url = None
+    else:
+        s = str(raw_flag).strip()
+        flag_url = s or None
+
     return {
         'id': nation_info.get('id', 0),
         'nationName': nation_info.get('nation_name', 'Unknown'),
         'numCities': len(cities),
+        'flagUrl': flag_url,
         'vds': nation_info.get('vds', False),  # Vital Defense System
         'irond': nation_info.get('irond', False),  # Iron Dome
         'groundWinRate': results.get(f'{nation_key}_ground_win_rate', 0.5),
@@ -542,6 +550,36 @@ def _opponent_nation_blob(
     return {}
 
 
+def _fortify_slots_from_att_def(
+    nation1_id: int,
+    nation2_id: int,
+    attacker_id: int,
+    att_fortify: bool,
+    def_fortify: bool,
+) -> tuple[bool, bool]:
+    """Map game attacker/defender fortify flags to calculator nation1/nation2 slots."""
+    if attacker_id == nation1_id:
+        return bool(att_fortify), bool(def_fortify)
+    if attacker_id == nation2_id:
+        return bool(def_fortify), bool(att_fortify)
+    return False, False
+
+
+def _fortify_att_def_from_slots(
+    nation1_id: int,
+    nation2_id: int,
+    attacker_id: int,
+    nation1_fortified: bool,
+    nation2_fortified: bool,
+) -> tuple[bool, bool]:
+    """Map calculator nation1/nation2 fortify toggles to game attacker/defender flags."""
+    if attacker_id == nation1_id:
+        return bool(nation1_fortified), bool(nation2_fortified)
+    if attacker_id == nation2_id:
+        return bool(nation2_fortified), bool(nation1_fortified)
+    return False, False
+
+
 def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[str, Any] | None:
     att_id, def_id = _war_att_def_ids(war)
     if not att_id or not def_id:
@@ -566,6 +604,12 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
     air = _air_superiority_id(war)
     naval = _naval_blockade_id(war)
 
+    att_f = _war_bool(war, "att_fortify", "attFortify")
+    def_f = _war_bool(war, "def_fortify", "defFortify")
+    n1_fort, n2_fort = _fortify_slots_from_att_def(
+        linked_id, opp_id, att_id, att_f, def_f
+    )
+
     war_payload = {
         "attackerId": att_id,
         "defenderId": def_id,
@@ -573,8 +617,8 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
         "groundControlId": gc,
         "airSuperiorityId": air,
         "navalBlockadeId": naval,
-        "attackerFortified": _war_bool(war, "att_fortify", "attFortify"),
-        "defenderFortified": _war_bool(war, "def_fortify", "defFortify"),
+        "nation1Fortified": n1_fort,
+        "nation2Fortified": n2_fort,
         "attackerPeace": _war_bool(war, "att_peace", "attpeace", "attPeace"),
         "defenderPeace": _war_bool(war, "def_peace", "defpeace", "defPeace"),
     }
@@ -585,22 +629,19 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
     except (TypeError, ValueError):
         war_id = None
 
+    att_res = _war_nonneg_int(war, "att_resistance", "attResistance")
+    def_res = _war_nonneg_int(war, "def_resistance", "defResistance")
+    att_pts = _war_nonneg_int(war, "att_points", "attpoints", "attPoints")
+    def_pts = _war_nonneg_int(war, "def_points", "defpoints", "defPoints")
+
     linked_is_attacker = att_id == linked_id
     if linked_is_attacker:
-        linked_resistance = _war_nonneg_int(
-            war, "att_resistance", "attResistance"
-        )
-        linked_maps = _war_nonneg_int(
-            war, "att_points", "attpoints", "attPoints"
-        )
+        your_maps = att_pts
+        enemy_resistance = def_res
         linked_stance = "offensive"
     else:
-        linked_resistance = _war_nonneg_int(
-            war, "def_resistance", "defResistance"
-        )
-        linked_maps = _war_nonneg_int(
-            war, "def_points", "defpoints", "defPoints"
-        )
+        your_maps = def_pts
+        enemy_resistance = att_res
         linked_stance = "defensive"
 
     return {
@@ -613,8 +654,8 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
         "opponent_alliance_name": al_name,
         "opponent_alliance_flag_url": al_flag,
         "linked_stance": linked_stance,
-        "linked_resistance": linked_resistance,
-        "linked_maps": linked_maps,
+        "your_maps": your_maps,
+        "enemy_resistance": enemy_resistance,
         "war": war_payload,
     }
 
@@ -722,6 +763,21 @@ def _apply_war_override(
         parsed = _parse_int(value)
         return str(parsed) if parsed else None
 
+    uses_nation_slots = any(
+        k in war for k in ("nation1Fortified", "nation2Fortified")
+    )
+    if uses_nation_slots:
+        att_fortify, def_fortify = _fortify_att_def_from_slots(
+            nation1_id,
+            nation2_id,
+            attacker_id,
+            bool(war.get("nation1Fortified", False)),
+            bool(war.get("nation2Fortified", False)),
+        )
+    else:
+        att_fortify = bool(war.get("attackerFortified", False))
+        def_fortify = bool(war.get("defenderFortified", False))
+
     war_entry = {
         "attid": str(attacker_id),
         "defid": str(defender_id),
@@ -730,8 +786,8 @@ def _apply_war_override(
         "groundcontrol": _id_or_none(war.get("groundControlId")),
         "airsuperiority": _id_or_none(war.get("airSuperiorityId")),
         "navalblockade": _id_or_none(war.get("navalBlockadeId")),
-        "att_fortify": bool(war.get("attackerFortified", False)),
-        "def_fortify": bool(war.get("defenderFortified", False)),
+        "att_fortify": att_fortify,
+        "def_fortify": def_fortify,
         "attpeace": bool(war.get("attackerPeace", False)),
         "defpeace": bool(war.get("defenderPeace", False)),
     }
@@ -775,8 +831,8 @@ def _build_prefill_inputs(
         ground_control = _parse_int(war.get("groundcontrol"))
         air_superiority = _parse_int(war.get("airsuperiority"))
         naval_blockade = _parse_int(war.get("navalblockade"))
-        attacker_fortified = bool(war.get("att_fortify", False))
-        defender_fortified = bool(war.get("def_fortify", False))
+        att_fortify = bool(war.get("att_fortify", False))
+        def_fortify = bool(war.get("def_fortify", False))
         attacker_peace = bool(war.get("attpeace", False))
         defender_peace = bool(war.get("defpeace", False))
     else:
@@ -786,10 +842,14 @@ def _build_prefill_inputs(
         ground_control = None
         air_superiority = None
         naval_blockade = None
-        attacker_fortified = False
-        defender_fortified = False
+        att_fortify = False
+        def_fortify = False
         attacker_peace = False
         defender_peace = False
+
+    nation1_fortified, nation2_fortified = _fortify_slots_from_att_def(
+        nation1_id, nation2_id, attacker_id, att_fortify, def_fortify
+    )
 
     return {
         "nation1Id": nation1_id,
@@ -803,8 +863,8 @@ def _build_prefill_inputs(
             "groundControlId": ground_control,
             "airSuperiorityId": air_superiority,
             "navalBlockadeId": naval_blockade,
-            "attackerFortified": attacker_fortified,
-            "defenderFortified": defender_fortified,
+            "nation1Fortified": nation1_fortified,
+            "nation2Fortified": nation2_fortified,
             "attackerPeace": attacker_peace,
             "defenderPeace": defender_peace,
         },

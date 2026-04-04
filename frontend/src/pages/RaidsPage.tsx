@@ -1388,6 +1388,12 @@ export function RaidsPage() {
               positionSelectOptions={positionFilterOptions}
               discordAuthenticated={discordAuthenticated}
               discordLinked={discordLinked}
+              damageAttackerNationId={
+                discordLinked
+                  ? appliedNationId ??
+                    (data?.attacker?.id != null ? String(data.attacker.id) : undefined)
+                  : undefined
+              }
               onOpenVerifyNationModal={() => setVerifyModalOpen(true)}
               initialSorting={initialSorting}
               columnVisibility={columnVisibility}

@@ -1,4 +1,12 @@
-import { useMemo, useCallback, useState, useEffect, useRef, type ReactNode } from 'react';
+import {
+  useMemo,
+  useCallback,
+  useState,
+  useEffect,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import {
   MantineReactTable,
   useMantineReactTable,
@@ -38,11 +46,12 @@ import {
   IconBell,
   IconBellOff,
   IconBrandDiscord,
+  IconChartBar,
   IconDownload,
   IconExternalLink,
   IconInfoCircle,
 } from '@tabler/icons-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 
 import type { RaidTarget } from '@/types';
 import { addReminder, removeReminder } from '@/api';
@@ -54,6 +63,43 @@ import { buildRaidsCsv, downloadCsv, raidsCsvFilename } from '@/lib/raidsCsvExpo
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: 'auto',
 });
+
+/** Menu.Item as `<a>` is unmounted on close before the browser follows the link; use SPA navigate for same-tab clicks. */
+function handleSpaMenuAnchorClick(
+  e: ReactMouseEvent<HTMLAnchorElement>,
+  navigate: NavigateFunction,
+  to: string,
+  afterNavigate: () => void
+) {
+  if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  navigate(to);
+  afterNavigate();
+}
+
+/** External links in the menu hit the same unmount issue (even with target=_blank); open explicitly. */
+function handleExternalMenuLinkClick(
+  e: ReactMouseEvent<HTMLAnchorElement>,
+  after: () => void
+) {
+  const raw = e.currentTarget.getAttribute('href');
+  if (!raw || raw === '#' || !raw.startsWith('http')) return;
+  e.preventDefault();
+  window.open(raw, '_blank', 'noopener,noreferrer');
+  after();
+}
+
+function handleExternalMenuLinkAuxClick(
+  e: ReactMouseEvent<HTMLAnchorElement>,
+  after: () => void
+) {
+  if (e.button !== 1) return;
+  const raw = e.currentTarget.getAttribute('href');
+  if (!raw || raw === '#' || !raw.startsWith('http')) return;
+  e.preventDefault();
+  window.open(raw, '_blank', 'noopener,noreferrer');
+  after();
+}
 
 /** Body cell padding for raids table (Reminder column must repeat these — MRT merges props shallowly). */
 const RAIDS_BODY_CELL_PAD = {
@@ -545,6 +591,8 @@ interface RaidsTableProps {
   positionSelectOptions?: { value: string; label: string }[];
   discordAuthenticated: boolean;
   discordLinked: boolean;
+  /** When linked, your nation ID used for raids (for damage deep-link vs context row). */
+  damageAttackerNationId?: string | null;
   /** Opens the Verify Nation modal (same flow as banner / sidebar Link Nation). */
   onOpenVerifyNationModal: () => void;
   initialSorting?: { id: string; desc: boolean }[];
@@ -568,6 +616,7 @@ export function RaidsTable({
   positionSelectOptions,
   discordAuthenticated,
   discordLinked,
+  damageAttackerNationId,
   onOpenVerifyNationModal,
   initialSorting = [],
   columnVisibility,
@@ -581,6 +630,7 @@ export function RaidsTable({
 }: RaidsTableProps) {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -1204,6 +1254,9 @@ export function RaidsTable({
             component="a"
             href={contextMenu ? `https://politicsandwar.com/nation/id=${contextMenu.nation.id}` : '#'}
             target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => handleExternalMenuLinkClick(e, () => setContextMenu(null))}
+            onAuxClick={(e) => handleExternalMenuLinkAuxClick(e, () => setContextMenu(null))}
           >
             Open nation page
           </Menu.Item>
@@ -1213,6 +1266,9 @@ export function RaidsTable({
               component="a"
               href={`https://politicsandwar.com/alliance/id=${contextMenu.nation.allianceId}`}
               target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => handleExternalMenuLinkClick(e, () => setContextMenu(null))}
+              onAuxClick={(e) => handleExternalMenuLinkAuxClick(e, () => setContextMenu(null))}
             >
               Open alliance page
             </Menu.Item>
@@ -1229,6 +1285,9 @@ export function RaidsTable({
             component="a"
             href={contextMenu ? `https://politicsandwar.com/nation/war/declare/id=${contextMenu.nation.id}` : '#'}
             target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => handleExternalMenuLinkClick(e, () => setContextMenu(null))}
+            onAuxClick={(e) => handleExternalMenuLinkAuxClick(e, () => setContextMenu(null))}
           >
             Declare war
           </Menu.Item>
@@ -1236,9 +1295,60 @@ export function RaidsTable({
             leftSection={<IconExternalLink size={16} />}
             component="a"
             href={internalNavPath('/reminders', location.search)}
+            onClick={(e) =>
+              handleSpaMenuAnchorClick(e, navigate, internalNavPath('/reminders', location.search), () =>
+                setContextMenu(null)
+              )
+            }
           >
             Manage reminders
           </Menu.Item>
+          <Menu.Divider />
+          {discordLinked && damageAttackerNationId ? (
+            <Menu.Item
+              leftSection={<IconChartBar size={16} />}
+              component="a"
+              href={
+                contextMenu
+                  ? `/damage?nation1=${encodeURIComponent(damageAttackerNationId)}&nation2=${encodeURIComponent(
+                      String(contextMenu.nation.id)
+                    )}`
+                  : '#'
+              }
+              onClick={(e) => {
+                if (!contextMenu) return;
+                const to = `/damage?nation1=${encodeURIComponent(damageAttackerNationId)}&nation2=${encodeURIComponent(
+                  String(contextMenu.nation.id)
+                )}`;
+                handleSpaMenuAnchorClick(e, navigate, to, () => setContextMenu(null));
+              }}
+            >
+              Damage calculator vs this nation
+            </Menu.Item>
+          ) : (
+            <>
+              <Menu.Label>
+                <Text size="xs" c="dimmed" lh={1.35}>
+                  Compare war damage on the calculator — link your nation there for saved scenarios.
+                </Text>
+              </Menu.Label>
+              <Menu.Item
+                leftSection={<IconChartBar size={16} />}
+                component="a"
+                href={internalNavPath('/damage', location.search)}
+                onClick={(e) =>
+                  handleSpaMenuAnchorClick(
+                    e,
+                    navigate,
+                    internalNavPath('/damage', location.search),
+                    () => setContextMenu(null)
+                  )
+                }
+              >
+                Open damage calculator
+              </Menu.Item>
+            </>
+          )}
           <Menu.Divider />
           <Menu.Item
             leftSection={
@@ -1273,7 +1383,7 @@ export function RaidsTable({
       <MantineReactTable table={table} />
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
         Hide or show columns, reorder them and filter columns by using the controls in the top-right of the table.
-        Right-click any row to open a context menu with quick links to the nation page, alliance page, declare war page, or to set a beige reminder.
+        Right-click any row for quick links (PnW pages, reminders, damage calculator) or to set a beige reminder.
         Use Manage reminders for timing offsets and bulk cleanup.
       </Alert>
     </Stack>

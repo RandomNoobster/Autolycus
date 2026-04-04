@@ -4,11 +4,12 @@
  * Full dashboard layout with chart and tables for damage analysis.
  */
 
-import { Stack, Text, Anchor, Group, Title, Paper, Tabs } from '@mantine/core';
+import { Stack, Text, Paper, Tabs } from '@mantine/core';
 
 import type { DamageResponse } from '@/types';
 import { DamageChart } from './DamageChart';
 import { DamageTable } from './DamageTable';
+import { ScenarioAttackHeading } from './ScenarioAttackHeading';
 
 interface DamageDashboardProps {
   data: DamageResponse;
@@ -97,19 +98,17 @@ export function DamageDashboard({ data }: DamageDashboardProps) {
 
               {[scenarios.nation1Attacks, scenarios.nation2Attacks].map((scenario) => (
                 <Paper key={scenario.attacker.info.id} shadow="sm" p="lg" radius="md" withBorder>
-                  <Group mb="md">
-                    <Title order={3}>
-                      <Anchor
-                        href={`https://politicsandwar.com/nation/id=${scenario.attacker.info.id}`}
-                        target="_blank"
-                      >
-                        If {scenario.attacker.info.nationName} performs an attack:
-                      </Anchor>
-                    </Title>
-                  </Group>
+                  <ScenarioAttackHeading
+                    attacker={scenario.attacker.info}
+                    defender={scenario.defender.info}
+                    nation1Id={data.nations.nation1.id}
+                  />
                   <DamageTable
                     attackerName={scenario.attacker.info.nationName}
                     defenderName={scenario.defender.info.nationName}
+                    attackerNationId={scenario.attacker.info.id}
+                    defenderNationId={scenario.defender.info.id}
+                    nation1Id={data.nations.nation1.id}
                     attackerData={getStatsForMode(scenario.attacker.stats, mode.value)}
                     defenderData={getStatsForMode(scenario.defender.stats, mode.value)}
                   />

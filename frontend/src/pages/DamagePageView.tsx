@@ -6,8 +6,10 @@
 
 import {
   Alert,
+  Badge,
   Box,
   Card,
+  Center,
   Container,
   Title,
   Text,
@@ -41,7 +43,7 @@ import {
   IconSword,
   IconTarget,
 } from "@tabler/icons-react";
-import { useDebouncedValue } from "@mantine/hooks";
+import { useDebouncedValue, useMediaQuery } from "@mantine/hooks";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -665,6 +667,16 @@ const buildNationOptions = (
   });
 };
 
+/** Layout for war fortified toggles: wrap labels, top-align track, avoid horizontal overflow. */
+const FORTIFIED_SWITCH_FIELD_STYLES = {
+  root: { width: "100%" },
+  body: { alignItems: "flex-start" as const, width: "100%" },
+  track: { flexShrink: 0, marginTop: 2 },
+  labelWrapper: { flex: 1, minWidth: 0 },
+  label: { whiteSpace: "normal" as const, lineHeight: 1.35 },
+  description: { whiteSpace: "normal" as const, lineHeight: 1.35 },
+};
+
 const buildDefaultInputs = (
   nation1Id: number,
   nation2Id: number,
@@ -714,8 +726,8 @@ const buildDefaultInputs = (
     groundControlId: null,
     airSuperiorityId: null,
     navalBlockadeId: null,
-    attackerFortified: false,
-    defenderFortified: false,
+    nation1Fortified: false,
+    nation2Fortified: false,
     attackerPeace: false,
     defenderPeace: false,
   },
@@ -1085,11 +1097,151 @@ function DamageDiscordPerkPromo() {
   );
 }
 
-/** Same tints as DamageTable attacker (blue) / defender (red) columns. */
+/** Same tints as DamageTable: Nation 1 blue / Nation 2 red columns. */
 const DAMAGE_PRESET_ATTACKER_BG = "rgba(34, 139, 230, 0.12)";
 const DAMAGE_PRESET_DEFENDER_BG = "rgba(250, 82, 82, 0.12)";
 const DAMAGE_PRESET_ATTACKER_ACCENT = "rgb(34, 139, 230)";
 const DAMAGE_PRESET_DEFENDER_ACCENT = "rgb(250, 82, 82)";
+
+/** Flag in the unit-planner column header; falls back to first letter if missing or broken. */
+function DamageNationFlagHeader({
+  name,
+  flagUrl,
+}: {
+  name: string;
+  flagUrl?: string | null;
+}) {
+  const theme = useMantineTheme();
+  const { colorScheme } = useMantineColorScheme();
+  const isDark = colorScheme === "dark";
+  const [imgFailed, setImgFailed] = useState(false);
+  const initial = name.trim().charAt(0).toUpperCase() || "?";
+  const showImg = Boolean(flagUrl?.trim()) && !imgFailed;
+  const border = isDark ? theme.colors.dark[4] : theme.colors.gray[4];
+
+  return (
+    <Box
+      w={56}
+      h={40}
+      style={{
+        flexShrink: 0,
+        borderRadius: theme.radius.md,
+        overflow: "hidden",
+        border: `1px solid ${border}`,
+        backgroundColor: isDark ? theme.colors.dark[6] : theme.colors.gray[1],
+      }}
+    >
+      {showImg ? (
+        <Image
+          src={flagUrl!.trim()}
+          alt=""
+          w={56}
+          h={40}
+          fit="cover"
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <Center h="100%">
+          <Text fz={18} fw={800} c="dimmed">
+            {initial}
+          </Text>
+        </Center>
+      )}
+    </Box>
+  );
+}
+
+/**
+ * Prominent column title for each side: matches chart colors (blue / red) and search field labels.
+ */
+function DamageNationColumnHeader({
+  side,
+  name,
+  nationId,
+  flagUrl,
+}: {
+  side: "nation1" | "nation2";
+  name: string;
+  nationId: number;
+  flagUrl?: string | null;
+}) {
+  const theme = useMantineTheme();
+  const { colorScheme } = useMantineColorScheme();
+  const isDark = colorScheme === "dark";
+  const isBlueSide = side === "nation1";
+  const accent = isDark
+    ? isBlueSide
+      ? theme.colors.blue[4]
+      : theme.colors.red[5]
+    : isBlueSide
+      ? DAMAGE_PRESET_ATTACKER_ACCENT
+      : DAMAGE_PRESET_DEFENDER_ACCENT;
+  const badgeColor = isBlueSide ? "blue" : "red";
+  const slotLabel = side === "nation1" ? "Nation 1" : "Nation 2";
+
+  return (
+    <Box
+      mb="md"
+      pl="md"
+      style={{
+        borderLeft: `4px solid ${accent}`,
+      }}
+    >
+      <Group align="flex-start" gap="md" wrap="nowrap">
+        <DamageNationFlagHeader name={name} flagUrl={flagUrl} />
+        <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
+          <Badge size="sm" variant="light" color={badgeColor} w="fit-content">
+            {slotLabel}
+          </Badge>
+          <Title order={3} lineClamp={2} style={{ lineHeight: 1.2 }}>
+            {name}
+          </Title>
+          {nationId > 0 ? (
+            <Text size="xs" c="dimmed" ff="monospace">
+              ID {nationId}
+            </Text>
+          ) : null}
+        </Stack>
+      </Group>
+    </Box>
+  );
+}
+
+/**
+ * Metrics from GET /api/damage/linked-active-wars.
+ * Supports renamed JSON keys; returns NaN when missing or non-numeric (never pretend 0 is real).
+ */
+function linkedWarPresetProgress(w: DamageLinkedWarPreset): {
+  enemyRes: number;
+  yourMaps: number;
+} {
+  const legacy = w as DamageLinkedWarPreset & {
+    linked_resistance?: number;
+    linked_maps?: number;
+  };
+  const rawRes = w.enemy_resistance ?? legacy.linked_resistance;
+  const rawMaps = w.your_maps ?? legacy.linked_maps;
+  const toClampedOrNaN = (raw: unknown, cap: number): number => {
+    if (raw === undefined || raw === null || raw === "") return Number.NaN;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return Number.NaN;
+    return Math.min(cap, Math.max(0, n));
+  };
+  return {
+    enemyRes: toClampedOrNaN(rawRes, 100),
+    yourMaps: toClampedOrNaN(rawMaps, 12),
+  };
+}
+
+function formatPresetMetric(value: number, denominator: number): string {
+  if (!Number.isFinite(value)) return "NaN";
+  return `${value}/${denominator}`;
+}
+
+function mapsProgressPercent(yourMaps: number): number | undefined {
+  if (!Number.isFinite(yourMaps)) return undefined;
+  return (yourMaps / 12) * 100;
+}
 
 interface DamageWarPresetsSectionProps {
   wars: DamageLinkedWarPreset[];
@@ -1151,6 +1303,9 @@ function DamageWarPresetsSection({
     !Number.isNaN(selectedNation1Id) &&
     !Number.isNaN(selectedNation2Id);
 
+  /** Ring around the card matching the current URL pair — separate from blue/red stance accent. */
+  const selectedWarRing = isDark ? theme.colors.violet[4] : theme.colors.violet[6];
+
   return (
     <Stack gap="sm">
       <Text size="sm" fw={600}>
@@ -1187,8 +1342,7 @@ function DamageWarPresetsSection({
                 : ("red.6" as const);
             const subtleText = isDark ? ("gray.5" as const) : ("dimmed" as const);
             const allianceText = isDark ? ("gray.4" as const) : ("dimmed" as const);
-            const res = Math.min(100, Math.max(0, w.linked_resistance));
-            const maps = Math.min(12, Math.max(0, w.linked_maps));
+            const { enemyRes, yourMaps } = linkedWarPresetProgress(w);
             const isSelected =
               canHighlightSelection &&
               w.opponent_id === selectedNation2Id &&
@@ -1208,8 +1362,8 @@ function DamageWarPresetsSection({
 
             const cardShadow = isSelected
               ? isDark
-                ? `0 0 0 2px ${accent}, 0 0 0 6px rgba(0, 0, 0, 0.55)`
-                : `0 0 0 2px ${accent}, 0 0 0 4px var(--mantine-color-body)`
+                ? `0 0 0 2px ${selectedWarRing}, 0 0 0 6px rgba(0, 0, 0, 0.55)`
+                : `0 0 0 2px ${selectedWarRing}, 0 0 0 4px var(--mantine-color-body)`
               : isDark
                 ? "0 2px 8px rgba(0, 0, 0, 0.35)"
                 : undefined;
@@ -1285,28 +1439,28 @@ function DamageWarPresetsSection({
                   <Stack gap={4}>
                     <Group justify="space-between" gap="xs" wrap="nowrap">
                       <Text size="10px" c={subtleText} tt="uppercase" fw={600}>
-                        Resistance
+                        Enemy resistance
                       </Text>
                       <Text size="10px" c={subtleText} ff="monospace" fw={500}>
-                        {res}/100
+                        {formatPresetMetric(enemyRes, 100)}
                       </Text>
                     </Group>
                     <Progress
-                      value={res}
+                      value={Number.isFinite(enemyRes) ? enemyRes : 0}
                       size="xs"
                       color={offensive ? "blue" : "red"}
                       styles={progressStyles}
                     />
                     <Group justify="space-between" gap="xs" wrap="nowrap">
                       <Text size="10px" c={subtleText} tt="uppercase" fw={600}>
-                        MAPs
+                        Your MAPs
                       </Text>
                       <Text size="10px" c={subtleText} ff="monospace" fw={500}>
-                        {maps}/12
+                        {formatPresetMetric(yourMaps, 12)}
                       </Text>
                     </Group>
                     <Progress
-                      value={(maps / 12) * 100}
+                      value={mapsProgressPercent(yourMaps) ?? 0}
                       size="xs"
                       color={offensive ? "blue" : "red"}
                       styles={progressStyles}
@@ -1348,6 +1502,10 @@ export function DamagePage() {
 
   const [debouncedInputNation1] = useDebouncedValue(inputNation1, 300);
   const [debouncedInputNation2] = useDebouncedValue(inputNation2, 300);
+
+  const isNarrowWarForm = useMediaQuery("(max-width: 48em)", false, {
+    getInitialValueInEffect: false,
+  });
 
   const { data: inputNation1Options = [] } = useQuery({
     queryKey: ["nation-search", debouncedInputNation1],
@@ -1713,12 +1871,6 @@ export function DamagePage() {
   const nation2CityCount = activeData.nations.nation2.numCities ?? 0;
   const baselineNation1Units = data?.inputs?.nation1;
   const baselineNation2Units = data?.inputs?.nation2;
-  const attackerName =
-    form.values.war.attackerId === form.values.nation2Id
-      ? nation2Label
-      : nation1Label;
-  const defenderName =
-    attackerName === nation1Label ? nation2Label : nation1Label;
   const warTypeDescription = WAR_TYPE_OPTIONS.find(
     (option) => option.value === form.values.war.warType,
   )?.description;
@@ -1772,9 +1924,12 @@ export function DamagePage() {
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
-                      <Text size="sm" fw={600}>
-                        {nation1Label}
-                      </Text>
+                      <DamageNationColumnHeader
+                        side="nation1"
+                        name={nation1Label}
+                        nationId={activeData.nations.nation1.id}
+                        flagUrl={activeData.nations.nation1.flagUrl}
+                      />
                       <NationUnitPlanner
                         form={form}
                         basePath="nation1"
@@ -1824,9 +1979,12 @@ export function DamagePage() {
                 <Grid.Col span={{ base: 12, md: 6 }}>
                   <Paper p="md" withBorder radius="md">
                     <Stack gap="sm">
-                      <Text size="sm" fw={600}>
-                        {nation2Label}
-                      </Text>
+                      <DamageNationColumnHeader
+                        side="nation2"
+                        name={nation2Label}
+                        nationId={activeData.nations.nation2.id}
+                        flagUrl={activeData.nations.nation2.flagUrl}
+                      />
                       <NationUnitPlanner
                         form={form}
                         basePath="nation2"
@@ -1904,27 +2062,42 @@ export function DamagePage() {
                     modifiers. It is separate from which side is making a
                     specific attack in the tables below.
                   </Text>
-                  <SegmentedControl
-                    fullWidth
-                    value={String(
-                      form.values.war.attackerId || form.values.nation1Id,
-                    )}
-                    onChange={(value) => {
-                      const attackerId = Number(value);
-                      const defenderId =
-                        attackerId === form.values.nation1Id
-                          ? form.values.nation2Id
-                          : form.values.nation1Id;
-                      form.setFieldValue("war.attackerId", attackerId);
-                      form.setFieldValue("war.defenderId", defenderId);
-                    }}
-                    data={buildNationOptions(
-                      form.values.nation1Id,
-                      form.values.nation2Id,
-                      nation1Label,
-                      nation2Label,
-                    )}
-                  />
+                  <Box w="100%" style={{ minWidth: 0 }}>
+                    <SegmentedControl
+                      fullWidth
+                      orientation={
+                        isNarrowWarForm ? "vertical" : "horizontal"
+                      }
+                      value={String(
+                        form.values.war.attackerId || form.values.nation1Id,
+                      )}
+                      onChange={(value) => {
+                        const attackerId = Number(value);
+                        const defenderId =
+                          attackerId === form.values.nation1Id
+                            ? form.values.nation2Id
+                            : form.values.nation1Id;
+                        form.setFieldValue("war.attackerId", attackerId);
+                        form.setFieldValue("war.defenderId", defenderId);
+                      }}
+                      data={buildNationOptions(
+                        form.values.nation1Id,
+                        form.values.nation2Id,
+                        nation1Label,
+                        nation2Label,
+                      )}
+                      styles={{
+                        root: { minWidth: 0 },
+                        label: {
+                          whiteSpace: "normal",
+                          textAlign: "center",
+                          lineHeight: 1.35,
+                          paddingBlock: 6,
+                          paddingInline: 4,
+                        },
+                      }}
+                    />
+                  </Box>
                   <Divider my="sm" />
 
                   <Group grow>
@@ -1951,30 +2124,35 @@ export function DamagePage() {
                     />
                   </Group>
 
-                  <Group grow>
+                  <SimpleGrid
+                    cols={{ base: 1, sm: 2 }}
+                    spacing={{ base: "md", sm: "lg" }}
+                  >
                     <Switch
-                      label={`Fortified (${attackerName})`}
-                      description="Apply fortified modifier to the attacker."
-                      checked={form.values.war.attackerFortified}
+                      label={`Fortified (${nation1Label})`}
+                      description="Apply fortified modifier, causing 25% more casualties when defending."
+                      checked={form.values.war.nation1Fortified}
                       onChange={(event) =>
                         form.setFieldValue(
-                          "war.attackerFortified",
+                          "war.nation1Fortified",
                           event.currentTarget.checked,
                         )
                       }
+                      styles={FORTIFIED_SWITCH_FIELD_STYLES}
                     />
                     <Switch
-                      label={`Fortified (${defenderName})`}
-                      description="Apply fortified modifier to the defender."
-                      checked={form.values.war.defenderFortified}
+                      label={`Fortified (${nation2Label})`}
+                      description="Apply fortified modifier, causing 25% more casualties when defending."
+                      checked={form.values.war.nation2Fortified}
                       onChange={(event) =>
                         form.setFieldValue(
-                          "war.defenderFortified",
+                          "war.nation2Fortified",
                           event.currentTarget.checked,
                         )
                       }
+                      styles={FORTIFIED_SWITCH_FIELD_STYLES}
                     />
-                  </Group>
+                  </SimpleGrid>
                 </Stack>
               </Paper>
 

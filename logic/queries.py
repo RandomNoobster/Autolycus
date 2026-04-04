@@ -24,7 +24,7 @@ REQUEST = {NO_TYPE: [{"me": ["key", {"nation": ["nation_name", "id", {"alliance"
 
 # military.py
 WINRATE_CALC = {"nations": ["soldiers", "tanks", "aircraft", "ships"]}
-BATTLE_CALC = (WINRATE_CALC, {"nations": ["nation_name", "population", "warpolicy", "id", "soldiers", "tanks", "aircraft", "ships", "advanced_pirate_economy", "pirate_economy", "irond", "vds", "fallout_shelter", "military_salvage", {"cities": ["infrastructure", "land"]}, {"wars": ["groundcontrol", "airsuperiority", "navalblockade", "attpeace", "defpeace", "attid", "defid", "att_fortify", "def_fortify", "turnsleft", "war_type"]}]})
+BATTLE_CALC = (WINRATE_CALC, {"nations": ["nation_name", "population", "warpolicy", "id", "flag", "soldiers", "tanks", "aircraft", "ships", "advanced_pirate_economy", "pirate_economy", "irond", "vds", "fallout_shelter", "military_salvage", {"cities": ["infrastructure", "land"]}, {"wars": ["groundcontrol", "airsuperiority", "navalblockade", "attpeace", "defpeace", "attid", "defid", "att_fortify", "def_fortify", "turnsleft", "war_type"]}]})
 REMINDERS = {"nations": ["id", "nation_name", "vacation_mode_turns", "beige_turns"]}
 NUKETARGETS = (BATTLE_CALC, {'nations': ['vacation_mode_turns', 'score', 'alliance_position', 'color', {'cities': ['infrastructure']}, {"wars": ['attid', 'defid']}, {"alliance": ['name', 'id']}]})
 WAR_STATUS_DEPENDENCY = ["nation_name", "leader_name", "alliance_id", {"alliance": ["name"]}, "id", "pirate_economy", "advanced_pirate_economy", "score", "last_active", "beigeturns", "vmode", "num_cities", "color", "nukes", "missiles"]

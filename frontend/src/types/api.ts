@@ -313,6 +313,8 @@ export interface NationInfo {
   id: number;
   nationName: string;
   numCities: number;
+  /** P&W nation flag image URL when available from the battle query. */
+  flagUrl?: string | null;
   vds: boolean;
   irond: boolean;
   groundWinRate: number;
@@ -405,8 +407,10 @@ export interface DamageWarInput {
   groundControlId?: number | null;
   airSuperiorityId?: number | null;
   navalBlockadeId?: number | null;
-  attackerFortified: boolean;
-  defenderFortified: boolean;
+  /** Fortified modifier for the nation in calculator slot 1 (URL/query nation1). */
+  nation1Fortified: boolean;
+  /** Fortified modifier for the nation in calculator slot 2 (URL/query nation2). */
+  nation2Fortified: boolean;
   attackerPeace: boolean;
   defenderPeace: boolean;
 }
@@ -423,10 +427,13 @@ export interface DamageLinkedWarPreset {
   opponent_alliance_flag_url: string | null;
   /** Linked nation is war declarer (attacker) vs defender. */
   linked_stance: 'offensive' | 'defensive';
-  /** Remaining resistance for the linked nation’s side (game scale 0–100). */
-  linked_resistance: number;
-  /** MAPs remaining for the linked nation’s side (max 12). */
-  linked_maps: number;
+  /** Opponent’s remaining resistance (game scale 0–100). */
+  enemy_resistance?: number;
+  /** Your Military Action Points remaining (max 12). */
+  your_maps?: number;
+  /** Older API responses used these names (same semantics as enemy_resistance / your_maps). */
+  linked_resistance?: number;
+  linked_maps?: number;
   war: DamageWarInput;
 }
 
