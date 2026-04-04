@@ -40,7 +40,16 @@ db = get_db()
 SCAN_FETCH_MAX_ATTEMPTS = 5
 SCAN_RETRY_BASE_SECONDS = 5
 SCAN_RETRY_MAX_SECONDS = 120
+# Minimum spacing between GraphQL page fetches: if a request already took >= this many
+# seconds, do not add an extra delay; otherwise sleep only the remainder.
 SCAN_PAGE_REQUEST_DELAY_SECONDS = 2
+
+
+async def _sleep_remaining_page_delay(fetch_started_monotonic: float) -> None:
+    elapsed = time.monotonic() - fetch_started_monotonic
+    remainder = SCAN_PAGE_REQUEST_DELAY_SECONDS - elapsed
+    if remainder > 0:
+        await asyncio.sleep(remainder)
 SCAN_NATION_FAILURE_BACKOFF_SECONDS = 30
 # After per-page retries exhaust, skip to next page: backoff grows with consecutive skips; then abort.
 SCAN_SKIP_BACKOFF_BASE_SECONDS = 30
@@ -146,12 +155,13 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
         n = 1
         consecutive_page_failures = 0
         while more_pages:
-            start = time.time()
-            await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
+            iter_start = time.time()
             query = _build_nation_query(n, min_score=min_score, vmode=vmode)
+            fetch_started = time.monotonic()
             try:
                 resp = await _fetch_with_retry(query, scan_type="nation", page=n)
             except Exception:
+                await _sleep_remaining_page_delay(fetch_started)
                 logger.error("[nation-scan] page fetch failed page=%s", n, exc_info=True)
                 consecutive_page_failures += 1
                 if consecutive_page_failures >= SCAN_SKIP_MAX_CONSECUTIVE_PAGES:
@@ -174,6 +184,7 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
                 n += 1
                 continue
 
+            await _sleep_remaining_page_delay(fetch_started)
             consecutive_page_failures = 0
             page_data = resp['data']['nations']['data']
 
@@ -208,7 +219,7 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
                 "[nation-scan] fetched and persisted page=%s rows_on_page=%s duration_s=%.2f",
                 n,
                 len(page_data),
-                time.time() - start,
+                time.time() - iter_start,
             )
             n += 1
 
@@ -273,8 +284,8 @@ async def alliance_scanner():
                 table_ready = False
                 consecutive_page_failures = 0
                 while more_pages:
-                    start = time.time()
-                    await asyncio.sleep(SCAN_PAGE_REQUEST_DELAY_SECONDS)
+                    iter_start = time.time()
+                    fetch_started = time.monotonic()
                     try:
                         resp = await _fetch_with_retry(
                             f"{{alliances(page:{n} first:100 orderBy:{{column:ID order:ASC}})"
@@ -283,6 +294,7 @@ async def alliance_scanner():
                             page=n,
                         )
                     except Exception:
+                        await _sleep_remaining_page_delay(fetch_started)
                         logger.error("[alliance-scan] page fetch failed page=%s", n, exc_info=True)
                         consecutive_page_failures += 1
                         if consecutive_page_failures >= SCAN_SKIP_MAX_CONSECUTIVE_PAGES:
@@ -305,6 +317,7 @@ async def alliance_scanner():
                         n += 1
                         continue
 
+                    await _sleep_remaining_page_delay(fetch_started)
                     consecutive_page_failures = 0
                     page_data = resp['data']['alliances']['data']
 
@@ -325,7 +338,7 @@ async def alliance_scanner():
                         "[alliance-scan] fetched and persisted page=%s rows_on_page=%s duration_s=%.2f",
                         n,
                         len(page_data),
-                        time.time() - start,
+                        time.time() - iter_start,
                     )
                     n += 1
 
