@@ -1382,9 +1382,10 @@ export function RaidsTable({
       </Menu>
       <MantineReactTable table={table} />
       <Alert icon={<IconInfoCircle size={16} />} title="Pro Tip" color="blue" variant="light">
-        Hide or show columns, reorder them and filter columns by using the controls in the top-right of the table.
-        Right-click any row for quick links (PnW pages, reminders, damage calculator) or to set a beige reminder.
-        Use Manage reminders for timing offsets and bulk cleanup.
+        Hold Shift and click another header to add a secondary sort (tie-breaker); sorted headers show a small badge
+        (1 = first, 2 = second). Hide or show columns, reorder them and filter columns by using the controls in the
+        top-right of the table. Right-click any row for quick links (PnW pages, reminders, damage calculator) or to set
+        a beige reminder. Use Manage reminders for timing offsets and bulk cleanup.
       </Alert>
     </Stack>
   );
