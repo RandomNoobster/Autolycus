@@ -14,6 +14,7 @@ import {
   Group,
   ThemeIcon,
   Image,
+  Skeleton,
   useMantineColorScheme,
 } from '@mantine/core';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -75,22 +76,42 @@ function HomeRegisteredUsersBlurb({
   count: number | null;
   isLoading: boolean;
 }) {
-  if (isLoading) return null;
-  if (count === null) return null;
-  if (count <= 0) {
+  if (isLoading) {
     return (
-      <Text size="sm" c="dimmed" maw={520}>
+      <Text size="sm" maw={520} style={{ minHeight: '1.55em' }}>
+        <Text span c="dimmed">
+          Join{' '}
+        </Text>
+        <Skeleton
+          height={18}
+          width={44}
+          radius="sm"
+          component="span"
+          style={{ verticalAlign: 'middle', display: 'inline-block' }}
+        />
+        <Text span c="dimmed">
+          {' '}
+          other registered users already using Autolycus with Discord.
+        </Text>
+      </Text>
+    );
+  }
+
+  if (count === null || count <= 0) {
+    return (
+      <Text size="sm" c="dimmed" maw={520} style={{ minHeight: '1.55em' }}>
         Be among the first registered users—link your nation with Discord.
       </Text>
     );
   }
+
   const formatted = count.toLocaleString();
   const rest =
     count === 1
       ? ' other registered user already using Autolycus with Discord.'
       : ' other registered users already using Autolycus with Discord.';
   return (
-    <Text size="sm" maw={520}>
+    <Text size="sm" maw={520} style={{ minHeight: '1.55em' }}>
       <Text span c="dimmed">
         Join{' '}
       </Text>

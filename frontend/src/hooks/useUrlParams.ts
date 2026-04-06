@@ -46,6 +46,8 @@ interface UseUrlParamsReturn {
 // handled outside the table and don't correspond to actual column IDs.
 const RESERVED_PARAMS = [
   'token', 'sort', 'sortDir', 'attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId',
+  // Damage calculator slots; often kept on /raids URLs but not table column IDs.
+  'nation1', 'nation2',
   'scoreMode', 'yourScore', 'minScore', 'maxScore',
   'alliance', 'beige', 'maxWars', 'inactiveMinDays', 'scope', 'positions', 'minBeigeLoot', 'performance',
   'code', 'auto', 'redirect',
@@ -156,12 +158,14 @@ export function useUrlParams(): UseUrlParamsReturn {
         }
 
         // Preserve deep link params
-        ['attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId'].forEach((key) => {
-          const value = prev.get(key);
-          if (value) {
-            newParams.set(key, value);
+        ['attackerNationId', 'targetNationIds', 'useSavedTargets', 'nationId', 'nation1', 'nation2'].forEach(
+          (key) => {
+            const value = prev.get(key);
+            if (value) {
+              newParams.set(key, value);
+            }
           }
-        });
+        );
 
         // Preserve sorting
         const sort = prev.get('sort');

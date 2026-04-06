@@ -48,13 +48,15 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
     },
   });
 
+  // Only depend on `opened`. The mutation object from useMutation is a new reference whenever
+  // mutation state changes (e.g. after reset()), so listing it here caused an infinite loop.
   useEffect(() => {
     if (!opened) {
       setSuccessMessage(null);
       setErrorMessage(null);
       verifyMutation.reset();
     }
-  }, [opened, verifyMutation]);
+  }, [opened, verifyMutation.reset]);
 
   function submitVerify(event?: React.FormEvent) {
     event?.preventDefault();
