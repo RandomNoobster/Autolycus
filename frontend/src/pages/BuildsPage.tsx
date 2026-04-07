@@ -62,7 +62,7 @@ export function BuildsPage() {
   const [nationError, setNationError] = useState<string | null>(null);
   const [nationSuccess, setNationSuccess] = useState<string | null>(null);
   const [gameData, setGameData] = useState<GameDataResponse | null>(null);
-  const [autoLoadNation, setAutoLoadNation] = useState(false);
+  const [autoLoadNation, setAutoLoadNation] = useState(Boolean(savedNationId));
   const [hasManualNationInput, setHasManualNationInput] = useState(false);
   const { data: linkedNationData } = useQuery({
     queryKey: ['linkedNation'],

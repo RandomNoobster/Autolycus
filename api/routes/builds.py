@@ -489,16 +489,26 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
     
     nation = nation_data[0]
     
-    # Map continent names to codes
+    # Normalize continent values from P&W (e.g. "South America", "SOUTH_AMERICA", "sa").
     continent_map = {
-        'North America': 'na',
-        'South America': 'sa',
-        'Europe': 'eu',
-        'Africa': 'af',
-        'Asia': 'as',
-        'Australia': 'au',
-        'Antarctica': 'an',
+        'north america': 'na',
+        'north_america': 'na',
+        'na': 'na',
+        'south america': 'sa',
+        'south_america': 'sa',
+        'sa': 'sa',
+        'europe': 'eu',
+        'eu': 'eu',
+        'africa': 'af',
+        'af': 'af',
+        'asia': 'as',
+        'as': 'as',
+        'australia': 'au',
+        'au': 'au',
+        'antarctica': 'an',
+        'an': 'an',
     }
+    continent_raw = str(nation.get('continent', '')).strip().lower()
     
     # Extract active projects as canonical keys so frontend values always match
     # game-data options and backend validation.
@@ -531,7 +541,7 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
         'id': nation.get('id'),
         'name': nation.get('nation_name', ''),
         'leader': nation.get('leader_name', ''),
-        'continent': continent_map.get(nation.get('continent', ''), 'na'),
+        'continent': continent_map.get(continent_raw, 'na'),
         'cities': cities,
         'projects': projects,
         'policies': policies,
