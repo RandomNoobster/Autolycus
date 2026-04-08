@@ -17,6 +17,7 @@ from discord.commands import Option, SlashCommandGroup, slash_command
 from discord.ext import commands
 
 from logic import queries
+from logic import common
 from database import mongo as db_mongo
 from database import users as db_users
 from bot.discord_utils import helpers, views
@@ -99,6 +100,89 @@ class TargetFinding(commands.Cog):
     def winrate_calc(self, attacker_value: float, defender_value: float) -> float:
         """Legacy alias for calculate_win_chance. Use calculate_win_chance for new code."""
         return self.calculate_win_chance(attacker_value, defender_value)
+
+    async def _fetch_reminder_embed_nation(self, nation_id: int | str) -> Optional[dict]:
+        query = (
+            "{nations(first:1 id:"
+            f"{nation_id}"
+            "){data{id nation_name leader_name flag score num_cities color "
+            "vacation_mode_turns beige_turns soldiers tanks aircraft ships missiles nukes "
+            "alliance{name}}}}"
+        )
+        response = await api_client.call(query, api_key)
+        nations = (((response or {}).get("data") or {}).get("nations") or {}).get("data") or []
+        if not nations:
+            return None
+        return nations[0]
+
+    def _build_beige_reminder_action_embed(self, nation: dict, *, action: str) -> discord.Embed:
+        nation_id = nation.get("id", "unknown")
+        nation_url = f"https://politicsandwar.com/nation/id={nation_id}"
+        nation_name = nation.get("nation_name", f"Nation {nation_id}")
+        leader_name = nation.get("leader_name", "Unknown")
+        alliance = nation.get("alliance")
+        if isinstance(alliance, dict):
+            alliance_name = alliance.get("name") or "None"
+        else:
+            alliance_name = alliance or "None"
+
+        if action == "added":
+            action_text = "added"
+        else:
+            action_text = "deleted"
+
+        embed = discord.Embed(
+            title=nation_name,
+            url=nation_url,
+            description=(
+                f"Beige reminder **{action_text}**.\n"
+                f"Leader: **{leader_name}**\n"
+                f"Alliance: **{alliance_name}**\n"
+                f"[Open nation profile]({nation_url})\n"
+                f"[Declare war](https://politicsandwar.com/nation/war/declare/id={nation_id})"
+            ),
+            color=0xFF5100,
+        )
+        flag_url = nation.get("flag")
+        if flag_url:
+            embed.set_thumbnail(url=str(flag_url))
+
+        beige_turns = int(nation.get("beige_turns") or 0)
+        vm_turns = int(nation.get("vacation_mode_turns") or 0)
+        if beige_turns > 0:
+            exit_time = common.get_datetime_of_turns(beige_turns)
+            status_value = (
+                f"Beige turns: **{beige_turns}**\n"
+                f"Exits beige: <t:{round(exit_time.timestamp())}:f> (<t:{round(exit_time.timestamp())}:R>)"
+            )
+        elif vm_turns > 0:
+            exit_time = common.get_datetime_of_turns(vm_turns)
+            status_value = (
+                f"VM turns: **{vm_turns}**\n"
+                f"Exits VM: <t:{round(exit_time.timestamp())}:f> (<t:{round(exit_time.timestamp())}:R>)"
+            )
+        else:
+            status_value = "No active beige/VM turns"
+        embed.add_field(name="Status", value=status_value, inline=False)
+
+        military = (
+            f"Soldiers: **{int(nation.get('soldiers') or 0):,}**\n"
+            f"Tanks: **{int(nation.get('tanks') or 0):,}**\n"
+            f"Aircraft: **{int(nation.get('aircraft') or 0):,}**\n"
+            f"Ships: **{int(nation.get('ships') or 0):,}**\n"
+            f"Missiles: **{int(nation.get('missiles') or 0)}**\n"
+            f"Nukes: **{int(nation.get('nukes') or 0)}**"
+        )
+        embed.add_field(name="Military", value=military, inline=True)
+
+        nation_info = (
+            f"Score: **{nation.get('score', 'Unknown')}**\n"
+            f"Cities: **{nation.get('num_cities', 'Unknown')}**\n"
+            f"Color: **{str(nation.get('color') or 'Unknown').capitalize()}**"
+        )
+        embed.add_field(name="Nation Info", value=nation_info, inline=True)
+        embed.set_footer(text=with_support_footer())
+        return embed
 
 
     @slash_command(
@@ -898,7 +982,12 @@ class TargetFinding(commands.Cog):
                 return
 
             await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$pull": {"beige_alerts": id}})
-            await ctx.respond(content=f"Your beige reminder for https://politicsandwar.com/nation/id={id} was deleted.")
+            nation_for_embed = await self._fetch_reminder_embed_nation(id)
+            embed = self._build_beige_reminder_action_embed(
+                nation_for_embed or parsed_nation,
+                action="deleted",
+            )
+            await ctx.respond(embed=embed)
 
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="reminders delete")
@@ -921,7 +1010,10 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content='I could not find that nation!')
                 return
 
-            res = (await api_client.call(f"{{nations(first:1 id:{nation['id']}){{data{get_query(queries.REMINDERS)}}}}}", api_key))['data']['nations']['data'][0]
+            res = await self._fetch_reminder_embed_nation(nation["id"])
+            if not res:
+                await ctx.respond(content="I could not load that nation right now. Please try again.")
+                return
 
             if res['beige_turns'] == 0 and res['vacation_mode_turns'] == 0:
                 await ctx.respond(content="They are not in beige or vacation mode!")
@@ -940,7 +1032,8 @@ class TargetFinding(commands.Cog):
                     return
 
             await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$addToSet": {"beige_alerts": reminder}})
-            await ctx.respond(content=f"A beige reminder for https://politicsandwar.com/nation/id={nation['id']} was added.")
+            embed = self._build_beige_reminder_action_embed(res, action="added")
+            await ctx.respond(embed=embed)
 
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="reminders add")
