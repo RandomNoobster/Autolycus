@@ -5,7 +5,16 @@ import discord
 EMBED_COLOR = 0xff5100
 SUCCESS_EMBED_COLOR = 0x57F287
 UNLINK_EMBED_COLOR = 0x5865F2
-_DEFAULT_EMBED_FOOTER = "Contact randomnoobster for help or bug reports"
+AUTOLYCUS_TEST_SERVER_INVITE_URL = "https://discord.gg/N79yN5DS4q"
+DEFAULT_CONTACT_FOOTER = (
+    f"Contact randomnoobster for help or bug reports | Autolycus Test Server: {AUTOLYCUS_TEST_SERVER_INVITE_URL}"
+)
+
+
+def with_support_footer(text: str | None = None) -> str:
+    if text and text.strip():
+        return f"{text}\n{DEFAULT_CONTACT_FOOTER}"[:2048]
+    return DEFAULT_CONTACT_FOOTER
 
 
 def verification_success_embed(*, relinked: bool) -> discord.Embed:
@@ -22,7 +31,7 @@ def verification_success_embed(*, relinked: bool) -> discord.Embed:
             "Autolycus can recognize you in slash commands that need a nation."
         )
     embed = discord.Embed(title=title, description=description, color=SUCCESS_EMBED_COLOR)
-    embed.set_footer(text=_DEFAULT_EMBED_FOOTER)
+    embed.set_footer(text=DEFAULT_CONTACT_FOOTER)
     return embed
 
 
@@ -35,7 +44,7 @@ def verification_unlinked_embed() -> discord.Embed:
         ),
         color=UNLINK_EMBED_COLOR,
     )
-    embed.set_footer(text=_DEFAULT_EMBED_FOOTER)
+    embed.set_footer(text=DEFAULT_CONTACT_FOOTER)
     return embed
 
 
@@ -73,5 +82,5 @@ def nation_overview_embed(nation: dict, discord_info: str, alliance_info: str, m
     embed.add_field(name="Alliance Info", value=alliance_info, inline=False)
     embed.add_field(name="Military Info", value=military_info)
     embed.add_field(name="\u200b", value=military_info_2, inline=True)
-    embed.set_footer(text="Contact randomnoobster for help or bug reports")
+    embed.set_footer(text=DEFAULT_CONTACT_FOOTER)
     return embed

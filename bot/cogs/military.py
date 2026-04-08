@@ -21,6 +21,7 @@ from database import mongo as db_mongo
 from database import users as db_users
 from bot.discord_utils import helpers, views
 from bot.discord_utils import errors as err_util
+from bot.discord_utils.embeds import with_support_footer
 from bot.discord_utils.loading_display import LoadingDisplay
 # Import from new architecture layers
 from logic import api_client
@@ -761,10 +762,12 @@ class TargetFinding(commands.Cog):
                     embed = nation["embed"]
                     if "*" in nation["money_txt"]:
                         embed.set_footer(
-                            text=f"Page {idx}/{pages}  |  * the income if the nation is out of food."
+                            text=with_support_footer(
+                                f"Page {idx}/{pages}  |  * the income if the nation is out of food."
+                            )
                         )
                     else:
-                        embed.set_footer(text=f"Page {idx}/{pages}")
+                        embed.set_footer(text=with_support_footer(f"Page {idx}/{pages}"))
                     embeds.append(embed)
 
                 target_ids = [str(nation["id"]) for nation in best_targets]
@@ -793,7 +796,7 @@ class TargetFinding(commands.Cog):
                     cache_age = f"<t:{target_cached_ts}:R>" if target_cached_ts is not None else "unknown"
                     desc += f"\n\n**Last beige: {loot_text}**\n[{target['nation_name']}](https://politicsandwar.com/nation/id={target['id']}) | Active: <t:{round(datetime.strptime(target['last_active'], '%Y-%m-%dT%H:%M:%S%z').timestamp())}:R> | Updated: {cache_age} | Ground IT: {round(100*target['groundwin']**3)}%"
                 embed = discord.Embed(title="Top nations by beige loot", description=desc, color=0xff5100)
-                embed.set_footer(text="Contact randomnoobster for help or bug reports")
+                embed.set_footer(text=with_support_footer())
                 await loading.clear()
                 await ctx.edit(content="", embed=embed, attachments=[], view=None)
 
@@ -1112,9 +1115,9 @@ class TargetFinding(commands.Cog):
         embed = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
         embed1 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
         embed2 = discord.Embed(title=f"{nation['nation_name']} ({nation['id']}) & their wars", description=desc, color=0xff5100)
-        embed.set_footer(text=f"\nThe chance to get immense triumphs is if the nation attacks {nation['nation_name']}. On average, it's worth attacking if the % is above 13%. Use /battlesimulation for more detailed predictions.")
-        embed1.set_footer(text=f"\nThe chance to get immense triumphs is if the nation attacks {nation['nation_name']}. On average, it's worth attacking if the % is above 13%. Use /battlesimulation for more detailed predictions.")
-        embed2.set_footer(text=f"\nThese are the average net damage per MAP predictions for the nations in question. Negative numbers means the net damage would be negative (not good). Use /damage for more detailed predictions.")
+        embed.set_footer(text=with_support_footer(f"The chance to get immense triumphs is if the nation attacks {nation['nation_name']}. On average, it's worth attacking if the % is above 13%. Use /battlesimulation for more detailed predictions."))
+        embed1.set_footer(text=with_support_footer(f"The chance to get immense triumphs is if the nation attacks {nation['nation_name']}. On average, it's worth attacking if the % is above 13%. Use /battlesimulation for more detailed predictions."))
+        embed2.set_footer(text=with_support_footer("These are the average net damage per MAP predictions for the nations in question. Negative numbers means the net damage would be negative (not good). Use /damage for more detailed predictions."))
         n = 1
 
         for war in nation['wars']:
@@ -1364,7 +1367,7 @@ class TargetFinding(commands.Cog):
                     else:
                         alliance = "No alliance"
                     embed.add_field(name=f"{nation_list[i]['nation_name']}", value=f"[Nation](https://politicsandwar.com/nation/id={nation_list[i]['id']}) | {alliance}\nDamage/nuke: `${nation_list[i]['nuke_cost']:,.0f}`\nDamage/missile: `${nation_list[i]['missile_cost']:,.0f}`\nMax infra: `{nation_list[i]['max_infra']:.0f}`\nAvg. infra: `{nation_list[i]['avg_infra']:.0f}`\nVital Defense: {'✅' if nation_list[i]['vds'] else '<:redcross:862669500977905694>'}\nIron Dome: {'✅' if nation_list[i]['irond'] else '<:redcross:862669500977905694>'}")
-                embed.set_footer(text=f"Page {n/8+1:.0f}/{math.ceil(len(nation_list)/8)}")
+                embed.set_footer(text=with_support_footer(f"Page {n/8+1:.0f}/{math.ceil(len(nation_list)/8)}"))
                 embeds.append(embed)
             
             if len(embeds) > 1:

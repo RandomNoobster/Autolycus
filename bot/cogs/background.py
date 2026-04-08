@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from bot.discord_utils import errors as err_util
 from database import mongo as db_mongo
 from database.sqlite_cache import get_nation_by_id, get_nations_db_path
-from bot.discord_utils.embeds import EMBED_COLOR
+from bot.discord_utils.embeds import EMBED_COLOR, with_support_footer
 from logic import api_client, common, queries
 from logic.common import compute_beige_loot
 from logic.merge_utils import get_query
@@ -662,7 +662,7 @@ class General(commands.Cog):
                 inline=False,
             )
 
-        embed.set_footer(text="Autolycus beige reminder")
+        embed.set_footer(text=with_support_footer("Autolycus beige reminder"))
         return embed
 
     async def _send_preemptive_reminder(

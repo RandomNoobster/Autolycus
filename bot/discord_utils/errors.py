@@ -8,9 +8,9 @@ import traceback
 import discord
 import xkcdpass.xkcd_password as xp
 from discord.ext import commands
+from bot.discord_utils.embeds import DEFAULT_CONTACT_FOOTER
 
 ERROR_EMBED_COLOR = 0xED4245
-DEFAULT_CONTACT_FOOTER = "Contact randomnoobster for help or bug reports"
 PNW_SERVER_USER_MESSAGE = (
     "Politics & War's server is currently having issues. "
     "Please wait a bit and try again once PnW resolves it."

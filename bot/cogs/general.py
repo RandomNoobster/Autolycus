@@ -24,7 +24,7 @@ from database import sqlite_cache as db_utils
 from database.users import delete_verification
 from bot.discord_utils import help_data, helpers
 from bot.discord_utils import errors as err_util
-from bot.discord_utils.embeds import nation_overview_embed, verification_success_embed, verification_unlinked_embed
+from bot.discord_utils.embeds import nation_overview_embed, verification_success_embed, verification_unlinked_embed, with_support_footer
 from bot.discord_utils.loading_display import LoadingDisplay
 from logic.api_client import call, paginate_call
 from logic.builds import calculate_builds as calculate_builds_logic
@@ -271,7 +271,7 @@ class Background(commands.Cog):
             link_text = f"[Click here to see all builds]({builds_url})"
             embed.add_field(name="View Detailed Results", value=link_text, inline=False)
 
-            embed.set_footer(text="Contact randomnoobster for help or bug reports")
+            embed.set_footer(text=with_support_footer())
 
             await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
@@ -346,7 +346,7 @@ class Background(commands.Cog):
             embed.add_field(name="Expenses", value=rev_obj['expenses_txt'])
             embed.add_field(name="Net Revenue", value=rev_obj['net_rev_txt'])
             embed.add_field(name="Monetary Net Income", inline=False, value=rev_obj['mon_net_txt'])
-            embed.set_footer(text=rev_obj['footer'])
+            embed.set_footer(text=with_support_footer(rev_obj['footer']))
 
             await ctx.edit(content="", embed=embed, attachments=[])
         except Exception as e:
@@ -474,7 +474,7 @@ class Background(commands.Cog):
                 "\u200b"
             )
             embed = discord.Embed(title="About me", description=content, color=0xff5100)
-            embed.set_footer(text="Contact randomnoobster for help or bug reports")
+            embed.set_footer(text=with_support_footer())
             await ctx.respond(embed=embed)
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="botinfo")
@@ -524,7 +524,7 @@ class Background(commands.Cog):
                     ),
                     color=0xFEE75C,
                 )
-                embed.set_footer(text="Contact randomnoobster for help or bug reports")
+                embed.set_footer(text=with_support_footer())
                 await ctx.respond(embed=embed)
                 return
             if code == "NOT_FOUND":
@@ -664,7 +664,7 @@ class Background(commands.Cog):
                         inline=False,
                     )
 
-                embed.set_footer(text="Contact randomnoobster for help or bug reports")
+                embed.set_footer(text=with_support_footer())
                 await ctx.edit(content="", embed=embed)
             else:
                 # ── Compact list of all commands ──
@@ -693,7 +693,7 @@ class Background(commands.Cog):
                         inline=False,
                     )
 
-                embed.set_footer(text="Contact randomnoobster for help or bug reports")
+                embed.set_footer(text=with_support_footer())
                 await ctx.edit(content="", embed=embed)
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="help")
