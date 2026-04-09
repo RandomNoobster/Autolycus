@@ -4,7 +4,6 @@ import logging
 import math
 import os
 import pathlib
-import random
 import urllib.parse
 from datetime import datetime, timedelta
 from functools import partial
@@ -101,14 +100,18 @@ class TargetFinding(commands.Cog):
         """Legacy alias for calculate_win_chance. Use calculate_win_chance for new code."""
         return self.calculate_win_chance(attacker_value, defender_value)
 
-    async def _fetch_reminder_embed_nation(self, nation_id: int | str) -> Optional[dict]:
-        query = (
-            "{nations(first:1 id:"
-            f"{nation_id}"
-            "){data{id nation_name leader_name flag score num_cities color "
-            "vacation_mode_turns beige_turns soldiers tanks aircraft ships missiles nukes "
-            "alliance{name}}}}"
-        )
+    async def _fetch_reminder_embed_nation(
+        self, nation_id: int | str, *, minimal: bool = False
+    ) -> Optional[dict]:
+        if minimal:
+            fields = "id nation_name leader_name flag alliance{name}"
+        else:
+            fields = (
+                "id nation_name leader_name flag score num_cities color "
+                "vacation_mode_turns beige_turns soldiers tanks aircraft ships missiles nukes "
+                "alliance{name}"
+            )
+        query = "{nations(first:1 id:" f"{nation_id}" f"){{data{{{fields}}}}}"
         response = await api_client.call(query, api_key)
         nations = (((response or {}).get("data") or {}).get("nations") or {}).get("data") or []
         if not nations:
@@ -126,16 +129,30 @@ class TargetFinding(commands.Cog):
         else:
             alliance_name = alliance or "None"
 
-        if action == "added":
-            action_text = "added"
-        else:
-            action_text = "deleted"
+        if action == "deleted":
+            embed = discord.Embed(
+                title="Beige reminder removed",
+                description=(
+                    "That nation is no longer on your beige reminder list. "
+                    "You will not get DM notifications when they exit beige or vacation mode.\n\n"
+                    f"**Nation:** [{nation_name}]({nation_url}) (`{nation_id}`)\n"
+                    f"**Leader:** {leader_name}\n"
+                    f"**Alliance:** {alliance_name}\n\n"
+                    f"[Open nation profile]({nation_url}) · "
+                ),
+                color=0xFF5100,
+            )
+            flag_url = nation.get("flag")
+            if flag_url:
+                embed.set_thumbnail(url=str(flag_url))
+            embed.set_footer(text=with_support_footer())
+            return embed
 
         embed = discord.Embed(
             title=nation_name,
             url=nation_url,
             description=(
-                f"Beige reminder **{action_text}**.\n"
+                "Beige reminder **added**.\n"
                 f"Leader: **{leader_name}**\n"
                 f"Alliance: **{alliance_name}**\n"
                 f"[Open nation profile]({nation_url})\n"
@@ -906,9 +923,18 @@ class TargetFinding(commands.Cog):
                 return
 
             if person['beige_alerts'] == []:
-                insults = ['ha loser', 'what a nub', 'such a pleb', 'get gud', 'u suc lol', 'ur useless lmao']
-                insult = random.choice(insults)
-                await ctx.respond(content=f"You have no beige reminders!\n\n||{insult}||")
+                reminders_url = f"{WEB_BASE_URL}/reminders"
+                embed = discord.Embed(
+                    title="No beige reminders",
+                    description=(
+                        "You do not have any beige exit reminders yet.\n\n"
+                        f"Add some with **`/reminders add`** or on the "
+                        f"[Reminders webpage]({reminders_url})."
+                    ),
+                    color=0xFF5100,
+                )
+                embed.set_footer(text=with_support_footer())
+                await ctx.respond(embed=embed)
                 return
 
             res = (await api_client.call(f"{{nations(id:[{','.join(person['beige_alerts'])}]){{data{get_query(queries.REMINDERS)}}}}}", api_key))['data']['nations']['data']
@@ -982,7 +1008,7 @@ class TargetFinding(commands.Cog):
                 return
 
             await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$pull": {"beige_alerts": id}})
-            nation_for_embed = await self._fetch_reminder_embed_nation(id)
+            nation_for_embed = await self._fetch_reminder_embed_nation(id, minimal=True)
             embed = self._build_beige_reminder_action_embed(
                 nation_for_embed or parsed_nation,
                 action="deleted",
