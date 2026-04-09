@@ -920,6 +920,12 @@ export function RaidsTable({
         header: 'Beige Loot',
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
+        sortingFn: (rowA, rowB, columnId) => {
+          const a = parseNumericValue(rowA.getValue<string>(columnId));
+          const b = parseNumericValue(rowB.getValue<string>(columnId));
+          if (a === b) return 0;
+          return a > b ? 1 : -1;
+        },
         filterFn: minOnlyFilter,
         Filter: MinOnlyFilterInput,
       },
