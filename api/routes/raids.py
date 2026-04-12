@@ -19,7 +19,7 @@ from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
                                    get_nation_by_id)
 from logic import api_client, merge_utils
-from logic.common import compute_beige_loot
+from logic.common import compute_beige_loot, normalize_alliance_position
 from logic.military import calculate_win_chance_raw
 from logic.revenue import pre_revenue_calc, revenue_calc_sync
 from logic.raids import (calculate_days_inactive,
@@ -342,10 +342,11 @@ def get_raids() -> tuple[Any, int]:
         for nation in nations:
             if target_nation_ids and str(nation.get('id', '')) not in target_nation_ids:
                 continue
+            alliance_position = normalize_alliance_position(nation.get('alliance_position'))
             # Filters
             if apply_filters:
                 if scope == 'apps_or_none':
-                    if nation.get('alliance_position') not in ['NOALLIANCE', 'APPLICANT']:
+                    if alliance_position not in ['NOALLIANCE', 'APPLICANT']:
                         continue
                 if scope == 'no_alliance':
                     if str(nation.get('alliance_id', '')) != '0':
@@ -464,7 +465,7 @@ def get_raids() -> tuple[Any, int]:
                 'leaderName': nation.get('leader_name', 'Unknown'),
                 'allianceId': alliance_id or '0',
                 'allianceName': alliance_name,
-                'alliancePosition': (nation.get('alliance_position') or 'Unknown'),
+                'alliancePosition': (alliance_position or 'Unknown'),
                 'numCities': nation.get('num_cities', 0),
                 'color': nation_color,
                 'beigeTurns': nation.get('beige_turns', 0),

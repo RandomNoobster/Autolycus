@@ -20,7 +20,7 @@ from database.sqlite_cache import (ensure_metadata_table, ensure_table_and_colum
                                    get_alliances_db_path, get_nations_db_path,
                                    prune_missing_ids, set_metadata, upsert)
 from logic.api_client import call
-from logic.common import compute_beige_loot
+from logic.common import compute_beige_loot, normalize_alliance_position
 from logic.merge_utils import get_query
 
 load_dotenv()
@@ -210,6 +210,10 @@ async def persist_nation_row(
         try:
             async with _nation_scan_write_lock:
                 working_row = _to_json_safe(_merge_military_research(conn, row))
+                if "alliance_position" in working_row:
+                    working_row["alliance_position"] = normalize_alliance_position(
+                        working_row["alliance_position"]
+                    )
                 ensure_table_and_columns(conn, "nations", working_row)
                 loot_computed = False
                 if prices:

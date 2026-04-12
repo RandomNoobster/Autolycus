@@ -225,3 +225,51 @@ def str_to_api_key_list(value: str) -> list[str]:
         except Exception:
             break
     return [segment for segment in value.split(",") if segment]
+
+
+# Order matches Politics & War GraphQL ``AlliancePositionEnum`` (``.ctx/pnwSchema.graphql``).
+ALLIANCE_POSITION_ENUM_ORDER: tuple[str, ...] = (
+    "NOALLIANCE",
+    "APPLICANT",
+    "MEMBER",
+    "OFFICER",
+    "HEIR",
+    "LEADER",
+)
+_ALLIANCE_POSITION_ENUM_SET = frozenset(ALLIANCE_POSITION_ENUM_ORDER)
+
+
+def normalize_alliance_position(value: Any) -> Any:
+    """Coerce ``alliance_position`` to enum name strings.
+
+    Full nation scans return uppercase enum strings; websocket subscription
+    payloads may send the same field as a small integer (enum ordinal). SQLite
+    can surface either shape depending on how the row was last updated.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+
+    idx: int | None = None
+    if isinstance(value, int):
+        idx = value
+    elif isinstance(value, float) and value.is_integer():
+        idx = int(value)
+    elif isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        upper = s.upper()
+        if upper in _ALLIANCE_POSITION_ENUM_SET:
+            return upper
+        if s.isdigit():
+            idx = int(s)
+        else:
+            return value
+    else:
+        return value
+
+    if idx is not None and 0 <= idx < len(ALLIANCE_POSITION_ENUM_ORDER):
+        return ALLIANCE_POSITION_ENUM_ORDER[idx]
+    return value
