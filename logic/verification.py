@@ -36,6 +36,38 @@ def normalize_nation_id(nation_input: str) -> str:
     return re.sub(r"[^0-9]", "", str(nation_input or ""))
 
 
+def format_ownership_mismatch_message(
+    *,
+    nation_discord_display: str,
+    signed_in_discord_username: str,
+) -> str:
+    """User-facing copy when the P&W nation Discord field does not match the session user."""
+    nation_part = str(nation_discord_display or "").strip()
+    signed_in = str(signed_in_discord_username or "").strip()
+    if nation_part:
+        if signed_in:
+            return (
+                f'Your nation currently has Discord set to "{nation_part}" on Politics & War, '
+                f'but it needs to match the account you are using here. In your nation settings, '
+                f'change the Discord Username field to "{signed_in}", save, and try again.'
+            )
+        return (
+            f'Your nation currently has Discord set to "{nation_part}" on Politics & War. '
+            "In your nation settings, change the Discord Username field to match the Discord "
+            "account you use here, save, and try again."
+        )
+    if signed_in:
+        return (
+            "This nation does not list a Discord username on Politics & War yet. "
+            f'In your nation settings, set the Discord Username field to "{signed_in}" '
+            "(the same handle as the account you are using here), save, and try again."
+        )
+    return (
+        "This nation does not list a Discord username on Politics & War. Set that field "
+        "in your nation settings to match the Discord account you use here, then try again."
+    )
+
+
 async def verify_discord_nation_link(
     *,
     discord_user_id: int,
@@ -65,13 +97,17 @@ async def verify_discord_nation_link(
         }
 
     nation = nations[0] or {}
-    nation_discord = str(nation.get("discord") or "").strip().lower()
+    nation_discord_display = str(nation.get("discord") or "").strip()
+    nation_discord = nation_discord_display.lower()
     if nation_discord != str(discord_username or "").strip().lower():
         return {
             "ok": False,
             "code": "OWNERSHIP_MISMATCH",
             "nation_id": nation_id,
-            "message": "Nation Discord username does not match the signed-in Discord username.",
+            "message": format_ownership_mismatch_message(
+                nation_discord_display=nation_discord_display,
+                signed_in_discord_username=str(discord_username or ""),
+            ),
             "relinked": False,
         }
 
@@ -134,13 +170,17 @@ def verify_discord_nation_link_sync(
         }
 
     nation = nations[0] or {}
-    nation_discord = str(nation.get("discord") or "").strip().lower()
+    nation_discord_display = str(nation.get("discord") or "").strip()
+    nation_discord = nation_discord_display.lower()
     if nation_discord != str(discord_username or "").strip().lower():
         return {
             "ok": False,
             "code": "OWNERSHIP_MISMATCH",
             "nation_id": nation_id,
-            "message": "Nation Discord username does not match the signed-in Discord username.",
+            "message": format_ownership_mismatch_message(
+                nation_discord_display=nation_discord_display,
+                signed_in_discord_username=str(discord_username or ""),
+            ),
             "relinked": False,
         }
 
