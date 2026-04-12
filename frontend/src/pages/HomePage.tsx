@@ -199,8 +199,13 @@ function HomeRemindersGuestCard() {
             color="indigo"
             variant="filled"
             leftSection={<IconBrandDiscord size={22} />}
+            styles={{
+              root: { minWidth: 0 },
+              inner: { flexWrap: 'wrap', justifyContent: 'center', rowGap: 4 },
+              label: { whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.25 },
+            }}
           >
-            Log in with Discord to unlock
+            Log in with Discord
           </Button>
         </Stack>
       </Stack>
