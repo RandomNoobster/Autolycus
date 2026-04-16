@@ -631,6 +631,10 @@ export function RaidsTable({
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
+  const [pagination, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: 50,
+  });
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -1147,6 +1151,7 @@ export function RaidsTable({
   const table = useMantineReactTable({
     columns,
     data,
+    autoResetPageIndex: false,
     defaultColumn: {
       Header: ({ column }) => {
         const h = column.columnDef.header;
@@ -1175,15 +1180,16 @@ export function RaidsTable({
     initialState: {
       columnFilters,
       sorting: initialSorting,
-      pagination: { pageSize: 50, pageIndex: 0 },
       density,
     },
     state: {
+      pagination,
       columnVisibility,
       columnOrder,
       density,
       columnFilters,
     },
+    onPaginationChange: setPagination,
     onColumnVisibilityChange,
     onColumnOrderChange,
     onDensityChange,
