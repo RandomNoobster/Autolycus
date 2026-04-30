@@ -48,6 +48,7 @@ interface BuildCardProps {
   build: BuildData;
   allBuilds?: BuildData[];
   isValid?: boolean;
+  showDualIncome?: boolean;
 }
 
 export function BuildCard({
@@ -55,6 +56,7 @@ export function BuildCard({
   build,
   allBuilds = [],
   isValid = true,
+  showDualIncome = false,
 }: BuildCardProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -68,6 +70,8 @@ export function BuildCard({
   const currentBuild = sortedBuilds[currentIndex] || build;
   const hasMultiple = sortedBuilds.length > 1;
   const upkeep = currentBuild.unitUpkeep;
+  const adjustedNetIncome = Number(currentBuild?.netIncome ?? currentBuild?.netCash ?? 0);
+  const realNetIncome = Number(currentBuild?.netIncomeReal ?? adjustedNetIncome);
   const upkeepModeLabel = upkeep?.mode === 'war' ? 'wartime' : 'peacetime';
   const upkeepLine = upkeep
     ? upkeep.included
@@ -246,7 +250,7 @@ export function BuildCard({
           withBorder
           style={{
             borderColor: `var(--mantine-color-${getProfitColor(
-              Number(currentBuild?.netIncome ?? currentBuild?.netCash ?? 0)
+              adjustedNetIncome
             )}-6)`,
           }}
         >
@@ -254,14 +258,12 @@ export function BuildCard({
             <Text
               ta="center"
               fw={600}
-              c={getProfitColor(Number(currentBuild?.netIncome ?? currentBuild?.netCash ?? 0))}
+              c={getProfitColor(adjustedNetIncome)}
               style={{
                 fontFamily: 'JetBrains Mono, Consolas, Monaco, monospace',
               }}
             >
-              Net Income ≈ {formatCurrency(
-                Number(currentBuild?.netIncome ?? currentBuild?.netCash ?? 0)
-              )}
+              {showDualIncome ? 'Adjusted Net Income' : 'Net Income'} ≈ {formatCurrency(adjustedNetIncome)}
             </Text>
             <Text
               ta="center"
@@ -271,8 +273,20 @@ export function BuildCard({
                 fontFamily: 'JetBrains Mono, Consolas, Monaco, monospace',
               }}
             >
-              ${formatNumber(Number(currentBuild?.netIncome ?? currentBuild?.netCash ?? 0), 2)}
+              ${formatNumber(adjustedNetIncome, 2)}
             </Text>
+            {showDualIncome && (
+              <Text
+                ta="center"
+                size="xs"
+                c="dimmed"
+                style={{
+                  fontFamily: 'JetBrains Mono, Consolas, Monaco, monospace',
+                }}
+              >
+                Real Net Income: ${formatNumber(realNetIncome, 2)}
+              </Text>
+            )}
           </Stack>
         </Paper>
 

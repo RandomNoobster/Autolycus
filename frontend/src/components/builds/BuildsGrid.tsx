@@ -13,9 +13,10 @@ import { BuildCard } from './BuildCard';
 interface BuildsGridProps {
   builds: Record<string, BuildData>;
   resources: string[];
+  showDualIncome?: boolean;
 }
 
-export function BuildsGrid({ builds, resources }: BuildsGridProps) {
+export function BuildsGrid({ builds, resources, showDualIncome = false }: BuildsGridProps) {
   const netIncomeKey = resources.find((resource) => resource === 'net income') ?? 'net income';
   const netIncomeBuild = builds[netIncomeKey] ?? builds['net income'] ?? Object.values(builds)[0];
 
@@ -33,6 +34,7 @@ export function BuildsGrid({ builds, resources }: BuildsGridProps) {
             build={netIncomeBuild}
             allBuilds={[]}
             isValid={true}
+            showDualIncome={showDualIncome}
           />
         </SimpleGrid>
       </div>

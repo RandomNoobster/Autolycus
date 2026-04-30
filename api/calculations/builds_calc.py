@@ -30,6 +30,7 @@ async def calculate_builds(
     projects_override: Optional[list[str]] = None,
     domestic_policy_override: Optional[str] = None,
     military_upkeep_mode: Optional[str] = None,
+    disable_population_income: bool = False,
 ) -> Dict[str, Any]:
     """Delegate build calculations to the shared logic layer.
 
@@ -49,6 +50,7 @@ async def calculate_builds(
             projects_override=projects_override,
             domestic_policy_override=domestic_policy_override,
             military_upkeep_mode=military_upkeep_mode,
+            disable_population_income=disable_population_income,
         )
     except Exception as exc:  # pragma: no cover - surface for API logs
         logger.error("Build calculation failed", exc_info=True)

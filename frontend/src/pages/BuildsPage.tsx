@@ -51,6 +51,8 @@ import { CONTINENTS, getContinentRawResources, isResourceValid } from '@/utils/c
 import { formatNumber } from '@/utils';
 import { useNationId } from '@/hooks';
 
+const DISABLE_POPULATION_INCOME_STORAGE_KEY = 'autolycus-builds-disable-pop-income-v1';
+
 export function BuildsPage() {
   const { nationId: savedNationId, setNationId, parseNationId } = useNationId();
   const { search } = useLocation();
@@ -107,9 +109,23 @@ export function BuildsPage() {
       policies: [],
       useLiveMarket: true,
       includeMilitaryUpkeep: false,
+      disablePopulationIncome: false,
       militaryUpkeepMode: 'peace',
     },
   });
+
+  useEffect(() => {
+    const savedValue = window.localStorage.getItem(DISABLE_POPULATION_INCOME_STORAGE_KEY);
+    if (savedValue === null) return;
+    form.setFieldValue('disablePopulationIncome', savedValue === 'true');
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      DISABLE_POPULATION_INCOME_STORAGE_KEY,
+      String(form.values.disablePopulationIncome),
+    );
+  }, [form.values.disablePopulationIncome]);
 
   // Auto-load nation data from URL when the query string changes.
   useEffect(() => {
@@ -520,6 +536,27 @@ export function BuildsPage() {
                         {...form.getInputProps('useLiveMarket', { type: 'checkbox' })}
                       />
 
+                      <Switch
+                        label={
+                          <Group component="span" gap={6} wrap="nowrap" align="center">
+                            Ignore Population Income (Commerce + Base Tax)
+                            <Tooltip label="Removes all population-derived income from scoring and highlights an adjusted net income for raider-focused builds.">
+                              <ActionIcon
+                                variant="subtle"
+                                size="sm"
+                                aria-label="More about population income mode"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <IconInfoCircle size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        }
+                        description="Ranks and displays builds using income with commerce and base tax removed, while still showing real income."
+                        {...form.getInputProps('disablePopulationIncome', { type: 'checkbox' })}
+                      />
+
                       {gameData && (
                         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                           <div>
@@ -640,6 +677,7 @@ export function BuildsPage() {
                 <BuildsGrid
                   builds={buildsData.builds}
                   resources={buildsData.resources}
+                  showDualIncome={form.values.disablePopulationIncome}
                 />
               </Grid.Col>
               <Grid.Col span={{ base: 12, lg: 5, xl: 6 }}>

@@ -194,7 +194,9 @@ export interface BuildData {
 
   // Income
   netIncome: number;
+  netIncomeReal?: number;
   netCash: number;
+  netCashReal?: number;
   unitUpkeep?: {
     included: boolean;
     total: number;
@@ -295,6 +297,7 @@ export interface BuildConfiguration {
   policies: string[];
   useLiveMarket: boolean;
   includeMilitaryUpkeep: boolean;
+  disablePopulationIncome: boolean;
   domesticPolicy?: string;
   militaryUpkeepMode?: 'peace' | 'war';
 }

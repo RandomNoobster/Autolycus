@@ -100,6 +100,7 @@ def _score_build_cities_sync(
     selected_upkeep_mode: str,
     mil_cost_mod: float,
     include_military_upkeep: bool,
+    disable_population_income: bool,
 ) -> list[BuildDict]:
     cities: list[BuildDict] = []
     for city in to_scan:
@@ -114,6 +115,7 @@ def _score_build_cities_sync(
             colors,
             seasonal_mod,
             single_city=True,
+            disable_population_income=disable_population_income,
         )
 
         population = revenue.get("population", 0)
@@ -163,6 +165,8 @@ def _score_build_cities_sync(
         if include_military_upkeep:
             revenue["net income"] = revenue.get("net income", 0) - active_total
             revenue["net_cash_num"] = revenue.get("net_cash_num", 0) - active_total
+            revenue["net income real"] = revenue.get("net income real", revenue.get("net income", 0)) - active_total
+            revenue["net_cash_num_real"] = revenue.get("net_cash_num_real", revenue.get("net_cash_num", 0)) - active_total
         cities.append(revenue)
 
     return cities
@@ -366,6 +370,7 @@ async def calculate_builds(
     projects_override: Optional[List[str]] = None,
     domestic_policy_override: Optional[str] = None,
     military_upkeep_mode: Optional[str] = None,
+    disable_population_income: bool = False,
     status_target: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Calculate optimal city builds using shared game logic."""
@@ -391,8 +396,18 @@ async def calculate_builds(
         total_infra = sum(city.get("infrastructure", 0) for city in nation.get("cities", []))
         infra = round(total_infra / max(nation.get("num_cities", 1), 1) / 50) * 50
 
+    # P&W city improvement capacity is based on completed 50-infra chunks.
+    # Normalize user-provided infra to the largest valid chunk the city can actually support.
     if infra % 50 != 0:
-        raise ValueError("Infrastructure must be a multiple of 50")
+        normalized_infra = (infra // 50) * 50
+        if normalized_infra <= 0:
+            raise ValueError("Infrastructure must be at least 50")
+        logger.info(
+            "Normalizing non-multiple infrastructure from %s to %s for build lookup",
+            infra,
+            normalized_infra,
+        )
+        infra = normalized_infra
 
     if land is None:
         total_land = sum(city.get("land", 0) for city in nation.get("cities", []))
@@ -493,6 +508,7 @@ async def calculate_builds(
         selected_upkeep_mode=selected_upkeep_mode,
         mil_cost_mod=mil_cost_mod,
         include_military_upkeep=include_military_upkeep,
+        disable_population_income=disable_population_income,
     )
 
     if not cities:

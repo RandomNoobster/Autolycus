@@ -185,6 +185,7 @@ def get_builds() -> tuple[Any, int]:
         continent = request.args.get('continent')  # Override continent
         use_live_prices = request.args.get('use_live_prices', 'true').lower() == 'true'
         include_military_upkeep = request.args.get('include_military_upkeep', 'false').lower() == 'true'
+        disable_population_income = request.args.get('disable_population_income', 'false').lower() == 'true'
         military_upkeep_mode = request.args.get('military_upkeep_mode', 'peace').lower()
         valid_upkeep_modes = {'peace', 'war'}
         if military_upkeep_mode not in valid_upkeep_modes:
@@ -254,6 +255,7 @@ def get_builds() -> tuple[Any, int]:
                     projects_override=project_overrides,
                     domestic_policy_override=domestic_policy_override,
                     military_upkeep_mode=military_upkeep_mode,
+                    disable_population_income=disable_population_income,
                 )
             )
         finally:
@@ -368,7 +370,9 @@ def _transform_build(build_data: dict[str, Any]) -> dict[str, Any]:
         
         # Income
         'netIncome': round(build_data.get('net income', 0)),
+        'netIncomeReal': round(build_data.get('net income real', build_data.get('net income', 0))),
         'netCash': round(build_data.get('net_cash_num', 0)),
+        'netCashReal': round(build_data.get('net_cash_num_real', build_data.get('net_cash_num', 0))),
         'unitUpkeep': build_data.get('unit_upkeep'),
         
         # Resource production

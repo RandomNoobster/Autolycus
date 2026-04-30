@@ -29,6 +29,7 @@ export async function fetchBuilds(config: BuildConfiguration): Promise<BuildsRes
   params.set('continent', config.continent);
   params.set('use_live_prices', config.useLiveMarket.toString());
   params.set('include_military_upkeep', config.includeMilitaryUpkeep.toString());
+  params.set('disable_population_income', config.disablePopulationIncome.toString());
   if (config.militaryUpkeepMode) {
     params.set('military_upkeep_mode', config.militaryUpkeepMode);
   }

@@ -615,6 +615,7 @@ async def revenue_calc(
     build: Optional[str] = None,
     single_city: bool = False,
     include_spies: bool = False,
+    disable_population_income: bool = False,
 ) -> dict[str, Any]:
     """Calculate complete nation revenue and resource production.
     
@@ -645,6 +646,7 @@ async def revenue_calc(
     civil_upkeep = 0.0
     military_upkeep = 0.0
     money_income = 0.0
+    population_income = 0.0
     power_upkeep = 0.0
     nationpop = 0.0
     total_infra = 0
@@ -765,7 +767,9 @@ async def revenue_calc(
         city['real_disease_rate'] = pop_result.get('disease_rate_raw', pop_result['disease_rate'])
         city['disease_rate'] = pop_result['disease_rate']
         nationpop += pop_result['population']
-        money_income += (((commerce / 50) * 0.725) + 0.725) * pop_result['population']
+        city_population_income = (((commerce / 50) * 0.725) + 0.725) * pop_result['population']
+        population_income += city_population_income
+        money_income += city_population_income
         food -= pop_result['food_consumption']
     
     # Apply nation-level bonuses
@@ -821,6 +825,14 @@ async def revenue_calc(
         money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus
         + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep
     )
+    adjusted_population_income = round(
+        population_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus
+    )
+    rev_obj['monetary_net_num_real'] = rev_obj['monetary_net_num']
+    rev_obj['net_cash_num_real'] = rev_obj['net_cash_num']
+    if disable_population_income:
+        rev_obj['monetary_net_num'] = rev_obj['monetary_net_num_real'] - adjusted_population_income
+        rev_obj['net_cash_num'] = rev_obj['net_cash_num_real'] - adjusted_population_income
     rev_obj['food'] = food
     rev_obj['aluminum'] = aluminum
     rev_obj['bauxite'] = bauxite
@@ -836,6 +848,8 @@ async def revenue_calc(
     if single_city and not build:
         rev_obj['money'] = rev_obj['net_cash_num']
         rev_obj['net income'] = rev_obj['monetary_net_num']
+        rev_obj['money real'] = rev_obj['net_cash_num_real']
+        rev_obj['net income real'] = rev_obj['monetary_net_num_real']
         rev_obj['disease_rate'] = city['disease_rate']
         rev_obj['crime_rate'] = city['crime_rate']
         rev_obj['commerce'] = city['commerce']
@@ -867,6 +881,7 @@ def revenue_calc_sync(
     build: Optional[str] = None,
     single_city: bool = False,
     include_spies: bool = False,
+    disable_population_income: bool = False,
 ) -> dict[str, Any]:
     """Synchronous revenue calculation for non-Discord contexts (e.g. API routes).
 
@@ -897,6 +912,7 @@ def revenue_calc_sync(
     civil_upkeep = 0.0
     military_upkeep = 0.0
     money_income = 0.0
+    population_income = 0.0
     power_upkeep = 0.0
     nationpop = 0.0
     total_infra = 0
@@ -1015,7 +1031,9 @@ def revenue_calc_sync(
         city['real_disease_rate'] = pop_result.get('disease_rate_raw', pop_result['disease_rate'])
         city['disease_rate'] = pop_result['disease_rate']
         nationpop += pop_result['population']
-        money_income += (((commerce / 50) * 0.725) + 0.725) * pop_result['population']
+        city_population_income = (((commerce / 50) * 0.725) + 0.725) * pop_result['population']
+        population_income += city_population_income
+        money_income += city_population_income
         food -= pop_result['food_consumption']
 
     # Apply nation-level bonuses
@@ -1071,6 +1089,14 @@ def revenue_calc_sync(
         money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus
         + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep
     )
+    adjusted_population_income = round(
+        population_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus
+    )
+    rev_obj['monetary_net_num_real'] = rev_obj['monetary_net_num']
+    rev_obj['net_cash_num_real'] = rev_obj['net_cash_num']
+    if disable_population_income:
+        rev_obj['monetary_net_num'] = rev_obj['monetary_net_num_real'] - adjusted_population_income
+        rev_obj['net_cash_num'] = rev_obj['net_cash_num_real'] - adjusted_population_income
     rev_obj['food'] = food
     rev_obj['aluminum'] = aluminum
     rev_obj['bauxite'] = bauxite
@@ -1086,6 +1112,8 @@ def revenue_calc_sync(
     if single_city and not build:
         rev_obj['money'] = rev_obj['net_cash_num']
         rev_obj['net income'] = rev_obj['monetary_net_num']
+        rev_obj['money real'] = rev_obj['net_cash_num_real']
+        rev_obj['net income real'] = rev_obj['monetary_net_num_real']
         rev_obj['disease_rate'] = city['disease_rate']
         rev_obj['crime_rate'] = city['crime_rate']
         rev_obj['commerce'] = city['commerce']
