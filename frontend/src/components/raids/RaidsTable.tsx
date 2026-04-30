@@ -640,6 +640,8 @@ export function RaidsTable({
     y: number;
     nation: RaidTarget;
   } | null>(null);
+  const [selectedNationIds, setSelectedNationIds] = useState<Set<number>>(() => new Set());
+  const [lastSelectedNationId, setLastSelectedNationId] = useState<number | null>(null);
 
   // ... (Keep your mutations same as before) ...
   const addReminderMutation = useMutation({
@@ -679,6 +681,61 @@ export function RaidsTable({
   const handleReminderToggle = useCallback((row: MRT_Row<RaidTarget>) => {
     toggleReminderForNation(row.original);
   }, [toggleReminderForNation]);
+
+  const isInteractiveElement = useCallback((target: EventTarget | null): boolean => {
+    if (!(target instanceof Element)) return false;
+    return Boolean(
+      target.closest(
+        'a, button, input, select, textarea, [role="button"], [role="link"], [data-ignore-row-select]'
+      )
+    );
+  }, []);
+
+  const handleRowClick = useCallback(
+    (
+      event: ReactMouseEvent<HTMLTableRowElement>,
+      row: MRT_Row<RaidTarget>,
+      tableInstance: MRT_TableInstance<RaidTarget>
+    ) => {
+      if (isInteractiveElement(event.target)) return;
+      const nationId = row.original.id;
+
+      setSelectedNationIds((prev) => {
+        const next = new Set(prev);
+        const currentRows = tableInstance.getRowModel().rows;
+        const rowIdsInView = currentRows.map((r) => r.original.id);
+
+        if (event.shiftKey && lastSelectedNationId !== null) {
+          const startIndex = rowIdsInView.indexOf(lastSelectedNationId);
+          const endIndex = rowIdsInView.indexOf(nationId);
+          if (startIndex !== -1 && endIndex !== -1) {
+            const [from, to] = startIndex <= endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+            for (let i = from; i <= to; i += 1) {
+              next.add(rowIdsInView[i]);
+            }
+            return next;
+          }
+        }
+
+        if (event.ctrlKey || event.metaKey) {
+          if (next.has(nationId)) next.delete(nationId);
+          else next.add(nationId);
+          return next;
+        }
+
+        return new Set([nationId]);
+      });
+
+      setLastSelectedNationId(nationId);
+    },
+    [isInteractiveElement, lastSelectedNationId]
+  );
+
+  useEffect(() => {
+    const validIds = new Set(data.map((d) => d.id));
+    setSelectedNationIds((prev) => new Set(Array.from(prev).filter((id) => validIds.has(id))));
+    setLastSelectedNationId((prev) => (prev !== null && validIds.has(prev) ? prev : null));
+  }, [data]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -1218,16 +1275,24 @@ export function RaidsTable({
       fz: 'sm',
       style: { ...RAIDS_BODY_CELL_PAD },
     },
-    mantineTableBodyRowProps: ({ row }) => ({
-      onContextMenu: (event) => {
-        event.preventDefault();
-        setContextMenu({
-          x: event.clientX,
-          y: event.clientY,
-          nation: row.original,
-        });
-      },
-    }),
+    mantineTableBodyRowProps: ({ row, table: tableInstance }) => {
+      const isSelected = selectedNationIds.has(row.original.id);
+      return {
+        onClick: (event) => handleRowClick(event, row, tableInstance),
+        onContextMenu: (event) => {
+          event.preventDefault();
+          setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            nation: row.original,
+          });
+        },
+        className: isSelected ? 'raids-row-selected' : undefined,
+        style: {
+          cursor: 'pointer',
+        },
+      };
+    },
     mantinePaperProps: {
       shadow: 'sm',
       radius: 'md',
@@ -1397,7 +1462,8 @@ export function RaidsTable({
         Hold Shift and click another header to add a secondary sort (tie-breaker); sorted headers show a small badge
         (1 = first, 2 = second). Hide or show columns, reorder them and filter columns by using the controls in the
         top-right of the table. Right-click any row for quick links (PnW pages, reminders, damage calculator) or to set
-        a beige reminder. Use Manage reminders for timing offsets and bulk cleanup.
+        a beige reminder. Click rows to highlight; use Ctrl/Cmd-click for multi-select and Shift-click for a range.
+        Use Manage reminders for timing offsets and bulk cleanup.
       </Alert>
     </Stack>
   );

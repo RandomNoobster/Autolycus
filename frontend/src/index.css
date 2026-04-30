@@ -57,6 +57,15 @@ body {
   opacity: 1;
 }
 
+/* Keep selected raids rows blue, including on hover. */
+.raids-table tbody tr.raids-row-selected > td {
+  background-color: rgba(34, 139, 230, 0.22) !important;
+}
+
+.raids-table tbody tr.raids-row-selected:hover > td {
+  background-color: rgba(34, 139, 230, 0.32) !important;
+}
+
 /* Damage MRT: one neutral line between group header row and leaf headers (replaces per-cell tinted tops). */
 .damage-mrt-table thead tr:nth-child(2) th {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
