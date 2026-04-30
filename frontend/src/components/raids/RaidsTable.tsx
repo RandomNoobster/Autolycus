@@ -23,6 +23,7 @@ import {
   type MRT_DensityState,
   type MRT_VisibilityState,
   type MRT_TableInstance,
+  type MRT_Column,
 } from 'mantine-react-table';
 import {
   ActionIcon,
@@ -38,6 +39,7 @@ import {
   NumberInput,
   TextInput,
   Menu,
+  MultiSelect,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
@@ -173,6 +175,16 @@ const beigeFilter = (row: any, id: string, filterValue: any) => {
   return true;
 };
 
+/** Multi-select alliance names: row matches if alliance name equals any selected value (case-insensitive). */
+function allianceNameMultiSelectFilterFn(row: any, id: string, filterValue: unknown) {
+  if (filterValue == null || filterValue === '') return true;
+  const arr = Array.isArray(filterValue) ? filterValue : [filterValue];
+  const strArr = arr.map((v) => String(v).trim()).filter(Boolean);
+  if (!strArr.length) return true;
+  const cell = String(row.getValue(id) ?? '');
+  return strArr.some((v) => v.toLowerCase() === cell.toLowerCase());
+}
+
 // Custom filter: boolean filter for taxable
 const booleanFilter = (row: any, id: string, filterValue: any) => {
   if (filterValue === undefined || filterValue === null || filterValue === '') return true;
@@ -247,6 +259,77 @@ function numberInputValueFromFilterString(s: string): string | number {
   if (s === '') return '';
   const n = Number(s);
   return Number.isFinite(n) ? n : s;
+}
+
+function AllianceNameColumnFilter({
+  column,
+  data,
+  disabledReason,
+}: {
+  column: MRT_Column<RaidTarget, unknown>;
+  data: string[];
+  disabledReason?: string | null;
+}) {
+  const raw = column.getFilterValue();
+  const value: string[] = Array.isArray(raw)
+    ? (raw as unknown[]).map((v) => String(v)).filter((s) => s.length > 0)
+    : raw == null || raw === ''
+      ? []
+      : [String(raw)];
+
+  const control = (
+    <Box style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+      <MultiSelect
+        size="xs"
+        variant="unstyled"
+        data={data}
+        value={value}
+        onChange={(v) => column.setFilterValue(v.length ? v : undefined)}
+        placeholder="Filter by Alliance"
+        searchable
+        clearable
+        hidePickedOptions
+        maxDropdownHeight={280}
+        disabled={!!disabledReason}
+        styles={{
+          root: { width: '100%', maxWidth: '100%', minWidth: 0 },
+          wrapper: { width: '100%', maxWidth: '100%', minWidth: 0 },
+          input: {
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0,
+            border: 'none',
+            background: 'transparent',
+            paddingInline: 0,
+          },
+          pillsList: {
+            maxWidth: '100%',
+            maxHeight: 84,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+          },
+        }}
+      />
+    </Box>
+  );
+
+  if (!disabledReason) {
+    return control;
+  }
+
+  return (
+    <Tooltip
+      label={disabledReason}
+      multiline
+      maw={280}
+      withinPortal
+      events={{ hover: true, focus: true, touch: true }}
+    >
+      <Box component="span" style={{ display: 'block', width: '100%', maxWidth: '100%', minWidth: 0 }}>
+        {control}
+      </Box>
+    </Tooltip>
+  );
 }
 
 // Filter component: Min only (income, loot, days inactive, etc.)
@@ -587,6 +670,8 @@ interface RaidsTableProps {
   data: RaidTarget[];
   /** Alliance names for the column multi-select (from parent: full target list + current picks). Keeps options when filtered rows are empty. */
   allianceSelectOptions?: string[];
+  /** When set, the Alliance column filter is disabled and this text is shown in a tooltip (e.g. sidebar exclude mode). */
+  allianceFilterDisabledReason?: string | null;
   /** Alliance positions for the column multi-select (from parent: unfiltered targets + picks). Keeps all roles visible while a position filter is active. */
   positionSelectOptions?: { value: string; label: string }[];
   discordAuthenticated: boolean;
@@ -613,6 +698,7 @@ interface RaidsTableProps {
 export function RaidsTable({
   data,
   allianceSelectOptions,
+  allianceFilterDisabledReason,
   positionSelectOptions,
   discordAuthenticated,
   discordLinked,
@@ -808,12 +894,14 @@ export function RaidsTable({
         accessorKey: 'allianceName',
         header: 'Alliance',
         size: 140,
-        filterVariant: 'multi-select',
-        mantineFilterMultiSelectProps: {
-          data: uniqueAlliances,
-          searchable: true,
-          clearable: true,
-        },
+        filterFn: allianceNameMultiSelectFilterFn,
+        Filter: ({ column }) => (
+          <AllianceNameColumnFilter
+            column={column}
+            data={uniqueAlliances}
+            disabledReason={allianceFilterDisabledReason}
+          />
+        ),
         Cell: ({ row }) =>
           row.original.allianceId !== '0' ? (
             <Anchor href={`https://politicsandwar.com/alliance/id=${row.original.allianceId}`} target="_blank" size="sm">
@@ -1192,6 +1280,7 @@ export function RaidsTable({
       addReminderMutation.isPending,
       removeReminderMutation.isPending,
       uniqueAlliances,
+      allianceFilterDisabledReason,
       uniquePositions,
       uniqueColors,
       cityRange,

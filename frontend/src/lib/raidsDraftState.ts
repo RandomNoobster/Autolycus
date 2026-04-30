@@ -8,7 +8,10 @@ import {
 } from '@/lib/raidFilterParsing';
 
 export type RaidsDraftFilters = {
+  allianceMode: 'include' | 'exclude';
   alliance: string[];
+  /** Used when allianceMode is 'exclude'. */
+  allianceExclude: string[];
   beige: 'all' | 'only' | 'hide';
   maxWars: string;
   inactiveMode: 'none' | 'preset' | 'custom';
@@ -30,7 +33,9 @@ export type RaidsDraftFilters = {
 export const DEFAULT_RAIDS_DRAFT_FILTERS = (
   scoreDefaults: { scoreMode: string; yourScore: string }
 ): RaidsDraftFilters => ({
+  allianceMode: 'include',
   alliance: [],
+  allianceExclude: [],
   beige: 'all',
   maxWars: 'all',
   inactiveMode: 'none',
@@ -49,8 +54,8 @@ export const DEFAULT_RAIDS_DRAFT_FILTERS = (
   maxScore: '',
 });
 
-function parseAlliancesFromSearchParams(sp: URLSearchParams): string[] {
-  const raw = sp.getAll('alliance').map((s) => s.trim()).filter(Boolean);
+function parseAlliancesFromSearchParams(sp: URLSearchParams, key: 'alliance' | 'allianceExclude' = 'alliance'): string[] {
+  const raw = sp.getAll(key).map((s) => s.trim()).filter(Boolean);
   return [...new Set(raw)];
 }
 
@@ -78,9 +83,15 @@ export function buildRaidsDraftFromSearchParams(
     yourScore: sp.get('yourScore') || nationScore || '',
   });
 
+  const modeRaw = sp.get('allianceMode');
+  const allianceMode: RaidsDraftFilters['allianceMode'] =
+    modeRaw === 'exclude' ? 'exclude' : 'include';
+
   const draft: RaidsDraftFilters = {
     ...base,
-    alliance: parseAlliancesFromSearchParams(sp),
+    allianceMode,
+    alliance: parseAlliancesFromSearchParams(sp, 'alliance'),
+    allianceExclude: parseAlliancesFromSearchParams(sp, 'allianceExclude'),
     beige: beigeBool === true ? 'only' : beigeBool === false ? 'hide' : 'all',
     maxWars: (() => {
       const n = parseNumberParam(sp, 'maxWars');
@@ -148,6 +159,12 @@ export function migrateLegacyRaidsDraftBlob(stored: Record<string, unknown>): Pa
 
   if (stored.alliance !== undefined) {
     out.alliance = migrateStoredAlliance(stored.alliance);
+  }
+  if (stored.allianceMode === 'include' || stored.allianceMode === 'exclude') {
+    out.allianceMode = stored.allianceMode;
+  }
+  if (stored.allianceExclude !== undefined) {
+    out.allianceExclude = migrateStoredAlliance(stored.allianceExclude);
   }
   if (typeof stored.beige === 'string') {
     out.beige = stored.beige as RaidsDraftFilters['beige'];
@@ -226,7 +243,7 @@ export function migrateLegacyRaidsDraftBlob(stored: Record<string, unknown>): Pa
 /** MRT column filter rows derived from sidebar / URL-backed draft (mapped columns). */
 export function buildMappedColumnFiltersFromDraft(d: RaidsDraftFilters): MRT_ColumnFiltersState {
   const filters: MRT_ColumnFiltersState = [];
-  if (d.alliance.length > 0) {
+  if (d.allianceMode === 'include' && d.alliance.length > 0) {
     filters.push({ id: 'allianceName', value: d.alliance });
   }
   if (d.beige === 'only' || d.beige === 'hide') {

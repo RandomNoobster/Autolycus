@@ -59,6 +59,13 @@ export type RaidsFiltersStorageV2 = {
   extraColumnFilters: { id: string; value: unknown }[];
 };
 
+/** Same shape as v2; version bump for draft fields (allianceMode / allianceExclude). */
+export type RaidsFiltersStorageV3 = {
+  v: 3;
+  draft: RaidsDraftFilters;
+  extraColumnFilters: { id: string; value: unknown }[];
+};
+
 function isPersistableExtraValue(val: unknown): boolean {
   if (val === null || typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
     return true;
@@ -99,16 +106,24 @@ export function pickPersistableExtras(columnFilters: MRT_ColumnFiltersState): MR
   );
 }
 
-export function serializeRaidsFiltersStorageV2(
+export function serializeRaidsFiltersStorageV3(
   draft: RaidsDraftFilters,
   columnFilters: MRT_ColumnFiltersState
 ): string {
-  const payload: RaidsFiltersStorageV2 = {
-    v: 2,
+  const payload: RaidsFiltersStorageV3 = {
+    v: 3,
     draft,
     extraColumnFilters: pickPersistableExtras(columnFilters),
   };
   return JSON.stringify(payload);
+}
+
+/** @deprecated Use serializeRaidsFiltersStorageV3; kept for callers that still import this name. */
+export function serializeRaidsFiltersStorageV2(
+  draft: RaidsDraftFilters,
+  columnFilters: MRT_ColumnFiltersState
+): string {
+  return serializeRaidsFiltersStorageV3(draft, columnFilters);
 }
 
 export type ParsedRaidsStorage = {
@@ -123,7 +138,7 @@ export function parseRaidsFiltersStorageJson(parsed: unknown): ParsedRaidsStorag
   if (!parsed || typeof parsed !== 'object') return null;
   const o = parsed as Record<string, unknown>;
 
-  if (o.v === 2 && o.draft && typeof o.draft === 'object') {
+  if ((o.v === 2 || o.v === 3) && o.draft && typeof o.draft === 'object') {
     return {
       draftRecord: o.draft as Record<string, unknown>,
       extras: sanitizeExtraColumnFiltersForRestore(o.extraColumnFilters),

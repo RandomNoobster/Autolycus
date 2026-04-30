@@ -19,6 +19,7 @@ import {
   Switch,
   Button,
   MultiSelect,
+  SegmentedControl,
   Anchor,
   Alert,
   Loader,
@@ -69,7 +70,7 @@ import {
   RAIDS_FILTERS_LOCAL_STORAGE_KEY,
   RAIDS_MAPPED_FILTER_COLUMN_IDS,
   parseRaidsFiltersStorageJson,
-  serializeRaidsFiltersStorageV2,
+  serializeRaidsFiltersStorageV3,
 } from '@/lib/raidsFiltersStorage';
 
 type TableSettings = {
@@ -177,8 +178,15 @@ function parseAlliancesFromSearchParams(sp: URLSearchParams): string[] {
   return [...new Set(raw)];
 }
 
+function parseAllianceExcludeFromSearchParams(sp: URLSearchParams): string[] {
+  const raw = sp.getAll('allianceExclude').map((s) => s.trim()).filter(Boolean);
+  return [...new Set(raw)];
+}
+
 const RAID_FILTER_URL_KEYS = [
   'alliance',
+  'allianceMode',
+  'allianceExclude',
   'beige',
   'maxWars',
   'inactiveMinDays',
@@ -258,8 +266,13 @@ export function RaidsPage() {
             .filter(Boolean)
         : [];
     const maxWarsRaw = parseNumber('maxWars');
+    const allianceModeRaw = searchParams.get('allianceMode');
+    const allianceMode: 'include' | 'exclude' =
+      allianceModeRaw === 'exclude' ? 'exclude' : 'include';
     return {
+      allianceMode,
       alliance: parseAlliancesFromSearchParams(searchParams),
+      allianceExclude: parseAllianceExcludeFromSearchParams(searchParams),
       beige: parseBoolean('beige'),
       // 3 in the URL is legacy "any" (same as omitting maxWars); draft maps it to 'all'.
       maxWars: maxWarsRaw === 3 ? undefined : maxWarsRaw,
@@ -341,8 +354,11 @@ export function RaidsPage() {
     for (const a of draftFilters.alliance) {
       if (a.trim()) names.add(a.trim());
     }
+    for (const a of draftFilters.allianceExclude) {
+      if (a.trim()) names.add(a.trim());
+    }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [data?.targets, draftFilters.alliance]);
+  }, [data?.targets, draftFilters.alliance, draftFilters.allianceExclude]);
 
   const positionFilterOptions = useMemo(() => {
     const positions = new Set<string>();
@@ -371,6 +387,7 @@ export function RaidsPage() {
     if (filtersRestoredRef.current) return;
     const hasUrlFilters = RAID_FILTER_URL_KEYS.some((key) => {
       if (key === 'alliance') return searchParams.getAll('alliance').some(Boolean);
+      if (key === 'allianceExclude') return searchParams.getAll('allianceExclude').some(Boolean);
       return searchParams.get(key) !== null;
     });
     if (hasUrlFilters) {
@@ -408,8 +425,15 @@ export function RaidsPage() {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         RAID_FILTER_URL_KEYS.forEach((key) => next.delete(key));
-        for (const a of merged.alliance) {
-          if (a.trim()) next.append('alliance', a.trim());
+        if (merged.allianceMode === 'exclude') {
+          next.set('allianceMode', 'exclude');
+          for (const x of merged.allianceExclude) {
+            if (x.trim()) next.append('allianceExclude', x.trim());
+          }
+        } else {
+          for (const a of merged.alliance) {
+            if (a.trim()) next.append('alliance', a.trim());
+          }
         }
         if (merged.beige === 'only') next.set('beige', 'true');
         else if (merged.beige === 'hide') next.set('beige', 'false');
@@ -509,20 +533,23 @@ export function RaidsPage() {
       changedIds.push(id);
     });
 
-    if (!changedIds.length) return;
+    const effectiveChangedIds = changedIds.filter(
+      (id) => !(id === 'allianceName' && draftFilters.allianceMode === 'exclude')
+    );
+    if (!effectiveChangedIds.length) return;
 
     setDraftFilters((prev) => {
       const next: RaidsDraftFilters = { ...prev };
-      if (changedIds.includes('allianceName')) {
+      if (effectiveChangedIds.includes('allianceName')) {
         next.alliance = allianceNamesFromColumnFilterValue(
           columnFilters.find((f) => f.id === 'allianceName')?.value
         );
       }
-      if (changedIds.includes('beigeTurns')) {
+      if (effectiveChangedIds.includes('beigeTurns')) {
         const v = getVal(columnFilters, 'beigeTurns');
         next.beige = v === 'only' ? 'only' : v === 'hide' ? 'hide' : 'all';
       }
-      if (changedIds.includes('defSlots')) {
+      if (effectiveChangedIds.includes('defSlots')) {
         const s = defSlotsFilterCompareKey(getVal(columnFilters, 'defSlots'));
         if (s === '' || s === '3') {
           next.maxWars = 'all';
@@ -530,19 +557,19 @@ export function RaidsPage() {
           next.maxWars = s;
         }
       }
-      if (changedIds.includes('daysInactive')) {
+      if (effectiveChangedIds.includes('daysInactive')) {
         const c = classifyInactiveColumnValue(getVal(columnFilters, 'daysInactive'));
         next.inactiveMode = c.inactiveMode;
         next.inactivePreset = c.inactivePreset;
         next.inactiveCustom = c.inactiveCustom;
       }
-      if (changedIds.includes('nationLoot')) {
+      if (effectiveChangedIds.includes('nationLoot')) {
         const c = classifyLootColumnValue(getVal(columnFilters, 'nationLoot'));
         next.lootMode = c.lootMode;
         next.lootPreset = c.lootPreset;
         next.lootCustom = c.lootCustom;
       }
-      if (changedIds.includes('alliancePosition')) {
+      if (effectiveChangedIds.includes('alliancePosition')) {
         const c = classifyAlliancePositionFilter(getVal(columnFilters, 'alliancePosition'));
         next.scopeMode = c.scopeMode;
         next.scopePreset = c.scopePreset;
@@ -550,7 +577,7 @@ export function RaidsPage() {
       }
       return next;
     });
-  }, [columnFilters]);
+  }, [columnFilters, draftFilters.allianceMode]);
 
   // Apply filters locally in the browser - must be before conditional returns
   const filteredTargets = useMemo(() => {
@@ -558,8 +585,11 @@ export function RaidsPage() {
     
     let filtered = [...data.targets];
 
-    // Alliance filter (exact names, same as table multi-select)
-    if (activeFilters.alliance.length > 0) {
+    // Alliance filter: include (whitelist) or exclude (blacklist)
+    if (activeFilters.allianceMode === 'exclude' && activeFilters.allianceExclude.length > 0) {
+      const deny = new Set(activeFilters.allianceExclude.map((a) => a.toLowerCase()));
+      filtered = filtered.filter((nation) => !deny.has(nation.allianceName.toLowerCase()));
+    } else if (activeFilters.allianceMode === 'include' && activeFilters.alliance.length > 0) {
       const allow = new Set(activeFilters.alliance.map((a) => a.toLowerCase()));
       filtered = filtered.filter((nation) => allow.has(nation.allianceName.toLowerCase()));
     }
@@ -686,8 +716,15 @@ export function RaidsPage() {
 
       RAID_FILTER_URL_KEYS.forEach((k) => next.delete(k));
 
-      for (const a of draftFilters.alliance) {
-        if (a.trim()) next.append('alliance', a.trim());
+      if (draftFilters.allianceMode === 'exclude') {
+        next.set('allianceMode', 'exclude');
+        for (const x of draftFilters.allianceExclude) {
+          if (x.trim()) next.append('allianceExclude', x.trim());
+        }
+      } else {
+        for (const a of draftFilters.alliance) {
+          if (a.trim()) next.append('alliance', a.trim());
+        }
       }
 
       if (draftFilters.beige === 'only') next.set('beige', 'true');
@@ -753,7 +790,7 @@ export function RaidsPage() {
     try {
       localStorage.setItem(
         RAIDS_FILTERS_LOCAL_STORAGE_KEY,
-        serializeRaidsFiltersStorageV2(draftFilters, columnFilters)
+        serializeRaidsFiltersStorageV3(draftFilters, columnFilters)
       );
     } catch (error) {
       console.warn('Failed to persist raids filters', error);
@@ -907,25 +944,17 @@ export function RaidsPage() {
               <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
                 <Paper withBorder radius="sm" p="sm">
                   <Stack gap={6}>
-                    <Group gap="xs" justify="space-between">
-                      <Text size="sm" fw={600}>Alliance Name</Text>
-                      {draftFilters.alliance.length > 0 && (
-                        <Anchor size="xs" onClick={() => setDraftFilters((prev) => ({ ...prev, alliance: [] }))}>
-                          reset
-                        </Anchor>
-                      )}
-                    </Group>
-                    <Text size="xs" c="dimmed">Same list as the table column — pick one or more alliances.</Text>
-                    <MultiSelect
+                    <Text size="sm" fw={600}>Hide bad targets</Text>
+                    <Text size="xs" c="dimmed">
+                      Filters out "bad" targets: nations with negative income, stronger ground force than you, or $0 previous beige loot.
+                    </Text>
+                    <Switch
                       size="sm"
-                      placeholder="Select alliances"
-                      data={allianceFilterOptions}
-                      value={draftFilters.alliance}
-                      onChange={(val) => setDraftFilters((prev) => ({ ...prev, alliance: val }))}
-                      searchable
-                      clearable
-                      hidePickedOptions
-                      maxDropdownHeight={280}
+                      label="Hide bad targets"
+                      checked={draftFilters.performance}
+                      onChange={(event) =>
+                        setDraftFilters(prev => ({ ...prev, performance: event.currentTarget.checked }))
+                      }
                     />
                   </Stack>
                 </Paper>
@@ -1283,17 +1312,87 @@ export function RaidsPage() {
               <Grid.Col span={{ base: 12, sm: 6, md: 4, lg: 4 }}>
                 <Paper withBorder radius="sm" p="sm">
                   <Stack gap={6}>
-                    <Text size="sm" fw={600}>Performance Filter</Text>
-                    <Text size="xs" c="dimmed">
-                      Filters out "bad" targets: nations with negative income, stronger ground force than you, or $0 previous beige loot.
-                    </Text>
-                    <Switch
-                      size="sm"
-                      label="Hide low-value targets"
-                      checked={draftFilters.performance}
-                      onChange={(event) =>
-                        setDraftFilters(prev => ({ ...prev, performance: event.currentTarget.checked }))
+                    <Group gap="xs" justify="space-between">
+                      <Text size="sm" fw={600}>Alliance Name</Text>
+                      {(draftFilters.alliance.length > 0 ||
+                        draftFilters.allianceExclude.length > 0 ||
+                        draftFilters.allianceMode === 'exclude') && (
+                        <Anchor
+                          size="xs"
+                          onClick={() =>
+                            setDraftFilters((prev) => ({
+                              ...prev,
+                              allianceMode: 'include',
+                              alliance: [],
+                              allianceExclude: [],
+                            }))
+                          }
+                        >
+                          reset
+                        </Anchor>
+                      )}
+                    </Group>
+                    <SegmentedControl
+                      size="xs"
+                      fullWidth
+                      data={[
+                        { label: 'Include', value: 'include' },
+                        { label: 'Exclude', value: 'exclude' },
+                      ]}
+                      value={draftFilters.allianceMode}
+                      onChange={(v) =>
+                        setDraftFilters((prev) => {
+                          const nextMode =
+                            (v === 'exclude' ? 'exclude' : 'include') as RaidsDraftFilters['allianceMode'];
+                          if (nextMode === prev.allianceMode) return prev;
+
+                          if (nextMode === 'exclude') {
+                            return {
+                              ...prev,
+                              allianceMode: 'exclude',
+                              allianceExclude: prev.alliance,
+                              alliance: [],
+                            };
+                          }
+
+                          return {
+                            ...prev,
+                            allianceMode: 'include',
+                            alliance: prev.allianceExclude,
+                            allianceExclude: [],
+                          };
+                        })
                       }
+                    />
+                    <Text size="xs" c="dimmed">
+                      {draftFilters.allianceMode === 'exclude'
+                        ? 'Exclude mode hides nations in the alliances you pick. Example: choose Eclipse to remove Eclipse nations from the list.'
+                        : 'Include mode shows only nations in the alliances you pick. Example: choose Eclipse to see only Eclipse nations.'}
+                    </Text>
+                    <MultiSelect
+                      size="sm"
+                      placeholder={
+                        draftFilters.allianceMode === 'exclude'
+                          ? 'Select alliances to exclude'
+                          : 'Select alliances'
+                      }
+                      data={allianceFilterOptions}
+                      value={
+                        draftFilters.allianceMode === 'exclude'
+                          ? draftFilters.allianceExclude
+                          : draftFilters.alliance
+                      }
+                      onChange={(val) =>
+                        setDraftFilters((prev) =>
+                          prev.allianceMode === 'exclude'
+                            ? { ...prev, allianceExclude: val }
+                            : { ...prev, alliance: val }
+                        )
+                      }
+                      searchable
+                      clearable
+                      hidePickedOptions
+                      maxDropdownHeight={280}
                     />
                   </Stack>
                 </Paper>
@@ -1410,6 +1509,11 @@ export function RaidsPage() {
             <RaidsTable
               data={filteredTargets}
               allianceSelectOptions={allianceFilterOptions}
+              allianceFilterDisabledReason={
+                draftFilters.allianceMode === 'exclude'
+                  ? 'Disabled because the sidebar Alliance filter is in Hide (exclude) mode. Switch back to Include only to use this column filter.'
+                  : undefined
+              }
               positionSelectOptions={positionFilterOptions}
               discordAuthenticated={discordAuthenticated}
               discordLinked={discordLinked}
