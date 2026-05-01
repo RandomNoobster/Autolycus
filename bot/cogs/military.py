@@ -111,7 +111,7 @@ class TargetFinding(commands.Cog):
                 "vacation_mode_turns beige_turns soldiers tanks aircraft ships missiles nukes "
                 "alliance{name}"
             )
-        query = "{nations(first:1 id:" f"{nation_id}" f"){{data{{{fields}}}}}"
+        query = f"{{nations(first:1 id:{nation_id}){{data{{{fields}}}}}}}"
         response = await api_client.call(query, api_key)
         nations = (((response or {}).get("data") or {}).get("nations") or {}).get("data") or []
         if not nations:
