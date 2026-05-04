@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 API_KEY = os.getenv("API_KEY")
 DEBUG_CHANNEL_ID = int(os.getenv("DEBUG_CHANNEL"))
 SCAN_INTERVAL = 100  # seconds
-REMINDER_THRESHOLD = 50  # seconds
+# Must span at least one poll cycle so a scheduled reminder is not skipped between scans.
+REMINDER_THRESHOLD = SCAN_INTERVAL
 ENABLE_PNW_WS = os.getenv("ENABLE_PNW_WS", "false").lower() in (
     "1",
     "true",
@@ -52,6 +53,11 @@ class General(commands.Cog):
             bot: The Discord bot instance.
         """
         self.bot = bot
+        # Refreshed each poll for websocket preemptive path (avoid stale list references).
+        self._beige_ws_tracked_ids: set[str] = set()
+        self._beige_ws_tracked_alerts: list[dict] = []
+        # (discord_user_id, nation_id_str) -> consecutive GraphQL misses for that row.
+        self._beige_api_miss: dict[tuple[int, str], int] = {}
         self.bot.bg_task = self.bot.loop.create_task(self.alert_scanner())
 
     async def alert_scanner(self) -> None:
@@ -61,8 +67,6 @@ class General(commands.Cog):
         sending Discord DM reminders at configured intervals.
         """
         await self.bot.wait_until_ready()
-        unique_ids: list[str] = []
-        alerts: list[dict] = []
         debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
 
         # Keep websocket optional. Some pnwkit/runtime combinations emit malformed
@@ -71,7 +75,7 @@ class General(commands.Cog):
             try:
                 nation_updates = await self.bot.pnw_kit.subscribe("nation", "update")
                 asyncio.ensure_future(
-                    self._handle_subscriptions(nation_updates, unique_ids, alerts)
+                    self._handle_subscriptions(nation_updates),
                 )
                 logger.info("PNW websocket subscription enabled for nation updates")
             except Exception as e:
@@ -87,6 +91,8 @@ class General(commands.Cog):
                 logger.debug("Scanning beige alerts")
                 alerts = await self._fetch_active_alerts()
                 unique_ids = await self._extract_nation_ids(alerts)
+                self._beige_ws_tracked_alerts = list(alerts)
+                self._beige_ws_tracked_ids = set(unique_ids)
 
                 if not unique_ids:
                     await asyncio.sleep(SCAN_INTERVAL)
@@ -116,18 +122,11 @@ class General(commands.Cog):
 
             await asyncio.sleep(SCAN_INTERVAL)
 
-    async def _handle_subscriptions(
-        self,
-        subscription,
-        unique_ids: list[str],
-        alerts: list[dict],
-    ) -> None:
+    async def _handle_subscriptions(self, subscription) -> None:
         """Handle incoming nation subscription updates.
 
         Args:
             subscription: The websocket subscription iterator.
-            unique_ids: List of unique nation IDs being tracked.
-            alerts: List of active alert configurations.
         """
         async for update in subscription:
             try:
@@ -135,10 +134,12 @@ class General(commands.Cog):
                 beige_turns = int(update.beige_turns)
                 vm_turns = int(update.vacation_mode_turns)
 
-                if nation_id in unique_ids:
+                if nation_id in self._beige_ws_tracked_ids:
                     if beige_turns == 0 and vm_turns == 0:
                         logger.info(f"Nation {nation_id} left status early")
-                        await self._send_preemptive_reminder(nation_id, alerts)
+                        await self._send_preemptive_reminder(
+                            nation_id, self._beige_ws_tracked_alerts
+                        )
 
             except Exception as e:
                 logger.error(
@@ -172,6 +173,25 @@ class General(commands.Cog):
         for user in alerts:
             nation_ids.extend([str(nid) for nid in user.get("beige_alerts", [])])
         return sorted(list(set(nation_ids)))
+
+    @staticmethod
+    def _beige_alert_ids_for_pull(nation_id: str) -> list[Any]:
+        """Mongo may store nation ids as str or int; remove both shapes."""
+        variants: list[Any] = [nation_id]
+        if nation_id.isdigit():
+            try:
+                variants.append(int(nation_id))
+            except ValueError:
+                pass
+        return variants
+
+    async def _pull_beige_alert_for_user(self, mongo_user_id: int, nation_id: str) -> None:
+        db = db_mongo.get_db()
+        variants = self._beige_alert_ids_for_pull(nation_id)
+        await db.global_users.update_one(
+            {"user": mongo_user_id},
+            {"$pull": {"beige_alerts": {"$in": variants}}},
+        )
 
     async def _fetch_nation_data(self, nation_ids: list[str]) -> list[dict]:
         """Fetch current nation data from Politics & War API.
@@ -213,7 +233,24 @@ class General(commands.Cog):
                     None,
                 )
                 if not nation:
+                    miss_key = (int(user["user"]), nation_id_str)
+                    misses = self._beige_api_miss.get(miss_key, 0) + 1
+                    self._beige_api_miss[miss_key] = misses
+                    if misses >= 3:
+                        logger.warning(
+                            "Removing beige reminder after repeated API absences "
+                            "user=%s nation_id=%s misses=%s",
+                            user["user"],
+                            nation_id_str,
+                            misses,
+                        )
+                        await self._pull_beige_alert_for_user(
+                            int(user["user"]), nation_id_str
+                        )
+                        self._beige_api_miss.pop(miss_key, None)
                     continue
+
+                self._beige_api_miss.pop((int(user["user"]), nation_id_str), None)
 
                 beige_turns = int(nation.get("beige_turns", 0))
                 vm_turns = int(nation.get("vacation_mode_turns", 0))
@@ -245,6 +282,7 @@ class General(commands.Cog):
         """
         try:
             exit_time = self._calculate_exit_time(beige_turns, vm_turns)
+            sent_scheduled = False
 
             for reminder_minutes in times_to_send:
                 reminder_time = exit_time - timedelta(minutes=reminder_minutes)
@@ -260,16 +298,15 @@ class General(commands.Cog):
                         vm_turns,
                         pull_after,
                     )
+                    sent_scheduled = True
                     break
 
-            # Send late reminder if both timers expired while we weren't watching
-            if (
-                beige_turns == 0
-                and vm_turns == 0
-                and exit_time == datetime.utcnow()
-            ):
-                logger.warning(
-                    f"Late reminder for {user['user']} about {nation_id}"
+            # Nation already off beige/VM but we did not hit a lead-time window (missed or early exit).
+            if beige_turns == 0 and vm_turns == 0 and not sent_scheduled:
+                logger.info(
+                    "Late beige/VM exit reminder for user=%s nation_id=%s",
+                    user["user"],
+                    nation_id,
                 )
                 await self._send_reminder(
                     user, nation_id, beige_turns, vm_turns, pull_after=True
@@ -308,7 +345,7 @@ class General(commands.Cog):
         """
         now = datetime.utcnow()
         time_delta = abs((reminder_time - now).total_seconds())
-        return time_delta < REMINDER_THRESHOLD
+        return time_delta <= REMINDER_THRESHOLD
 
     async def _load_reminder_nation_and_revenue(
         self, nation_id: str
@@ -395,20 +432,15 @@ class General(commands.Cog):
             logger.info(f"Reminder sent to {user['user']} about {nation_id}")
 
             if pull_after:
-                db = db_mongo.get_db()
-                await db.global_users.find_one_and_update(
-                    {"user": user["user"]},
-                    {"$pull": {"beige_alerts": nation_id}},
-                )
+                await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
 
         except (discord.NotFound, discord.Forbidden):
-            logger.warning(f"Discord did not find/allow me to message {user['user']}, removing alert")
-            if pull_after:
-                db = db_mongo.get_db()
-                await db.global_users.find_one_and_update(
-                    {"user": user["user"]},
-                    {"$pull": {"beige_alerts": nation_id}},
-                )
+            logger.warning(
+                "Discord did not find/allow me to message %s; removing beige alert for nation %s",
+                user["user"],
+                nation_id,
+            )
+            await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
         except Exception as e:
             logger.error(f"Error sending reminder: {e}", exc_info=True)
             debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
@@ -675,7 +707,10 @@ class General(commands.Cog):
             alerts: List of active alert configurations.
         """
         for user in alerts:
-            if nation_id not in user.get("beige_alerts", []):
+            subscribed = any(
+                str(a) == nation_id for a in user.get("beige_alerts", [])
+            )
+            if not subscribed:
                 continue
 
             try:
@@ -699,13 +734,15 @@ class General(commands.Cog):
                     f"about {nation_id}"
                 )
 
-                # Remove alert after sending
-                db = db_mongo.get_db()
-                await db.global_users.find_one_and_update(
-                    {"user": user["user"]},
-                    {"$pull": {"beige_alerts": nation_id}},
-                )
+                await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
 
+            except (discord.NotFound, discord.Forbidden):
+                logger.warning(
+                    "Preemptive reminder: cannot DM user %s; removing beige alert for nation %s",
+                    user["user"],
+                    nation_id,
+                )
+                await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
             except Exception as e:
                 logger.error(f"Error sending preemptive reminder: {e}", exc_info=True)
                 debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
@@ -728,7 +765,7 @@ class General(commands.Cog):
                         log=logger,
                         thread_name=f"trace-preemptive-reminder-{timestamp}",
                     )
-                break
+                continue
 
 
 

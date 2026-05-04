@@ -937,12 +937,13 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(embed=embed)
                 return
 
-            res = (await api_client.call(f"{{nations(id:[{','.join(person['beige_alerts'])}]){{data{get_query(queries.REMINDERS)}}}}}", api_key))['data']['nations']['data']
+            alert_ids = [str(x) for x in person['beige_alerts']]
+            res = (await api_client.call(f"{{nations(id:[{','.join(alert_ids)}]){{data{get_query(queries.REMINDERS)}}}}}", api_key))['data']['nations']['data']
 
             reminders = []
             for alert in person['beige_alerts']:
                 for nation in res:
-                    if alert == nation['id']:
+                    if str(alert) == str(nation['id']):
                         beige_turns = int(nation['beige_turns'])
                         vacation_mode_turns = int(nation['vacation_mode_turns'])
                         turns = sorted([beige_turns, vacation_mode_turns])[1]
@@ -997,9 +998,9 @@ class TargetFinding(commands.Cog):
                 id = str(parsed_nation['id'])
 
             found = False
-            for alert in person['beige_alerts']:
-                if alert == id:
-                    person['beige_alerts'].remove(alert)
+            for alert in list(person["beige_alerts"]):
+                if str(alert) == id:
+                    person["beige_alerts"].remove(alert)
                     found = True
                     break
 
@@ -1007,7 +1008,13 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content="I did not find a reminder for that nation!")
                 return
 
-            await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$pull": {"beige_alerts": id}})
+            pull_vals: list[Any] = [id]
+            if id.isdigit():
+                pull_vals.append(int(id))
+            await db.global_users.find_one_and_update(
+                {"user": ctx.author.id},
+                {"$pull": {"beige_alerts": {"$in": pull_vals}}},
+            )
             nation_for_embed = await self._fetch_reminder_embed_nation(id, minimal=True)
             embed = self._build_beige_reminder_action_embed(
                 nation_for_embed or parsed_nation,
@@ -1052,8 +1059,8 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
                 return
 
-            for entry in user['beige_alerts']:
-                if reminder == entry:
+            for entry in user["beige_alerts"]:
+                if reminder == str(entry):
                     await ctx.respond(content=f"You already have a beige reminder for this nation!")
                     return
 
