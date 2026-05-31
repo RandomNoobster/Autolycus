@@ -1,5 +1,8 @@
 /**
  * Raids API Functions
+ *
+ * GET /api/raids/ accepts score bounds, optional attackerNationId, and vmode only.
+ * Alliance, beige, wars, inactivity, and similar filters are applied client-side on the raids page.
  */
 
 import { apiGet, apiPost, apiDelete, apiPut } from './client';
@@ -12,40 +15,22 @@ import type {
   ReminderConfigResponse,
 } from '@/types';
 
-/**
- * Fetch raid targets data.
- *
- * @param token - The authentication token from the URL
- * @returns RaidsResponse with targets and alerts
- */
+/** Query params supported by GET /api/raids/ */
 export interface RaidFilterParams {
   attackerNationId?: number;
-  targetNationIds?: number[] | string;
-  useSavedTargets?: boolean;
-  minCities?: number;
-  maxCities?: number;
-  alliance?: string;
-  beige?: boolean;
-  maxWars?: number;
-  inactiveMinDays?: number;
-  scope?: 'all' | 'apps_or_none' | 'no_alliance';
-  minBeigeLoot?: number;
-  performance?: boolean;
   minScore?: number;
   maxScore?: number;
-  vmode?: boolean; // When true: only VM; when false: exclude VM; omitted: backend default
+  /** When false (default), exclude vacation-mode nations */
+  vmode?: boolean;
 }
 
+/** Fetch raid targets from the cached nations database. */
 export function fetchRaids(
   filters: RaidFilterParams = {}
 ): Promise<RaidsResponse> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value === undefined || value === null) return;
-    if (Array.isArray(value)) {
-      params.set(key, value.join(','));
-      return;
-    }
     if (typeof value === 'boolean') {
       params.set(key, value ? 'true' : 'false');
     } else {
@@ -57,26 +42,14 @@ export function fetchRaids(
   return apiGet<RaidsResponse>(endpoint);
 }
 
-/**
- * Add a beige reminder for a nation.
- *
- * @param token - The authentication token
- * @param data - The reminder request data
- * @returns Confirmation response
- */
+/** Add a beige/VM exit reminder for a nation (requires Discord session). */
 export function addReminder(
   data: ReminderRequest
 ): Promise<ReminderResponse> {
   return apiPost<ReminderResponse, ReminderRequest>('/api/raids/reminders', data);
 }
 
-/**
- * Remove a beige reminder for a nation.
- *
- * @param token - The authentication token
- * @param nationId - The nation ID to remove reminder for
- * @returns Confirmation response
- */
+/** Remove a beige/VM exit reminder for a nation (requires Discord session). */
 export function removeReminder(
   nationId: number
 ): Promise<ReminderResponse> {
@@ -93,9 +66,6 @@ export function updateReminderConfig(
   return apiPut<ReminderConfigResponse, ReminderConfigRequest>('/api/raids/reminders/config', data);
 }
 
-/**
- * Alliance search result type.
- */
 export interface AllianceSearchResult {
   value: string;
   label: string;
@@ -103,14 +73,7 @@ export interface AllianceSearchResult {
   acronym: string;
 }
 
-/**
- * Search for alliances by name, acronym, or ID (fuzzy matching).
- *
- * @param token - The authentication token
- * @param query - The search query string
- * @param limit - Maximum number of results (default: 10)
- * @returns Array of matching alliances
- */
+/** Search alliances by name, acronym, or ID (fuzzy match). */
 export function searchAlliances(
   query: string,
   limit: number = 10

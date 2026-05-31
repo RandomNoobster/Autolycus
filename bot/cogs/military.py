@@ -814,49 +814,7 @@ class TargetFinding(commands.Cog):
                 
             best_targets = sorted(target_list, key=lambda k: k['monetary_net_num'], reverse=True)
 
-            if webpage:
-                # Build URL for the frontend raids page using live API
-                target_ids = [
-                    int(target.get('id'))
-                    for target in best_targets
-                    if str(target.get('id', '')).isdigit()
-                ]
-                await db.global_users.find_one_and_update(
-                    {"user": ctx.author.id},
-                    {"$set": {
-                        "raids_target_ids": target_ids,
-                        "raids_target_generated": round(datetime.utcnow().timestamp()),
-                    }},
-                    upsert=True,
-                )
-
-                raids_url = f"{WEB_BASE_URL}/raids"
-                
-                webpage_embed = discord.Embed(
-                    title="Open Raid Targets",
-                    description=(
-                        f"{filters}\n\nOpen the raids page and sign in with Discord on the website. "
-                        "Each nation row shows when that nation was last updated. Load your targets and manage reminders."
-                    ),
-                    color=0xff5100,
-                )
-                class webpage_view(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=None)
-                        self.add_item(
-                            discord.ui.Button(
-                                label="Open Raid Targets",
-                                style=discord.ButtonStyle.link,
-                                url=raids_url,
-                            )
-                        )
-
-                view = webpage_view()
-                await loading.clear()
-                await ctx.edit(content="", attachments=[], embed=webpage_embed, view=view)
-                return
-
-            elif discord_embed:
+            if discord_embed:
                 pages = len(best_targets)
                 embeds = []
                 for idx, nation in enumerate(best_targets, start=1):

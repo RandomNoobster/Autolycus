@@ -207,9 +207,7 @@ export function RaidsPage() {
   const { nationId: savedNationId, parseNationId, setNationId } = useNationId();
   const [searchParams, setSearchParams] = useRaidsSearchParams();
 
-  const targetNationIds = searchParams.get('targetNationIds') || undefined;
   const attackerNationIdParam = searchParams.get('attackerNationId') || undefined;
-  const useSavedTargets = searchParams.get('useSavedTargets') === 'true';
   const { data: linkedNationData, refetch: refetchLinkedNation } = useQuery({
     queryKey: ['linkedNation'],
     queryFn: async () => {
@@ -334,7 +332,7 @@ export function RaidsPage() {
     suppressDraftUrlSyncAndPersistRef.current = false;
   });
 
-  // Fetch raids data - must be before any conditional returns
+  // Fetch raids: API applies score + VM only; alliance/beige/etc. filtered below.
   const {
     data,
     isLoading,
@@ -345,8 +343,6 @@ export function RaidsPage() {
     queryKey: [
       'raids',
       appliedNationId,
-      targetNationIds,
-      useSavedTargets,
       apiScoreBounds.minScore,
       apiScoreBounds.maxScore,
     ],
@@ -360,12 +356,6 @@ export function RaidsPage() {
       }
       if (appliedNationId) {
         filters.attackerNationId = parseInt(appliedNationId, 10);
-      }
-      if (targetNationIds) {
-        filters.targetNationIds = targetNationIds;
-      }
-      if (useSavedTargets) {
-        filters.useSavedTargets = true;
       }
       return fetchRaids(filters);
     },

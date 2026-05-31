@@ -21,7 +21,7 @@ export interface ApiResponse<T> {
 }
 
 // ============================================================================
-// Raids Types
+// Raids Types (GET /api/raids/ — table filters are client-side on RaidsPage)
 // ============================================================================
 
 export interface RaidTarget {
@@ -68,7 +68,6 @@ export interface RaidsResponse {
   attacker: AttackerInfo;
   targets: RaidTarget[];
   beigeAlerts: string[];
-  showBeige: boolean;
   generatedAt: string;
   discordAuthenticated: boolean;
   discordLinked: boolean;

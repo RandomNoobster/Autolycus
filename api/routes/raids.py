@@ -1,8 +1,9 @@
 """
 Raids API Routes
 
-This module provides API endpoints for the raids feature, including
-target listings and beige reminder functionality.
+Endpoints for raid target listings (SQLite cache), beige/VM reminders (Mongo),
+and alliance search. Table-style filters (alliance, beige, wars, etc.) are handled
+on the web client; GET / only applies score bounds and vacation-mode exclusion.
 """
 import asyncio
 import logging
@@ -116,106 +117,42 @@ def _get_or_init_reminder_profile(mongo_db: Any, uid: int) -> dict[str, Any]:
 @optional_discord_session
 def get_raids() -> tuple[Any, int]:
     """
-    Get raid targets for the authenticated user.
-    
-    Token payload must contain:
-        - user_id: Discord user ID
-        - timestamp: Data generation timestamp
-    
-    Query Parameters (for filtering):
-        - minCities: Minimum city count
-        - maxCities: Maximum city count
-        - alliance: Filter by alliance name (partial match)
-        - beige: Filter to only beige targets (true/false)
-    
-    Returns:
-        JSON response with:
-        - attacker: The attacking nation's info
-        - targets: List of raid targets with all relevant metrics
-        - beige_alerts: List of active beige reminders
-        - generated_at: ISO timestamp of data generation
+    List raid targets from the nations cache.
+
+    Query parameters:
+        attackerNationId: Attacker for win-chance calculations (optional)
+        minScore, maxScore: Score window; min is clamped to >= 15
+        vmode: false (default) excludes vacation-mode nations; true includes only VM
+
+    Alliance, beige, scope, wars, inactivity, loot, and performance filters are
+    not supported here — the raids page applies those in the browser.
     """
     try:
         req_start = time.perf_counter()
         user_id = getattr(request, 'session_user_id', None)
 
-        # Parse filters and attacker nation ID override
         attacker_nation_id = request.args.get('attackerNationId', type=int)
-        min_cities = request.args.get('minCities', type=int)
-        max_cities = request.args.get('maxCities', type=int)
-        alliance_filter = request.args.get('alliance')
-        target_nation_ids_raw = request.args.get('targetNationIds')
-        use_saved_targets = request.args.get('useSavedTargets', default=None)
-        target_nation_ids: Optional[set[str]] = None
-        if isinstance(use_saved_targets, str):
-            use_saved_targets = use_saved_targets.lower() in ('true', '1', 'yes')
-
-        if target_nation_ids_raw:
-            parsed_ids = []
-            for part in target_nation_ids_raw.split(','):
-                part = part.strip()
-                if part.isdigit():
-                    parsed_ids.append(part)
-            if parsed_ids:
-                target_nation_ids = set(parsed_ids)
-        beige_only = request.args.get('beige', default=None)
-        max_wars = request.args.get('maxWars', type=int)
-        inactive_min_days = request.args.get('inactiveMinDays', type=int)
-        scope = request.args.get('scope')  # all | apps_or_none | no_alliance
-        min_beige_loot = request.args.get('minBeigeLoot', type=int)
-        performance_filter = request.args.get('performance', default=None)
-        # Enforce minimum score threshold for efficiency; clamp to >= 15
         req_min_score = request.args.get('minScore', type=float)
         min_score = 15 if req_min_score is None else max(15, float(req_min_score))
         max_score = request.args.get('maxScore', type=float)
-        # Allow explicit VM filtering via query param; default to excluding VM (vmode=false)
         vmode_param = request.args.get('vmode', default='false')
         if isinstance(vmode_param, str):
             vmode_param = vmode_param.lower() in ('true', '1', 'yes')
-        # When vmode_param is False, we will exclude VM nations; when True, include only VM nations
-        if isinstance(beige_only, str):
-            beige_only = beige_only.lower() in ('true', '1', 'yes')
-        if isinstance(performance_filter, str):
-            performance_filter = performance_filter.lower() in ('true', '1', 'yes')
 
         logger.info(
-            "[raids] request start user=%s params: attackerNationId=%s alliance=%s beige=%s "
-            "maxWars=%s inactiveMinDays=%s scope=%s minBeigeLoot=%s performance=%s "
-            "minScore=%s maxScore=%s targetNationIds=%s useSavedTargets=%s",
+            "[raids] request start user=%s params: attackerNationId=%s minScore=%s maxScore=%s vmode=%s",
             user_id,
             attacker_nation_id,
-            alliance_filter,
-            beige_only,
-            max_wars,
-            inactive_min_days,
-            scope,
-            min_beige_loot,
-            performance_filter,
             min_score,
             max_score,
-            len(target_nation_ids or []),
-            use_saved_targets,
+            vmode_param,
         )
 
-        # Load nations from SQLite cache with SQL-level filtering
         data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
-        # Push score and target-id filters down to SQLite for efficiency.
-        # When specific target IDs are requested we filter by those;
-        # otherwise apply the score floor (always >= 15).
-        sql_min_score = None if target_nation_ids else min_score
-        sql_max_score = None if target_nation_ids else max_score
-        sql_nation_ids = target_nation_ids
-        # Ensure the attacker (if known from URL param) is included in the
-        # SQL filter so that the attacker data is always available for
-        # win-chance calculations and the response header.
-        if sql_nation_ids is not None and attacker_nation_id:
-            sql_nation_ids = set(sql_nation_ids)  # copy to avoid mutating
-            sql_nation_ids.add(str(attacker_nation_id))
         nations_data = get_all_nations_filtered(
             data_path,
-            min_score=sql_min_score,
-            max_score=sql_max_score,
-            nation_ids=sql_nation_ids,
+            min_score=min_score,
+            max_score=max_score,
         )
         nations = nations_data['nations']
         last_fetched = nations_data.get('last_fetched')
@@ -267,11 +204,6 @@ def get_raids() -> tuple[Any, int]:
                 user_profile = None
                 discord_linked = False
 
-        if use_saved_targets and user_profile and not target_nation_ids:
-            stored_ids = user_profile.get('raids_target_ids', [])
-            if stored_ids:
-                target_nation_ids = set([str(x) for x in stored_ids if str(x).isdigit()])
-
         attacker = None
         nation_warning = None
         # Priority: URL parameter > user profile > first nation
@@ -285,8 +217,6 @@ def get_raids() -> tuple[Any, int]:
         if attacker is None and user_profile:
             attacker_id = str(user_profile.get('id', ''))
             attacker = nations_by_id.get(attacker_id)
-            # If the attacker isn't in the filtered set (e.g. target_nation_ids
-            # was provided and didn't include the attacker), do a single lookup.
             if attacker is None and attacker_id:
                 try:
                     attacker_data = get_nation_by_id(data_path, attacker_id)
@@ -329,8 +259,6 @@ def get_raids() -> tuple[Any, int]:
                 logger.warning(f"Revenue context unavailable: {e}")
                 revenue_context = None
 
-        apply_filters = target_nation_ids is None
-
         # Pre-compute attacker combat values (constant across all targets)
         if attacker:
             _att_ground = attacker.get('soldiers', 0) * 1.75 + attacker.get('tanks', 0) * 40
@@ -340,49 +268,21 @@ def get_raids() -> tuple[Any, int]:
         now_utc = datetime.now(timezone.utc)
 
         for nation in nations:
-            if target_nation_ids and str(nation.get('id', '')) not in target_nation_ids:
-                continue
             alliance_position = normalize_alliance_position(nation.get('alliance_position'))
-            # Filters
-            if apply_filters:
-                if scope == 'apps_or_none':
-                    if alliance_position not in ['NOALLIANCE', 'APPLICANT']:
-                        continue
-                if scope == 'no_alliance':
-                    if str(nation.get('alliance_id', '')) != '0':
-                        continue
-                # Vacation mode filtering
-                in_vm = is_in_vacation_mode(nation)
-                if vmode_param is False and in_vm:
-                    continue  # exclude VM nations by default
-                if vmode_param is True and not in_vm:
-                    continue  # include only VM nations when requested
-                if min_cities is not None and nation.get('num_cities', 0) < min_cities:
-                    continue
-                if max_cities is not None and nation.get('num_cities', 0) > max_cities:
-                    continue
-                # NOTE: score filtering is now handled at the SQL level in
-                # get_all_nations_filtered(), so no Python-side check needed.
+            in_vm = is_in_vacation_mode(nation)
+            if vmode_param is False and in_vm:
+                continue
+            if vmode_param is True and not in_vm:
+                continue
+
             alliance_id = str(nation.get('alliance_id', ''))
             alliance_obj = (nation.get('alliance', {}) or {})
-
-            if apply_filters:
-                if alliance_filter:
-                    name = alliance_obj.get('name') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', '')
-                    if alliance_filter.lower() not in name.lower():
-                        continue
-                if beige_only is True and nation.get('color') != 'beige':
-                    continue
-                if beige_only is False and nation.get('color') == 'beige':
-                    continue
 
             # Defensive slots and war recency
             def_slots, time_since_war = derive_def_slots_and_time_since_war(nation, now_utc)
 
             # Inactivity
             days_inactive = calculate_days_inactive(nation.get('last_active'), now_utc)
-            if apply_filters and inactive_min_days is not None and days_inactive < inactive_min_days:
-                continue
 
             # Win chances (attacker values pre-computed above the loop)
             if attacker:
@@ -431,17 +331,6 @@ def get_raids() -> tuple[Any, int]:
                     net_cash_income = revenue_result.get('net_cash_num', net_cash_income)
                 except Exception as e:
                     logger.debug(f"Revenue calc failed for nation {nation.get('id')}: {e}")
-
-            if apply_filters:
-                if min_beige_loot is not None and nation_loot_value < min_beige_loot:
-                    continue
-
-                if max_wars is not None and def_slots > max_wars:
-                    continue
-
-                if performance_filter:
-                    if ground_win < 40 or nation_loot_value == 0 or net_cash_income < 10000:
-                        continue
 
             alliance_color = alliance_obj.get('color') or (alliances_by_id.get(alliance_id, {}) or {}).get('color')
             alliance_name = alliance_obj.get('name', 'None') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', 'None')
@@ -501,8 +390,6 @@ def get_raids() -> tuple[Any, int]:
             },
             'targets': targets,
             'beigeAlerts': [str(x) for x in beige_alerts],
-            # Column visibility: always show beige/reminder columns; beige query param only affects filtering.
-            'showBeige': True,
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
             'discordAuthenticated': user_id is not None,
             'discordLinked': discord_linked,
@@ -534,17 +421,9 @@ def get_raids() -> tuple[Any, int]:
 @require_discord_session
 def add_reminder() -> tuple[Any, int]:
     """
-    Add a beige reminder for a nation.
-    
-    Token payload must contain:
-        - user_id: Discord user ID (must match invoker)
-    
-    Request Body:
-        - nationId: ID of the nation to set reminder for
-        - beigeTurns: Number of turns until nation exits beige
-    
-    Returns:
-        JSON response confirming the reminder was set.
+    Add a beige/VM exit reminder for a nation.
+
+    Requires Discord session auth. Body: { "nationId": <number> }.
     """
     try:
         uid, auth_error = _parse_session_user_id()
@@ -597,15 +476,7 @@ def add_reminder() -> tuple[Any, int]:
 @raids_bp.route('/reminders/<nation_id>', methods=['DELETE'])
 @require_discord_session
 def remove_reminder(nation_id: str) -> tuple[Any, int]:
-    """
-    Remove a beige reminder for a nation.
-    
-    Args:
-        nation_id: The nation ID to remove reminder for.
-    
-    Returns:
-        JSON response confirming the reminder was removed.
-    """
+    """Remove a beige/VM exit reminder for a nation (requires Discord session)."""
     try:
         uid, auth_error = _parse_session_user_id()
         if auth_error:
