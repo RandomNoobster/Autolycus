@@ -868,6 +868,12 @@ export function RaidsTable({
     return [Math.min(...cities), Math.max(...cities)];
   }, [data]);
 
+  const scoreRange = useMemo(() => {
+    const scores = data.map((d) => d.score).filter((s) => Number.isFinite(s));
+    if (!scores.length) return [0, 0];
+    return [Math.min(...scores), Math.max(...scores)];
+  }, [data]);
+
   const columns = useMemo<MRT_ColumnDef<RaidTarget>[]>(
     () => [
       {
@@ -937,6 +943,23 @@ export function RaidsTable({
           minRange: 0,
         },
         size: 90, // Increased slightly to fit "Cities" + Icon
+      },
+      {
+        accessorKey: 'score',
+        header: 'Score',
+        size: 90,
+        mantineTableBodyCellProps: { align: 'right' },
+        filterVariant: 'range-slider',
+        mantineFilterRangeSliderProps: {
+          min: scoreRange[0],
+          max: scoreRange[1],
+          step: 1,
+          minRange: 0,
+        },
+        Cell: ({ cell }) => {
+          const value = cell.getValue<number>();
+          return Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
+        },
       },
       {
         accessorKey: 'color',
@@ -1284,6 +1307,7 @@ export function RaidsTable({
       uniquePositions,
       uniqueColors,
       cityRange,
+      scoreRange,
     ]
   );
 

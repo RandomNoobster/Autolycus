@@ -25,6 +25,7 @@ const RAIDS_TABLE_DATA_COLUMN_IDS: readonly string[] = [
   'allianceName',
   'alliancePosition',
   'numCities',
+  'score',
   'color',
   'beigeTurns',
   'reminder',

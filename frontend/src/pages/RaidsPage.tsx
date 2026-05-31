@@ -37,7 +37,7 @@ import type {
   MRT_VisibilityState,
 } from 'mantine-react-table';
 
-import { fetchRaids } from '@/api';
+import { fetchRaids, type RaidFilterParams } from '@/api';
 import { getDiscordLoginUrl, getLinkedNation } from '@/api/auth';
 import {
   useUrlParams,
@@ -88,6 +88,7 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
     allianceName: true,
     alliancePosition: true,
     numCities: true,
+    score: true,
     color: true,
     beigeTurns: true,
     reminder: true,
@@ -118,6 +119,7 @@ const DEFAULT_TABLE_SETTINGS: TableSettings = {
     'allianceName',
     'alliancePosition',
     'numCities',
+    'score',
     'color',
     'beigeTurns',
     'reminder',
@@ -288,6 +290,19 @@ export function RaidsPage() {
     };
   }, [searchParams]);
 
+  /** Score bounds sent to the API (real P&W score from SQLite, not city-count proxy). */
+  const apiScoreBounds = useMemo(() => {
+    const min = activeFilters.minScore;
+    const max = activeFilters.maxScore;
+    if (min !== undefined || max !== undefined) {
+      return {
+        minScore: min ?? 15,
+        maxScore: max,
+      };
+    }
+    return { minScore: 15, maxScore: undefined as number | undefined };
+  }, [activeFilters.minScore, activeFilters.maxScore]);
+
   const [draftFilters, setDraftFilters] = useState<RaidsDraftFilters>(() =>
     buildRaidsDraftFromSearchParams(searchParams, savedNationId, '')
   );
@@ -327,9 +342,22 @@ export function RaidsPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['raids', appliedNationId, targetNationIds, useSavedTargets],
+    queryKey: [
+      'raids',
+      appliedNationId,
+      targetNationIds,
+      useSavedTargets,
+      apiScoreBounds.minScore,
+      apiScoreBounds.maxScore,
+    ],
     queryFn: () => {
-      const filters: any = { minScore: 15, vmode: false };
+      const filters: RaidFilterParams = {
+        minScore: apiScoreBounds.minScore,
+        vmode: false,
+      };
+      if (apiScoreBounds.maxScore !== undefined) {
+        filters.maxScore = apiScoreBounds.maxScore;
+      }
       if (appliedNationId) {
         filters.attackerNationId = parseInt(appliedNationId, 10);
       }
@@ -629,20 +657,6 @@ export function RaidsPage() {
       filtered = filtered.filter(nation => {
         const loot = parseFloat(nation.nationLoot.replace(/[^0-9.-]/g, ''));
         return loot >= activeFilters.minBeigeLoot!;
-      });
-    }
-
-    // Score filter (calculate from cities - rough approximation)
-    if (activeFilters.minScore !== undefined || activeFilters.maxScore !== undefined) {
-      filtered = filtered.filter(nation => {
-        const approxScore = nation.numCities * 150; // Rough estimate
-        if (activeFilters.minScore !== undefined && approxScore < activeFilters.minScore) {
-          return false;
-        }
-        if (activeFilters.maxScore !== undefined && approxScore > activeFilters.maxScore) {
-          return false;
-        }
-        return true;
       });
     }
 

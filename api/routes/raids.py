@@ -467,6 +467,7 @@ def get_raids() -> tuple[Any, int]:
                 'allianceName': alliance_name,
                 'alliancePosition': (alliance_position or 'Unknown'),
                 'numCities': nation.get('num_cities', 0),
+                'score': float(nation.get('score', 0) or 0),
                 'color': nation_color,
                 'beigeTurns': nation.get('beige_turns', 0),
                 'nationLoot': f"${nation_loot_value:,}",

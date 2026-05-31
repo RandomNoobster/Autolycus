@@ -32,6 +32,7 @@ export interface RaidTarget {
   allianceName: string;
   alliancePosition: string;
   numCities: number;
+  score: number;
   color: string;
   beigeTurns: number;
   nationLoot: string;
