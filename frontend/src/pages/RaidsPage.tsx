@@ -889,6 +889,12 @@ export function RaidsPage() {
               if (parsed) {
                 setAppliedNationId(parsed);
                 setDraftNationId(parsed);
+                setNationId(parsed);
+                setSearchParams((prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.set('attackerNationId', parsed);
+                  return next;
+                }, { replace: true });
               }
             }}
             buttonLabel="Load Nation"
