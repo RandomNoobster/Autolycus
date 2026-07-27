@@ -23,6 +23,7 @@ import {
   IconBuildingFactory2,
   IconBomb,
   IconBell,
+  IconRadioactive,
   IconArrowRight,
   IconBrandDiscord,
   IconStar,
@@ -41,6 +42,14 @@ const features = [
       'Find profitable targets to raid based on loot value, military strength, and more.',
     path: '/raids',
     color: 'red',
+  },
+  {
+    icon: IconRadioactive,
+    title: 'Nuke Targets',
+    description:
+      'Rank nations by attrition nuke and missile damage, including simulated war net damage.',
+    path: '/nuke-targets',
+    color: 'pink',
   },
   {
     icon: IconBuildingFactory2,

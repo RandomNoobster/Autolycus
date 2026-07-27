@@ -607,9 +607,9 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
             mod = results[f"{defender}_vds_mod"]
         else:
             mod = 1
-        results[f"{key}_avg_value"] = economy_logic.infra_cost(
-            results[defender]["city"]["infrastructure"] - results[f"{key}_avg"],
+        results[f"{key}_avg_value"] = economy_logic.infra_rebuild_cost(
             results[defender]["city"]["infrastructure"],
+            results[f"{key}_avg"],
         ) * mod
 
     for attack in ["airvair", "airvsoldiers", "airvtanks", "airvships"]:

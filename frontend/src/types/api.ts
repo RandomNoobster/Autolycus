@@ -74,6 +74,71 @@ export interface RaidsResponse {
     warning?: string | null;
 }
 
+// ============================================================================
+// Nuke Targets Types (GET /api/nuke-targets/)
+// ============================================================================
+
+export interface NukeTarget {
+  id: number;
+  nationName: string;
+  leaderName: string;
+  allianceId: string;
+  allianceName: string;
+  alliancePosition: string;
+  numCities: number;
+  score: number;
+  color: string;
+  beigeTurns: number;
+  daysInactive: number;
+  defSlots: number;
+  timeSinceWar: string;
+  soldiers: number;
+  tanks: number;
+  aircraft: number;
+  ships: number;
+  missiles: number;
+  nukes: number;
+  maxInfra?: number;
+  avgInfra?: number;
+  nukeInfraLost?: number;
+  nukeDamage?: number;
+  nukeDamageWithoutVds?: number;
+  nukeNet?: number;
+  missileInfraLost?: number;
+  missileDamage?: number;
+  missileDamageWithoutIronDome?: number;
+  missileNet?: number;
+  simNukeNet?: number;
+  simNukeShots?: number;
+  simMissileNet?: number;
+  simMissileShots?: number;
+  vds?: boolean;
+  ironDome?: boolean;
+  falloutShelter?: boolean;
+  defenderWarPolicy?: string;
+}
+
+export interface NukeTargetsAttackerInfo extends AttackerInfo {
+  warpolicy?: string;
+}
+
+export interface NukeTargetsAssumptions {
+  warType: string;
+  warRole: string;
+  resistanceModel: string;
+  dollarDamage: string;
+}
+
+export interface NukeTargetsResponse {
+  attacker: NukeTargetsAttackerInfo | null;
+  targets: NukeTarget[];
+  generatedAt: string;
+  discordAuthenticated: boolean;
+  discordLinked: boolean;
+  assumptions: NukeTargetsAssumptions;
+  warning?: string | null;
+}
+
 export interface ReminderRequest {
   nationId: number;
 }

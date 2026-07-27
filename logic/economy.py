@@ -8,6 +8,18 @@ from typing import Any, Optional
 from .common import weird_division
 
 
+def infra_rebuild_cost(
+    current_infra: float,
+    infra_lost: float,
+    nation: Optional[dict[str, Any]] = None,
+) -> float:
+    """Cost for a nation to buy back destroyed infrastructure (not sell proceeds)."""
+    if infra_lost <= 0:
+        return 0.0
+    after = max(0.0, float(current_infra) - float(infra_lost))
+    return infra_cost(int(round(after)), int(current_infra), nation)
+
+
 def infra_cost(starting_infra: int, ending_infra: int, nation: Optional[dict[str, Any]] = None) -> float:
     def unit_cost(amount: int):
         return ((abs(amount - 10) ** 2.2) / 710) + 300
@@ -28,12 +40,12 @@ def infra_cost(starting_infra: int, ending_infra: int, nation: Optional[dict[str
         cost += (round(unit_cost(starting_infra), 2) * difference)
     multiplier = 1
     if nation:
-        if nation['center_for_civil_engineering']:
+        if nation.get('center_for_civil_engineering'):
             multiplier -= 0.05
-        if nation['advanced_engineering_corps']:
+        if nation.get('advanced_engineering_corps'):
             multiplier -= 0.05
-        if nation['domestic_policy'] == "URBANIZATION":
-            if nation['government_support_agency']:
+        if nation.get('dompolicy') == "URBANIZATION":
+            if nation.get('government_support_agency'):
                 multiplier -= 0.075
             else:
                 multiplier -= 0.05

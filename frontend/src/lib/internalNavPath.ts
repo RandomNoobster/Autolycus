@@ -15,6 +15,15 @@ export function internalNavPath(pathname: string, search: string): string {
     return `/raids${q ? `?${q}` : ''}`;
   }
 
+  if (pathname === '/nuke-targets') {
+    sp.delete('token');
+    sp.delete('code');
+    sp.delete('auto');
+    sp.delete('redirect');
+    const q = sp.toString();
+    return `/nuke-targets${q ? `?${q}` : ''}`;
+  }
+
   sp.delete('token');
   sp.delete('code');
   sp.delete('auto');

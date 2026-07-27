@@ -12,6 +12,7 @@ import { HomePage } from '@/pages/HomePage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { PrivacyStoragePage } from '@/pages/PrivacyStoragePage';
 import { RemindersPage } from '@/pages/RemindersPage';
+import { NukeTargetsPage } from '@/pages/NukeTargetsPage';
 
 function App() {
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure();
@@ -43,9 +44,15 @@ function App() {
         p={{ base: 'xs', sm: 'md' }}
         styles={{
           navbar: {
-            overflowY: 'auto',
-            WebkitOverflowScrolling: 'touch',
-            overscrollBehaviorY: 'contain',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: isMobile ? 'auto' : 'hidden',
+            ...(isMobile
+              ? {
+                  WebkitOverflowScrolling: 'touch',
+                  overscrollBehaviorY: 'contain',
+                }
+              : {}),
           },
         }}
       >
@@ -56,6 +63,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/raids" element={<RaidsPage />} />
+          <Route path="/nuke-targets" element={<NukeTargetsPage />} />
           <Route path="/reminders" element={<RemindersPage />} />
           <Route path="/builds" element={<BuildsPage />} />
           <Route path="/damage" element={<DamagePage />} />

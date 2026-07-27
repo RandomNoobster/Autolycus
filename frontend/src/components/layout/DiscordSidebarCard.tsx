@@ -11,9 +11,11 @@ import { getDiscordLoginUrl, logoutDiscordSession } from '@/api/auth';
 
 interface DiscordSidebarCardProps {
   session: SidebarDiscordSession;
+  /** Tighter layout when the viewport is short. */
+  compact?: boolean;
 }
 
-export function DiscordSidebarCard({ session }: DiscordSidebarCardProps) {
+export function DiscordSidebarCard({ session, compact = false }: DiscordSidebarCardProps) {
   const { colorScheme } = useMantineColorScheme();
   const showLoadingSkeleton = useDelayedFlag(session.status === 'loading', 150);
   const iconProps = {
@@ -36,35 +38,28 @@ export function DiscordSidebarCard({ session }: DiscordSidebarCardProps) {
   }, [session.status]);
 
   if (session.status === 'loading' && showLoadingSkeleton) {
-    return <Skeleton height={52} radius="sm" />;
+    return <Skeleton height={compact ? 40 : 52} radius="sm" />;
   }
 
   if (session.status === 'loading') {
-    // Reserve space during short gated loads to prevent layout jumps.
-    return <div style={{ height: 52 }} />;
+    return <div style={{ height: compact ? 36 : 52 }} />;
   }
 
   if (session.status === 'guest') {
     return (
-      <Stack gap={0}>
-        <Button
-          component="a"
-          href={getDiscordLoginUrl('/raids')}
-          size="md"
-          fullWidth
-          color="indigo"
-          variant="filled"
-          leftSection={<IconBrandDiscord size={14} />}
-          style={{ textDecoration: 'none' }}
-          styles={{
-            root: {
-              textDecoration: 'none',
-            },
-          }}
-        >
-          Login with Discord
-        </Button>
-      </Stack>
+      <Button
+        component="a"
+        href={getDiscordLoginUrl('/raids')}
+        size={compact ? 'sm' : 'md'}
+        fullWidth
+        color="indigo"
+        variant="filled"
+        leftSection={<IconBrandDiscord size={14} />}
+        style={{ textDecoration: 'none' }}
+        styles={{ root: { textDecoration: 'none' } }}
+      >
+        Login with Discord
+      </Button>
     );
   }
 
@@ -84,10 +79,10 @@ export function DiscordSidebarCard({ session }: DiscordSidebarCardProps) {
   };
 
   return (
-    <Stack gap={4}>
+    <Stack gap={compact ? 2 : 4}>
       <Group gap={6} wrap="nowrap" align="center">
         <Avatar
-          size={20}
+          size={compact ? 18 : 20}
           src={avatarUrl}
           radius="xl"
           color="indigo"
@@ -95,24 +90,22 @@ export function DiscordSidebarCard({ session }: DiscordSidebarCardProps) {
         >
           <IconBrandDiscord {...iconProps} />
         </Avatar>
-        <Text size="sm" fw={600} lh={1.2}>
+        <Text size={compact ? 'xs' : 'sm'} fw={600} lh={1.2} lineClamp={1}>
           {titleName}
         </Text>
       </Group>
-      <Stack gap={2}>
-        <Group justify="flex-start" mt={4}>
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            color="gray"
-            leftSection={<IconLogout size={12} />}
-            loading={loggingOut}
-            onClick={handleLogout}
-          >
-            Logout
-          </Button>
-        </Group>
-      </Stack>
+      <Group justify="flex-start" gap={4}>
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          leftSection={<IconLogout size={12} />}
+          loading={loggingOut}
+          onClick={handleLogout}
+        >
+          Logout
+        </Button>
+      </Group>
     </Stack>
   );
 }

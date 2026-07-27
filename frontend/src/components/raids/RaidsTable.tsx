@@ -10,12 +10,6 @@ import {
 import {
   MantineReactTable,
   useMantineReactTable,
-  MRT_ShowHideColumnsButton,
-  MRT_ShowHideColumnsMenu,
-  MRT_ToggleDensePaddingButton,
-  MRT_ToggleFiltersButton,
-  MRT_ToggleFullScreenButton,
-  MRT_ToggleGlobalFilterButton,
   type MRT_ColumnDef,
   type MRT_Row,
   type MRT_ColumnFiltersState,
@@ -26,7 +20,6 @@ import {
   type MRT_Column,
 } from 'mantine-react-table';
 import {
-  ActionIcon,
   Anchor,
   Badge,
   Text,
@@ -34,7 +27,6 @@ import {
   Box,
   Alert,
   Stack,
-  Group,
   Button,
   NumberInput,
   TextInput,
@@ -42,14 +34,13 @@ import {
   MultiSelect,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
+import { useDebouncedValue } from '@mantine/hooks';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   IconBell,
   IconBellOff,
   IconBrandDiscord,
   IconChartBar,
-  IconDownload,
   IconExternalLink,
   IconInfoCircle,
 } from '@tabler/icons-react';
@@ -60,6 +51,7 @@ import { addReminder, removeReminder } from '@/api';
 import { getDiscordLoginUrl } from '@/api/auth';
 import { internalNavPath } from '@/lib/internalNavPath';
 import { parseNumericValue } from '@/lib/raidFilterParsing';
+import { MrtTableToolbarInternalActions } from '@/lib/mrtTableToolbar';
 import { buildRaidsCsv, downloadCsv, raidsCsvFilename } from '@/lib/raidsCsvExport';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
@@ -429,242 +421,6 @@ const NumericMinOnlyFilterInput = ({ column, max }: any) => {
   );
 };
 
-
-const DENSITY_NEXT: Record<MRT_DensityState, MRT_DensityState> = {
-  md: 'xs',
-  xl: 'md',
-  xs: 'xl',
-};
-
-const TOOLBAR_ICON_SZ = 18;
-
-/** Same controls as MRT's default toolbar; desktop uses text+icon as one Button; mobile keeps MRT ActionIcons (App breakpoint: 48em). */
-function RaidsTableToolbarInternalActions({ table }: { table: MRT_TableInstance<RaidTarget> }) {
-  const isMobile = useMediaQuery('(max-width: 48em)', false, {
-    getInitialValueInEffect: false,
-  });
-  const showLabels = !isMobile;
-  const canExportCsv = table.getPrePaginationRowModel().rows.length > 0;
-
-  const {
-    columnFilterDisplayMode,
-    enableColumnFilters,
-    enableColumnOrdering,
-    enableColumnPinning,
-    enableDensityToggle,
-    enableFilters,
-    enableFullScreenToggle,
-    enableGlobalFilter,
-    enableHiding,
-    initialState,
-    icons: {
-      IconSearch,
-      IconSearchOff,
-      IconFilter,
-      IconFilterOff,
-      IconColumns,
-      IconMaximize,
-      IconMinimize,
-      IconBaselineDensityLarge,
-      IconBaselineDensityMedium,
-      IconBaselineDensitySmall,
-    },
-    localization: {
-      showHideSearch,
-      showHideFilters,
-      showHideColumns,
-      toggleFullScreen,
-      toggleDensity,
-    },
-  } = table.options;
-
-  const {
-    getState,
-    refs: { searchInputRef },
-    setShowGlobalFilter,
-    setShowColumnFilters,
-    setIsFullScreen,
-    setDensity,
-  } = table;
-
-  const toolbarLabel = {
-    search: 'Search',
-    filters: 'Filters',
-    columns: 'Columns',
-    density: toggleDensity,
-    fullscreen: 'Full screen',
-  } as const;
-
-  if (!showLabels) {
-    return (
-      <>
-        {enableFilters &&
-          enableGlobalFilter &&
-          !initialState?.showGlobalFilter && (
-            <MRT_ToggleGlobalFilterButton key="search" table={table} />
-          )}
-        {enableFilters &&
-          enableColumnFilters &&
-          columnFilterDisplayMode !== 'popover' && (
-            <MRT_ToggleFiltersButton key="filters" table={table} />
-          )}
-        {(enableHiding || enableColumnOrdering || enableColumnPinning) && (
-          <MRT_ShowHideColumnsButton key="columns" table={table} />
-        )}
-        {enableDensityToggle && <MRT_ToggleDensePaddingButton key="density" table={table} />}
-        {enableFullScreenToggle && <MRT_ToggleFullScreenButton key="fullscreen" table={table} />}
-        <Tooltip
-          key="csv"
-          label={
-            canExportCsv
-              ? 'Download filtered rows as CSV (includes all pages)'
-              : 'No rows match the current filters'
-          }
-          withinPortal
-        >
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="lg"
-            radius="sm"
-            disabled={!canExportCsv}
-            aria-label="Download CSV"
-            onClick={() => downloadCsv(raidsCsvFilename(), buildRaidsCsv(table))}
-          >
-            <IconDownload size={TOOLBAR_ICON_SZ} />
-          </ActionIcon>
-        </Tooltip>
-      </>
-    );
-  }
-
-  const { globalFilter, showGlobalFilter, showColumnFilters, isFullScreen, density } = getState();
-
-  const densityIcon =
-    density === 'xs' ? (
-      <IconBaselineDensitySmall size={TOOLBAR_ICON_SZ} />
-    ) : density === 'md' ? (
-      <IconBaselineDensityMedium size={TOOLBAR_ICON_SZ} />
-    ) : (
-      <IconBaselineDensityLarge size={TOOLBAR_ICON_SZ} />
-    );
-
-  return (
-    <Group gap={4} wrap="wrap" justify="flex-end" align="center">
-      {enableFilters && enableGlobalFilter && !initialState?.showGlobalFilter && (
-        <Tooltip key="search" label={showHideSearch} withinPortal>
-          <Button
-            variant="subtle"
-            color="gray"
-            size="sm"
-            fw={500}
-            disabled={!!globalFilter}
-            aria-label={showHideSearch}
-            leftSection={
-              showGlobalFilter ? <IconSearchOff size={TOOLBAR_ICON_SZ} /> : <IconSearch size={TOOLBAR_ICON_SZ} />
-            }
-            onClick={() => {
-              setShowGlobalFilter(!showGlobalFilter);
-              setTimeout(() => searchInputRef.current?.focus(), 100);
-            }}
-          >
-            {toolbarLabel.search}
-          </Button>
-        </Tooltip>
-      )}
-      {enableFilters && enableColumnFilters && columnFilterDisplayMode !== 'popover' && (
-        <Tooltip key="filters" label={showHideFilters} withinPortal>
-          <Button
-            variant="subtle"
-            color="gray"
-            size="sm"
-            fw={500}
-            aria-label={showHideFilters}
-            leftSection={
-              showColumnFilters ? <IconFilterOff size={TOOLBAR_ICON_SZ} /> : <IconFilter size={TOOLBAR_ICON_SZ} />
-            }
-            onClick={() => setShowColumnFilters((c) => !c)}
-          >
-            {toolbarLabel.filters}
-          </Button>
-        </Tooltip>
-      )}
-      <Tooltip
-        key="csv"
-        label={
-          canExportCsv
-            ? 'Download filtered rows as CSV (includes all pages)'
-            : 'No rows match the current filters'
-        }
-        withinPortal
-      >
-        <Button
-          variant="subtle"
-          color="gray"
-          size="sm"
-          fw={500}
-          disabled={!canExportCsv}
-          aria-label="Download CSV"
-          leftSection={<IconDownload size={TOOLBAR_ICON_SZ} />}
-          onClick={() => downloadCsv(raidsCsvFilename(), buildRaidsCsv(table))}
-        >
-          CSV
-        </Button>
-      </Tooltip>
-      {(enableHiding || enableColumnOrdering || enableColumnPinning) && (
-        <Menu key="columns" closeOnItemClick={false} withinPortal>
-          <Tooltip label={showHideColumns} withinPortal>
-            <Menu.Target>
-              <Button
-                variant="subtle"
-                color="gray"
-                size="sm"
-                fw={500}
-                aria-label={showHideColumns}
-                leftSection={<IconColumns size={TOOLBAR_ICON_SZ} />}
-              >
-                {toolbarLabel.columns}
-              </Button>
-            </Menu.Target>
-          </Tooltip>
-          <MRT_ShowHideColumnsMenu table={table} />
-        </Menu>
-      )}
-      {enableDensityToggle && (
-        <Tooltip key="density" label={toggleDensity} withinPortal>
-          <Button
-            variant="subtle"
-            color="gray"
-            size="sm"
-            fw={500}
-            aria-label={toggleDensity}
-            leftSection={densityIcon}
-            onClick={() => setDensity((d) => DENSITY_NEXT[d])}
-          >
-            {toolbarLabel.density}
-          </Button>
-        </Tooltip>
-      )}
-      {enableFullScreenToggle && (
-        <Tooltip key="fullscreen" label={toggleFullScreen} withinPortal>
-          <Button
-            variant="subtle"
-            color="gray"
-            size="sm"
-            fw={500}
-            aria-label={toggleFullScreen}
-            leftSection={
-              isFullScreen ? <IconMinimize size={TOOLBAR_ICON_SZ} /> : <IconMaximize size={TOOLBAR_ICON_SZ} />
-            }
-            onClick={() => setIsFullScreen((v) => !v)}
-          >
-            {toolbarLabel.fullscreen}
-          </Button>
-        </Tooltip>
-      )}
-    </Group>
-  );
-}
 
 interface RaidsTableProps {
   data: RaidTarget[];
@@ -1313,7 +1069,10 @@ export function RaidsTable({
 
   const renderToolbarInternalActions = useCallback(
     ({ table: t }: { table: MRT_TableInstance<RaidTarget> }) => (
-      <RaidsTableToolbarInternalActions table={t} />
+      <MrtTableToolbarInternalActions
+        table={t}
+        onExportCsv={() => downloadCsv(raidsCsvFilename(), buildRaidsCsv(t))}
+      />
     ),
     []
   );

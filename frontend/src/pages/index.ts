@@ -1,5 +1,6 @@
 export { HomePage } from './HomePage';
 export { RaidsPage } from './RaidsPage';
+export { NukeTargetsPage } from './NukeTargetsPage';
 export { BuildsPage } from './BuildsPage';
 export { RemindersPage } from './RemindersPage';
 export { DamagePage } from './DamagePageView';

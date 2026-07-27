@@ -32,6 +32,7 @@ from core.config import get_config
 from api.routes.auth import auth_bp
 from api.routes.builds import builds_bp
 from api.routes.damage import damage_bp
+from api.routes.nuke_targets import nuke_targets_bp
 from api.routes.raids import raids_bp
 from api.routes.stats import stats_bp
 
@@ -79,6 +80,7 @@ def create_app(config_object: Optional[object] = None) -> Flask:
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(raids_bp)
+    app.register_blueprint(nuke_targets_bp)
     app.register_blueprint(builds_bp)
     app.register_blueprint(damage_bp)
     app.register_blueprint(stats_bp)
