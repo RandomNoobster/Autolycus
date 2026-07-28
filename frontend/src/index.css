@@ -182,6 +182,21 @@ body {
   min-width: 0;
 }
 
+/* Raids / nuke-targets bottom toolbar: tighter padding on mobile only. */
+@media (max-width: 48em) {
+  .raids-mrt-bottom-toolbar [class*='custom-toolbar-container'] {
+    padding: 4px;
+  }
+
+  .raids-mrt-bottom-toolbar .mrt-table-pagination {
+    gap: var(--mantine-spacing-xs);
+    padding-left: 4px;
+    padding-right: 4px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+}
+
 /* Link styling — Mantine v7 Button/Text/Anchor roots often set data-variant on <a>.
    Global color + underline on :hover fights Button variant hover (dim) and adds underlines. */
 a:not([data-variant]) {

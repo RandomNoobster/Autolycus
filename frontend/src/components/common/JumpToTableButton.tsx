@@ -15,26 +15,35 @@ export function JumpToTableButton({ targetRef }: JumpToTableButtonProps) {
     getInitialValueInEffect: false,
   });
   const mobileNavOpen = useMobileNavOpen();
-  const [tableInView, setTableInView] = useState(false);
+  // Only when the table is still below the fold — not in view, and not scrolled past.
+  const [tableBelowFold, setTableBelowFold] = useState(false);
 
   useEffect(() => {
     const el = targetRef.current;
     if (!el || !isMobile) {
-      setTableInView(false);
+      setTableBelowFold(false);
       return;
     }
 
-    const observer = new IntersectionObserver(
-      ([entry]) => setTableInView(entry.isIntersecting),
-      {
-        // Hide once the table heading area is reasonably on screen (header/footer safe areas).
-        root: null,
-        threshold: 0.05,
-        rootMargin: '-64px 0px -48px 0px',
-      }
-    );
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      // Header clearance (~56px): treat as "reached" once the section top is near the header.
+      setTableBelowFold(rect.top > 72);
+    };
+
+    update();
+    const observer = new IntersectionObserver(update, {
+      root: null,
+      threshold: [0, 0.01, 0.05, 0.1, 1],
+    });
     observer.observe(el);
-    return () => observer.disconnect();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
   }, [targetRef, isMobile]);
 
   if (!isMobile) return null;
@@ -46,7 +55,7 @@ export function JumpToTableButton({ targetRef }: JumpToTableButtonProps) {
       zIndex={200}
       style={{ display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}
     >
-      <Transition transition="slide-up" mounted={!tableInView && !mobileNavOpen}>
+      <Transition transition="slide-up" mounted={tableBelowFold && !mobileNavOpen}>
         {(styles) => (
           <Button
             style={{ ...styles, pointerEvents: 'auto' }}

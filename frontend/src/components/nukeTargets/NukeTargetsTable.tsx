@@ -549,10 +549,13 @@ export function NukeTargetsTable({
       shadow: 'sm',
       radius: 'md',
       withBorder: true,
-      px: 'lg',
+      px: { base: 'xs', sm: 'lg' },
     },
     mantineTopToolbarProps: {
       className: 'raids-mrt-top-toolbar',
+    },
+    mantineBottomToolbarProps: {
+      className: 'raids-mrt-bottom-toolbar',
     },
     renderToolbarInternalActions,
   });
