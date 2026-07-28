@@ -27,33 +27,55 @@ def _client_key(scope: str) -> str:
     return f'{scope}:ip:{request.remote_addr or "unknown"}'
 
 
+def try_acquire_rate_limit(
+    max_requests: int,
+    window_seconds: int,
+    *,
+    scope: str,
+) -> bool:
+    """
+    Record a hit if under the limit.
+
+    Returns True when the caller may proceed with the protected work,
+    False when the limit is already exhausted (no hit recorded).
+    """
+    key = _client_key(scope)
+    now = monotonic()
+    cutoff = now - window_seconds
+    with _lock:
+        bucket = _hits[key]
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= max_requests:
+            return False
+        bucket.append(now)
+        return True
+
+
 def rate_limit(max_requests: int, window_seconds: int, *, scope: str) -> Callable[[F], F]:
     """Allow at most `max_requests` calls per `window_seconds` for this scope."""
 
     def decorator(f: F) -> F:
         @wraps(f)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
-            key = _client_key(scope)
-            now = monotonic()
-            cutoff = now - window_seconds
-            with _lock:
-                bucket = _hits[key]
-                while bucket and bucket[0] < cutoff:
-                    bucket.popleft()
-                if len(bucket) >= max_requests:
-                    retry_after = max(1, int(window_seconds - (now - bucket[0])) + 1)
-                    response = jsonify({
-                        'error': 'Too many requests',
-                        'message': (
-                            f'Rate limit exceeded ({max_requests} per '
-                            f'{window_seconds}s). Please slow down.'
-                        ),
-                        'code': 'RATE_LIMITED',
-                    })
-                    response.status_code = 429
-                    response.headers['Retry-After'] = str(retry_after)
-                    return response
-                bucket.append(now)
+            if not try_acquire_rate_limit(max_requests, window_seconds, scope=scope):
+                key = _client_key(scope)
+                now = monotonic()
+                with _lock:
+                    bucket = _hits[key]
+                    oldest = bucket[0] if bucket else now
+                retry_after = max(1, int(window_seconds - (now - oldest)) + 1)
+                response = jsonify({
+                    'error': 'Too many requests',
+                    'message': (
+                        f'Rate limit exceeded ({max_requests} per '
+                        f'{window_seconds}s). Please slow down.'
+                    ),
+                    'code': 'RATE_LIMITED',
+                })
+                response.status_code = 429
+                response.headers['Retry-After'] = str(retry_after)
+                return response
             return f(*args, **kwargs)
 
         return wrapped  # type: ignore[return-value]

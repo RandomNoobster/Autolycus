@@ -42,12 +42,14 @@ export function fetchRaids(
   return apiGet<RaidsResponse>(endpoint);
 }
 
-/** Live PnW nation score (not SQLite cache) for war-range autofill. */
+/** Nation score for war-range autofill (live PnW, with SQLite fallback). */
 export interface LiveNationScore {
   id: number;
   nationName: string;
   leaderName: string;
   score: number;
+  /** `live` from PnW API, `cache` from nations.db */
+  source?: 'live' | 'cache';
   fetchedAt: string;
 }
 

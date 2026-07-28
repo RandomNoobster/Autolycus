@@ -15,7 +15,7 @@ from typing import Any, Optional
 from flask import Blueprint, current_app, jsonify, request
 
 from logic import queries
-from api.rate_limit import rate_limit
+from api.rate_limit import try_acquire_rate_limit
 from api.security import optional_discord_session, require_discord_session
 from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
@@ -632,66 +632,112 @@ def update_reminder_config() -> tuple[Any, int]:
         )
 
 
+def _nation_score_from_sqlite(nation_id: int) -> tuple[Any, int] | None:
+    """Return (response, status) from nations.db, or None if the nation is missing."""
+    data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
+    cached = get_nation_by_id(data_path, nation_id)
+    nation = cached.get('nation')
+    if not nation:
+        return None
+
+    last_fetched = cached.get('last_fetched')
+    fetched_at = (
+        datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat()
+        if last_fetched
+        else datetime.now(timezone.utc).isoformat()
+    )
+    return jsonify({
+        'id': int(nation.get('id')),
+        'nationName': nation.get('nation_name'),
+        'leaderName': nation.get('leader_name'),
+        'score': float(nation.get('score') or 0),
+        'source': 'cache',
+        'fetchedAt': fetched_at,
+    }), 200
+
+
 @raids_bp.route('/nation/<int:nation_id>/live', methods=['GET'])
 @optional_discord_session
-@rate_limit(10, 60, scope='raids-nation-live')
 def get_live_nation_score(nation_id: int) -> tuple[Any, int]:
     """
-    Fetch a nation's current score from the live Politics & War API.
+    Fetch a nation's current score, preferring the live Politics & War API.
 
-    Used by the raids page to keep attacker war-range bounds fresh while the
-    full target list still comes from the SQLite cache.
-
-    Rate limited to 10 requests/minute per Discord user (or IP) to protect
-    API quota.
+    Any live-path problem (rate limit, missing key, network/API error, empty
+    payload, response parse error) falls back to the SQLite nations cache.
     """
+    nid = int(nation_id)
+
+    api_key = current_app.config.get("API_KEY") or None
     try:
-        api_key = current_app.config.get("API_KEY") or None
-        if not api_key:
-            return _error_response(
-                'Service unavailable',
-                'Live nation lookup is not configured.',
-                'API_KEY_MISSING',
-                503,
-            )
-
-        query = (
-            "{"
-            f"nations(first:1 id:{int(nation_id)})"
-            "{data{id nation_name leader_name score}}"
-            "}"
+        live_allowed = bool(api_key) and try_acquire_rate_limit(
+            10, 60, scope='raids-nation-live'
         )
+    except Exception as exc:
+        logger.warning(
+            "[raids] live nation %s rate-limit check failed (%s); using sqlite",
+            nid,
+            exc,
+        )
+        live_allowed = False
 
-        loop = asyncio.new_event_loop()
+    if live_allowed:
         try:
-            asyncio.set_event_loop(loop)
-            response = loop.run_until_complete(api_client.call(query, api_key))
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
-
-        nations = (
-            (response or {}).get('data', {}).get('nations', {}).get('data', [])
-            or []
-        )
-        if not nations:
-            return _error_response(
-                'Not found',
-                f'Nation {nation_id} not found.',
-                'NATION_NOT_FOUND',
-                404,
+            query = (
+                "{"
+                f"nations(first:1 id:{nid})"
+                "{data{id nation_name leader_name score}}"
+                "}"
             )
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                response = loop.run_until_complete(api_client.call(query, api_key))
+            finally:
+                loop.close()
+                asyncio.set_event_loop(None)
 
-        nation = nations[0]
-        return jsonify({
-            'id': int(nation.get('id')),
-            'nationName': nation.get('nation_name'),
-            'leaderName': nation.get('leader_name'),
-            'score': float(nation.get('score') or 0),
-            'fetchedAt': datetime.now(timezone.utc).isoformat(),
-        }), 200
+            nations = (
+                (response or {}).get('data', {}).get('nations', {}).get('data', [])
+                or []
+            )
+            if nations:
+                nation = nations[0]
+                return jsonify({
+                    'id': int(nation.get('id')),
+                    'nationName': nation.get('nation_name'),
+                    'leaderName': nation.get('leader_name'),
+                    'score': float(nation.get('score') or 0),
+                    'source': 'live',
+                    'fetchedAt': datetime.now(timezone.utc).isoformat(),
+                }), 200
+            logger.info(
+                "[raids] live nation %s empty from PnW; falling back to sqlite",
+                nid,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[raids] live nation %s fetch failed (%s); falling back to sqlite",
+                nid,
+                exc,
+            )
+    elif api_key:
+        logger.info(
+            "[raids] live nation %s rate-limited; serving sqlite cache",
+            nid,
+        )
+
+    try:
+        cached = _nation_score_from_sqlite(nid)
+        if cached is not None:
+            return cached
+        return _error_response(
+            'Not found',
+            f'Nation {nid} not found.',
+            'NATION_NOT_FOUND',
+            404,
+        )
     except Exception as e:
-        logger.error(f"Error in get_live_nation_score: {e}", exc_info=True)
+        logger.error(f"Error in get_live_nation_score sqlite fallback: {e}", exc_info=True)
         return _error_response(
             'Internal server error',
             'An unexpected error occurred.',
