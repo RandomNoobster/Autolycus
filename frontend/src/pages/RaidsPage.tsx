@@ -220,7 +220,11 @@ export function RaidsPage() {
     },
     retry: false,
   });
-  const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || undefined : undefined;
+  const linkedNationId = linkedNationData?.linked
+    ? linkedNationData.nation_id
+      ? String(linkedNationData.nation_id)
+      : undefined
+    : undefined;
   // Prefer URL override, then local saved/applied id. Linked nation is only an empty-field prefill.
   const resolvedNationId = attackerNationIdParam || savedNationId || undefined;
   const [appliedNationId, setAppliedNationId] = useState(resolvedNationId);
@@ -230,6 +234,9 @@ export function RaidsPage() {
     getInitialValueInEffect: false,
   });
 
+  const draftNationIdRef = useRef(draftNationId);
+  draftNationIdRef.current = draftNationId;
+
   useEffect(() => {
     // Explicit URL attacker always wins.
     if (attackerNationIdParam) {
@@ -238,13 +245,12 @@ export function RaidsPage() {
         setAppliedNationId(parsed);
         setDraftNationId(parsed);
       }
-      if (parsed) setNationId(parsed);
       return;
     }
 
-    // Linked nation only prefills when the nation field is still empty — never overrides
-    // a saved/localStorage or already-applied id (e.g. 346 sitting in localStorage).
-    if (!appliedNationId && !draftNationId) {
+    // Linked nation only prefills when applied + draft are empty — never overrides a
+    // saved id. Read draft via ref so typing does not re-run this effect.
+    if (!appliedNationId && !draftNationIdRef.current) {
       const fallback = linkedNationId || savedNationId;
       if (fallback) {
         setAppliedNationId(fallback);
@@ -256,7 +262,6 @@ export function RaidsPage() {
       return;
     }
 
-    // Keep draft in sync if saved id appears and both fields were empty above didn't run.
     if (!appliedNationId && savedNationId) {
       setAppliedNationId(savedNationId);
       setDraftNationId(savedNationId);
@@ -267,7 +272,6 @@ export function RaidsPage() {
     linkedNationFetched,
     savedNationId,
     appliedNationId,
-    draftNationId,
     parseNationId,
     setNationId,
   ]);
@@ -319,7 +323,7 @@ export function RaidsPage() {
   }, [searchParams]);
 
   /** Score bounds sent to the API (real P&W score from SQLite, not city-count proxy). */
-  const apiScoreBounds = useMemo(() => {
+  const apiScoreBoundsFromUrl = useMemo(() => {
     const min = activeFilters.minScore;
     const max = activeFilters.maxScore;
     if (min !== undefined || max !== undefined) {
@@ -334,6 +338,17 @@ export function RaidsPage() {
   const [draftFilters, setDraftFilters] = useState<RaidsDraftFilters>(() =>
     buildRaidsDraftFromSearchParams(searchParams, savedNationId, '')
   );
+
+  /** Prefer draft yourScore so a nation switch doesn't wait on URL sync to drop stale bounds. */
+  const apiScoreBounds = useMemo(() => {
+    if (draftFilters.scoreMode === 'yours' && draftFilters.yourScore) {
+      const score = Number(draftFilters.yourScore);
+      if (!Number.isNaN(score) && score > 0) {
+        return warRangeQueryBounds(score);
+      }
+    }
+    return apiScoreBoundsFromUrl;
+  }, [draftFilters.scoreMode, draftFilters.yourScore, apiScoreBoundsFromUrl]);
 
   const {
     columnVisibility,
@@ -357,6 +372,8 @@ export function RaidsPage() {
    * overwrite the URL, table filters, and localStorage with defaults.
    */
   const suppressDraftUrlSyncAndPersistRef = useRef(false);
+  /** Nation id we already auto-filled yourScore for — prevents live↔cache/URL score thrashing. */
+  const autofilledScoreNationRef = useRef<string | null>(null);
   const searchParamsKey = useMemo(() => searchParams.toString(), [searchParams]);
 
   useLayoutEffect(() => {
@@ -365,7 +382,7 @@ export function RaidsPage() {
 
   // Live attacker score from PnW (poll while this page is open).
   const appliedNationIdNum = appliedNationId ? parseInt(appliedNationId, 10) : NaN;
-  const { data: liveAttacker } = useQuery({
+  const { data: liveAttacker, isError: liveScoreError, isFetched: liveScoreFetched } = useQuery({
     queryKey: ['live-nation-score', appliedNationId],
     queryFn: () => fetchLiveNationScore(appliedNationIdNum),
     enabled: Number.isFinite(appliedNationIdNum) && appliedNationIdNum > 0,
@@ -378,6 +395,35 @@ export function RaidsPage() {
       return failureCount < 1;
     },
   });
+
+  const prevAppliedNationIdRef = useRef(appliedNationId);
+  useEffect(() => {
+    const prev = prevAppliedNationIdRef.current;
+    if (prev === appliedNationId) return;
+    prevAppliedNationIdRef.current = appliedNationId;
+    // Only clear score when switching between two concrete nations (not initial hydrate).
+    if (!prev || !appliedNationId) return;
+    autofilledScoreNationRef.current = null;
+    setDraftFilters((prevDraft) =>
+      prevDraft.scoreMode === 'yours' && prevDraft.yourScore
+        ? { ...prevDraft, yourScore: '' }
+        : prevDraft
+    );
+  }, [appliedNationId]);
+
+  // Wait for this nation's score before fetching. Exception: first visit with hydrated yourScore.
+  // If live score fails, stop blocking so a default-bounds fetch can still resolve the attacker.
+  const yoursScoreUnconfirmed =
+    draftFilters.scoreMode === 'yours' &&
+    !!appliedNationId &&
+    autofilledScoreNationRef.current !== appliedNationId;
+  const hasBootstrapYourScore =
+    autofilledScoreNationRef.current == null &&
+    parseNumericValue(draftFilters.yourScore) > 0;
+  const liveScoreFailed =
+    liveScoreFetched && (liveScoreError || liveAttacker == null);
+  const waitingForScoreBounds =
+    yoursScoreUnconfirmed && !hasBootstrapYourScore && !liveScoreFailed;
 
   // Fetch raids: API applies score + VM only; alliance/beige/etc. filtered below.
   const {
@@ -406,16 +452,23 @@ export function RaidsPage() {
       }
       return fetchRaids(filters);
     },
+    enabled: !waitingForScoreBounds,
     retry: false,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 
-  /** Prefer live PnW score over SQLite-cached attacker from /api/raids. */
+  /** Prefer live PnW score; only use /api/raids attacker when it matches the applied nation
+   * (score-window fallbacks can return a different nation and would thrash yourScore/war-range). */
+  const cachedAttackerMatches =
+    data?.attacker != null &&
+    appliedNationId != null &&
+    String(data.attacker.id) === String(appliedNationId);
   const effectiveAttackerScore =
-    liveAttacker?.score ?? data?.attacker?.score ?? null;
+    liveAttacker?.score ?? (cachedAttackerMatches ? data?.attacker?.score ?? null : null);
   const effectiveAttackerName =
-    liveAttacker?.nationName ?? data?.attacker?.nation_name ?? null;
+    liveAttacker?.nationName ??
+    (cachedAttackerMatches ? data?.attacker?.nation_name ?? null : null);
   const effectiveAttackerScoreText =
     effectiveAttackerScore != null ? String(effectiveAttackerScore) : '';
 
@@ -538,26 +591,58 @@ export function RaidsPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  // Auto-fill score from live PnW (preferred) or cached raids attacker.
+  // Auto-fill yourScore once per applied nation (prefer live PnW). Continuously syncing on
+  // every live/cache tick fights leftover URL scores when overriding the linked nation.
   useEffect(() => {
-    if (effectiveAttackerScore != null && appliedNationId) {
-      const s = effectiveAttackerScoreText;
-      setDraftFilters((prev) => {
-        // Don't yank an explicit custom min/max range on live score polls.
-        if (prev.scoreMode === 'custom' && (prev.minScore || prev.maxScore)) {
-          if (prev.yourScore === s) return prev;
-          return { ...prev, yourScore: s };
-        }
-        if (prev.scoreMode === 'yours' && prev.yourScore === s) return prev;
-        return { ...prev, yourScore: s, scoreMode: 'yours' };
-      });
-    } else if (!appliedNationId) {
+    if (!appliedNationId) {
+      autofilledScoreNationRef.current = null;
       setDraftFilters((prev) => {
         if (prev.scoreMode !== 'yours') return prev;
         return { ...prev, scoreMode: 'custom' };
       });
+      return;
     }
-  }, [effectiveAttackerScore, effectiveAttackerScoreText, appliedNationId]);
+
+    if (autofilledScoreNationRef.current === appliedNationId) return;
+
+    const liveMatches =
+      liveAttacker != null && String(liveAttacker.id) === String(appliedNationId);
+    const liveFailed =
+      liveScoreFetched && (liveScoreError || liveAttacker == null);
+
+    let score: number | null = null;
+    if (liveMatches) {
+      score = liveAttacker.score;
+    } else if (liveFailed && cachedAttackerMatches) {
+      score = data?.attacker?.score ?? null;
+    } else {
+      return; // wait for live (or a failed live + matching cache)
+    }
+    if (score == null || !Number.isFinite(Number(score))) return;
+
+    const s = String(score);
+    autofilledScoreNationRef.current = appliedNationId;
+    setDraftFilters((prev) => {
+      const sameScore =
+        prev.yourScore === s ||
+        (prev.yourScore !== '' &&
+          Number.isFinite(Number(prev.yourScore)) &&
+          Math.abs(Number(prev.yourScore) - Number(score)) < 0.005);
+      if (prev.scoreMode === 'custom' && (prev.minScore || prev.maxScore)) {
+        if (sameScore) return prev;
+        return { ...prev, yourScore: s };
+      }
+      if (prev.scoreMode === 'yours' && sameScore) return prev;
+      return { ...prev, yourScore: s, scoreMode: 'yours' };
+    });
+  }, [
+    appliedNationId,
+    liveAttacker,
+    liveScoreError,
+    liveScoreFetched,
+    cachedAttackerMatches,
+    data?.attacker?.score,
+  ]);
 
   // Sync draftNationId with savedNationId when it changes
   useEffect(() => {
@@ -833,12 +918,19 @@ export function RaidsPage() {
           next.set('yourScore', preservedScore.yourScore);
         }
       } else if (draftFilters.scoreMode === 'yours') {
-        // "Yours" but empty score (e.g. NumberInput flicker): keep URL stable
-        if (preservedScore.scoreMode === 'yours' && preservedScore.yourScore) {
+        // Empty yourScore: preserve URL only if we already autofilled for this nation
+        // (NumberInput flicker). After a nation switch, do not keep the previous war range.
+        if (
+          autofilledScoreNationRef.current === appliedNationId &&
+          preservedScore.scoreMode === 'yours' &&
+          preservedScore.yourScore
+        ) {
           if (preservedScore.minScore) next.set('minScore', preservedScore.minScore);
           if (preservedScore.maxScore) next.set('maxScore', preservedScore.maxScore);
           next.set('scoreMode', preservedScore.scoreMode);
           next.set('yourScore', preservedScore.yourScore);
+        } else {
+          next.set('scoreMode', 'yours');
         }
       } else if (draftFilters.scoreMode === 'custom') {
         if (draftFilters.minScore) next.set('minScore', draftFilters.minScore);
@@ -851,7 +943,7 @@ export function RaidsPage() {
     }, { replace: true });
 
     syncColumnFiltersFromDraftRef.current();
-  }, [draftFilters, setSearchParams]);
+  }, [draftFilters, setSearchParams, appliedNationId]);
 
   useEffect(() => {
     if (!filtersRestoredRef.current) return;
@@ -888,11 +980,12 @@ export function RaidsPage() {
     );
   }
 
-  if (!data && !isLoading) {
+  // Disabled while waiting for the new nation's score — treat as loading, not "no data".
+  const isInitialLoading = (isLoading || waitingForScoreBounds) && !data;
+
+  if (!data && !isInitialLoading) {
     return <ErrorState title="No data" message="No raid data available" />;
   }
-
-  const isInitialLoading = isLoading && !data;
   const discordAuthenticated = data?.discordAuthenticated ?? false;
   const discordLinked = data?.discordLinked ?? false;
 
@@ -952,14 +1045,14 @@ export function RaidsPage() {
             label="Nation ID"
             placeholder="Nation ID or Link to Nation"
             size="sm"
-            value={draftNationId || ''}
-            onChange={setDraftNationId}
-            onSubmit={() => {
-              const parsed = parseNationId(draftNationId);
+            value={appliedNationId || draftNationId || ''}
+            disableWhenUnchanged
+            onSubmit={(raw) => {
+              const parsed = parseNationId(raw);
               if (parsed) {
                 setAppliedNationId(parsed);
                 setDraftNationId(parsed);
-                setNationId(parsed);
+                // Page-only override — keep localStorage / linked home nation for restore.
                 setSearchParams((prev) => {
                   const next = new URLSearchParams(prev);
                   next.set('attackerNationId', parsed);
@@ -969,12 +1062,13 @@ export function RaidsPage() {
             }}
             buttonLabel="Load Nation"
             buttonIcon={<IconDownload size={14} />}
-            buttonDisabled={!draftNationId || draftNationId === appliedNationId}
-            loading={isLoading && !!appliedNationId}
+            loading={(isLoading || waitingForScoreBounds) && !!appliedNationId}
             inputProps={{ style: { maxWidth: 260 } }}
             warningMessage={data?.warning || null}
           />
-          {linkedNationId && appliedNationId && appliedNationId !== linkedNationId && (
+          {linkedNationId &&
+            appliedNationId &&
+            String(appliedNationId) !== String(linkedNationId) && (
             <Alert color="yellow" variant="light" title="Temporary Override" mt="sm">
               <Stack gap="sm">
                 <Text size="sm">

@@ -182,23 +182,18 @@ export function BuildsPage() {
     return allowed.includes(policy) ? policy : undefined;
   };
 
-  const handleNationIdChange = (value: string) => {
-    setHasManualNationInput(true);
-    const trimmed = value.trim();
-    if (!trimmed) {
-      form.setFieldValue('nationId', undefined);
-      return;
-    }
-
-    const parsed = Number(trimmed);
-    form.setFieldValue('nationId', Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed);
-  };
-
   // Nation data loading
-  const handleLoadNation = async () => {
-    const nationId = form.values.nationId;
+  const handleLoadNation = async (nationIdOverride?: number | string) => {
+    const fromOverride =
+      nationIdOverride !== undefined && nationIdOverride !== null && String(nationIdOverride).trim() !== ''
+        ? Number(String(nationIdOverride).trim())
+        : NaN;
+    const nationId =
+      Number.isFinite(fromOverride) && fromOverride > 0 ? fromOverride : form.values.nationId;
     if (!nationId) return;
 
+    setHasManualNationInput(true);
+    form.setFieldValue('nationId', nationId);
     setIsLoadingNation(true);
     setNationError(null);
     setNationSuccess(null);
@@ -218,6 +213,7 @@ export function BuildsPage() {
 
       form.setValues({
         ...form.values,
+        nationId,
         infrastructure: avgInfra,
         land: avgLand,
         continent: data.continent,
@@ -303,11 +299,12 @@ export function BuildsPage() {
                   placeholder="Nation ID or Link to Nation"
                   size="sm"
                   value={form.values.nationId?.toString() ?? ''}
-                  onChange={handleNationIdChange}
-                  onSubmit={handleLoadNation}
+                  disableWhenUnchanged
+                  onSubmit={(raw) => {
+                    void handleLoadNation(raw);
+                  }}
                   buttonLabel="Load Nation"
                   buttonIcon={<IconDownload size={16} />}
-                  buttonDisabled={!form.values.nationId}
                   loading={isLoadingNation}
                   inputProps={{ type: 'number', min: 1 }}
                   errorMessage={nationError}

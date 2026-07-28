@@ -221,7 +221,7 @@ export function NukeTargetsPage() {
   const { nationId: savedNationId, setNationId } = useNationId();
   const isNarrowNationCard = useMediaQuery('(max-width: 36em)');
 
-  const { data: linkedNationData } = useQuery({
+  const { data: linkedNationData, isFetched: linkedNationFetched } = useQuery({
     queryKey: ['linkedNation'],
     queryFn: async () => {
       try {
@@ -232,37 +232,86 @@ export function NukeTargetsPage() {
     },
     retry: false,
   });
-  const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || undefined : undefined;
+  const linkedNationId = linkedNationData?.linked
+    ? linkedNationData.nation_id
+      ? String(linkedNationData.nation_id)
+      : undefined
+    : undefined;
 
-  const urlAttackerId = searchParams.get('attackerNationId') || savedNationId || '';
-  const [draftNationId, setDraftNationId] = useState(urlAttackerId);
-  const [appliedNationId, setAppliedNationId] = useState(urlAttackerId);
+  const attackerNationIdParam = searchParams.get('attackerNationId') || undefined;
+  const resolvedNationId = attackerNationIdParam || savedNationId || undefined;
+  const [draftNationId, setDraftNationId] = useState(resolvedNationId || '');
+  const [appliedNationId, setAppliedNationId] = useState(resolvedNationId || '');
+  const draftNationIdRef = useRef(draftNationId);
+  draftNationIdRef.current = draftNationId;
+
+  useEffect(() => {
+    if (attackerNationIdParam) {
+      const parsed = parseNationId(attackerNationIdParam) || attackerNationIdParam;
+      if (parsed !== appliedNationId) {
+        setAppliedNationId(parsed);
+        setDraftNationId(parsed);
+      }
+      return;
+    }
+
+    // Linked nation only prefills when applied + draft are empty — never overrides a saved id.
+    if (!appliedNationId && !draftNationIdRef.current) {
+      const fallback = linkedNationId || savedNationId;
+      if (fallback) {
+        setAppliedNationId(fallback);
+        setDraftNationId(fallback);
+        if (linkedNationId && !savedNationId) {
+          setNationId(linkedNationId);
+        }
+      }
+      return;
+    }
+
+    if (!appliedNationId && savedNationId) {
+      setAppliedNationId(savedNationId);
+      setDraftNationId(savedNationId);
+    }
+  }, [
+    attackerNationIdParam,
+    linkedNationId,
+    linkedNationFetched,
+    savedNationId,
+    appliedNationId,
+    setNationId,
+  ]);
+
+  const isTemporaryLinkedOverride = Boolean(
+    linkedNationId && appliedNationId && String(appliedNationId) !== String(linkedNationId)
+  );
 
   const urlAttrition = parseOptionalBoolParam(searchParams, 'attrition');
   const urlGuidingSatellite = parseOptionalBoolParam(searchParams, 'guidingSatellite');
-  const [attritionEnabled, setAttritionEnabled] = useState<boolean>(urlAttrition ?? true);
-  const [guidingSatelliteEnabled, setGuidingSatelliteEnabled] = useState<boolean>(
-    urlGuidingSatellite ?? false
+  /**
+   * null = omit override (API uses the nation's real warpolicy / GS).
+   * Setting a boolean (URL or user toggle) is what triggers a targets refetch.
+   */
+  const [attritionOverride, setAttritionOverride] = useState<boolean | null>(urlAttrition);
+  const [guidingSatelliteOverride, setGuidingSatelliteOverride] = useState<boolean | null>(
+    urlGuidingSatellite
   );
-  /** Nation id we already preset (or URL-overrode) damage mods for. */
   const tableSectionRef = useRef<HTMLDivElement>(null);
-  const damageModsPresetForNationRef = useRef<string | null>(
-    urlAttackerId && (urlAttrition !== null || urlGuidingSatellite !== null)
-      ? urlAttackerId
-      : null
-  );
 
   const [draftFilters, setDraftFilters] = useState<NukeTargetsDraftFilters>(() =>
-    buildNukeTargetsDraftFromSearchParams(searchParams, urlAttackerId || undefined, '')
+    buildNukeTargetsDraftFromSearchParams(searchParams, resolvedNationId, '')
   );
 
   const filtersRestoredRef = useRef(false);
+  /** Gates the targets query until localStorage/URL filter hydrate finishes (avoids a throwaway fetch). */
+  const [filtersReady, setFiltersReady] = useState(false);
   /**
    * After hydrating from localStorage, draft URL sync + persist effects must not run in the same
    * passive effect pass as the restore: they would still see the pre-restore draft and overwrite
    * the URL / localStorage with defaults.
    */
   const suppressDraftUrlSyncAndPersistRef = useRef(false);
+  /** Nation id we already auto-filled yourScore for — prevents score thrashing when overriding. */
+  const autofilledScoreNationRef = useRef<string | null>(null);
   const searchParamsKey = useMemo(() => searchParams.toString(), [searchParams]);
 
   useLayoutEffect(() => {
@@ -288,6 +337,7 @@ export function NukeTargetsPage() {
     });
     if (hasUrlFilters) {
       filtersRestoredRef.current = true;
+      setFiltersReady(true);
       return;
     }
 
@@ -297,6 +347,7 @@ export function NukeTargetsPage() {
     );
     if (!stored) {
       filtersRestoredRef.current = true;
+      setFiltersReady(true);
       return;
     }
 
@@ -304,6 +355,7 @@ export function NukeTargetsPage() {
     setDraftFilters(stored);
     setSearchParams((prev) => writeNukeDraftToSearchParams(prev, stored), { replace: true });
     filtersRestoredRef.current = true;
+    setFiltersReady(true);
   }, [searchParams, setSearchParams, appliedNationId, savedNationId]);
 
   // Keep draft UI aligned with URL on back/forward (and other external query changes).
@@ -315,17 +367,28 @@ export function NukeTargetsPage() {
       appliedNationId || savedNationId || undefined,
       ''
     );
-    setDraftFilters((prev) => (nukeDraftsEqual(prev, fromUrl) ? prev : fromUrl));
+    setDraftFilters((prev) => {
+      // Don't let a stale URL yourScore (e.g. linked nation) overwrite draft after
+      // we already autofilled for the applied/override nation.
+      let next = fromUrl;
+      if (
+        autofilledScoreNationRef.current &&
+        prev.scoreMode === 'yours' &&
+        prev.yourScore
+      ) {
+        next = {
+          ...fromUrl,
+          scoreMode: prev.scoreMode,
+          yourScore: prev.yourScore,
+          minScore: prev.minScore,
+          maxScore: prev.maxScore,
+        };
+      }
+      return nukeDraftsEqual(prev, next) ? prev : next;
+    });
     // Only re-hydrate when the query string changes — not when nation id alone updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- searchParamsKey tracks searchParams
   }, [searchParamsKey]);
-
-  useEffect(() => {
-    if (savedNationId && !appliedNationId) {
-      setAppliedNationId(savedNationId);
-      setDraftNationId(savedNationId);
-    }
-  }, [savedNationId, appliedNationId]);
 
   /** Active filters from URL (drives filteredTargets + API score bounds). */
   const appliedFilters = useMemo(
@@ -338,23 +401,8 @@ export function NukeTargetsPage() {
     [searchParams, appliedNationId, savedNationId]
   );
 
-  const apiScoreBounds = useMemo(() => {
-    if (appliedFilters.scoreMode === 'yours' && appliedNationId) {
-      const score = parseNumericValue(appliedFilters.yourScore);
-      if (score > 0) {
-        return warRangeQueryBounds(score);
-      }
-    }
-    const min = parseNumericValue(appliedFilters.minScore);
-    const max = parseNumericValue(appliedFilters.maxScore);
-    return {
-      minScore: min > 0 ? min : 15,
-      maxScore: max > 0 ? max : undefined,
-    };
-  }, [appliedFilters, appliedNationId]);
-
   const appliedNationIdNum = appliedNationId ? parseInt(appliedNationId, 10) : NaN;
-  const { data: liveAttacker } = useQuery({
+  const { data: liveAttacker, isError: liveScoreError, isFetched: liveScoreFetched } = useQuery({
     queryKey: ['live-nation-score', appliedNationId],
     queryFn: () => fetchLiveNationScore(appliedNationIdNum),
     enabled: Number.isFinite(appliedNationIdNum) && appliedNationIdNum > 0,
@@ -368,14 +416,63 @@ export function NukeTargetsPage() {
     },
   });
 
+  const liveScoreForBounds =
+    liveAttacker != null &&
+    appliedNationId != null &&
+    String(liveAttacker.id) === String(appliedNationId) &&
+    Number.isFinite(liveAttacker.score)
+      ? liveAttacker.score
+      : null;
+
+  // Prefer draftFilters (updated synchronously on localStorage hydrate) over URL-derived
+  // appliedFilters so we don't fire a throwaway targets request before the router catches up.
+  const apiScoreBounds = useMemo(() => {
+    if (draftFilters.scoreMode === 'yours' && appliedNationId) {
+      const score = parseNumericValue(draftFilters.yourScore);
+      if (score > 0) {
+        return warRangeQueryBounds(score);
+      }
+      if (liveScoreForBounds != null && liveScoreForBounds > 0) {
+        return warRangeQueryBounds(liveScoreForBounds);
+      }
+    }
+    const min = parseNumericValue(draftFilters.minScore);
+    const max = parseNumericValue(draftFilters.maxScore);
+    return {
+      minScore: min > 0 ? min : 15,
+      maxScore: max > 0 ? max : undefined,
+    };
+  }, [draftFilters, appliedNationId, liveScoreForBounds]);
+
+  // Wait for this nation's score before fetching. A nation switch must not reuse the
+  // previous war-range (score-filtered API slices omit the attacker → false "not found").
+  // Exception: first visit (ref unset) with a hydrated yourScore from URL/localStorage.
+  // If live score fails, stop blocking so a default-bounds fetch can still resolve the attacker.
+  const yoursScoreUnconfirmed =
+    draftFilters.scoreMode === 'yours' &&
+    autofilledScoreNationRef.current !== appliedNationId;
+  const hasBootstrapYourScore =
+    autofilledScoreNationRef.current == null &&
+    parseNumericValue(draftFilters.yourScore) > 0;
+  const liveScoreFailed =
+    liveScoreFetched && (liveScoreError || liveAttacker == null);
+  const waitingForScoreBounds =
+    !!appliedNationId &&
+    filtersReady &&
+    yoursScoreUnconfirmed &&
+    !hasBootstrapYourScore &&
+    !liveScoreFailed;
+
+  const targetsQueryEnabled = !!appliedNationId && filtersReady && !waitingForScoreBounds;
+
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: [
       'nuke-targets',
       appliedNationId,
       apiScoreBounds.minScore,
       apiScoreBounds.maxScore,
-      attritionEnabled,
-      guidingSatelliteEnabled,
+      attritionOverride,
+      guidingSatelliteOverride,
     ],
     queryFn: () =>
       fetchNukeTargets({
@@ -383,64 +480,140 @@ export function NukeTargetsPage() {
         minScore: apiScoreBounds.minScore,
         maxScore: apiScoreBounds.maxScore,
         vmode: false,
-        attrition: attritionEnabled,
-        guidingSatellite: guidingSatelliteEnabled,
+        ...(attritionOverride !== null ? { attrition: attritionOverride } : {}),
+        ...(guidingSatelliteOverride !== null
+          ? { guidingSatellite: guidingSatelliteOverride }
+          : {}),
       }),
-    enabled: !!appliedNationId,
+    enabled: targetsQueryEnabled,
     retry: false,
   });
 
-  /** Prefer live PnW score over SQLite-cached attacker from /api/nuke-targets. */
+  const nationLoadPending =
+    !!appliedNationId &&
+    (!filtersReady || waitingForScoreBounds || (targetsQueryEnabled && isLoading));
+
+  /** Prefer live PnW score; only use API attacker when it matches the applied nation. */
+  const cachedAttackerMatches =
+    data?.attacker != null &&
+    appliedNationId != null &&
+    String(data.attacker.id) === String(appliedNationId);
   const effectiveAttackerScore =
-    liveAttacker?.score ?? data?.attacker?.score ?? null;
+    liveAttacker?.score ?? (cachedAttackerMatches ? data?.attacker?.score ?? null : null);
   const effectiveAttackerName =
-    liveAttacker?.nationName ?? data?.attacker?.nation_name ?? null;
+    liveAttacker?.nationName ??
+    (cachedAttackerMatches ? data?.attacker?.nation_name ?? null : null);
   const effectiveAttackerScoreText =
     effectiveAttackerScore != null ? String(effectiveAttackerScore) : '';
 
-  const isInitialLoading = isLoading && !!appliedNationId;
+  const isInitialLoading = nationLoadPending;
 
+  /** Stay true across attrition/GS refetches; only reset when the applied nation changes. */
+  const [damageModsReadyFor, setDamageModsReadyFor] = useState<string | null>(null);
   useEffect(() => {
-    if (!appliedNationId) {
-      damageModsPresetForNationRef.current = null;
-      return;
+    setDamageModsReadyFor(null);
+  }, [appliedNationId]);
+  useEffect(() => {
+    if (
+      appliedNationId &&
+      data?.attacker &&
+      String(data.attacker.id) === String(appliedNationId)
+    ) {
+      setDamageModsReadyFor(appliedNationId);
     }
-    if (!data?.attacker) return;
-    if (damageModsPresetForNationRef.current === appliedNationId) return;
-    damageModsPresetForNationRef.current = appliedNationId;
-    setAttritionEnabled(data.attacker.warpolicy === 'Attrition');
-    setGuidingSatelliteEnabled(Boolean(data.attacker.guidingSatellite));
-  }, [data?.attacker, appliedNationId]);
+  }, [appliedNationId, data?.attacker]);
+  const hasDamageModOverrides =
+    attritionOverride !== null || guidingSatelliteOverride !== null;
+  const damageModsPending =
+    !!appliedNationId &&
+    !hasDamageModOverrides &&
+    damageModsReadyFor !== appliedNationId;
+
+  const attritionEnabled =
+    attritionOverride ?? data?.attacker?.warpolicy === 'Attrition';
+  const guidingSatelliteEnabled =
+    guidingSatelliteOverride ?? Boolean(data?.attacker?.guidingSatellite);
 
   useEffect(() => {
     if (!appliedNationId) return;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        next.set('attrition', attritionEnabled ? 'true' : 'false');
-        next.set('guidingSatellite', guidingSatelliteEnabled ? 'true' : 'false');
+        if (attritionOverride === null) next.delete('attrition');
+        else next.set('attrition', attritionOverride ? 'true' : 'false');
+        if (guidingSatelliteOverride === null) next.delete('guidingSatellite');
+        else next.set('guidingSatellite', guidingSatelliteOverride ? 'true' : 'false');
         if (next.toString() === prev.toString()) return prev;
         return next;
       },
       { replace: true }
     );
-  }, [appliedNationId, attritionEnabled, guidingSatelliteEnabled, setSearchParams]);
+  }, [appliedNationId, attritionOverride, guidingSatelliteOverride, setSearchParams]);
+
+  const prevAppliedNationIdRef = useRef(appliedNationId);
+  useEffect(() => {
+    const prev = prevAppliedNationIdRef.current;
+    if (prev === appliedNationId) return;
+    prevAppliedNationIdRef.current = appliedNationId;
+    // New nation → drop overrides so the first fetch uses DB warpolicy / GS.
+    setAttritionOverride(null);
+    setGuidingSatelliteOverride(null);
+    // Only clear score when switching between two concrete nations (not initial hydrate).
+    if (!prev || !appliedNationId) return;
+    autofilledScoreNationRef.current = null;
+    setDraftFilters((prevDraft) =>
+      prevDraft.scoreMode === 'yours' && prevDraft.yourScore
+        ? { ...prevDraft, yourScore: '' }
+        : prevDraft
+    );
+  }, [appliedNationId]);
 
   useEffect(() => {
-    if (effectiveAttackerScore != null && appliedNationId) {
-      const s = effectiveAttackerScoreText;
-      setDraftFilters((prev) => {
-        if (prev.scoreMode === 'custom' && (prev.minScore || prev.maxScore)) {
-          if (prev.yourScore === s) return prev;
-          return { ...prev, yourScore: s };
-        }
-        if (prev.scoreMode === 'yours' && prev.yourScore === s) return prev;
-        return { ...prev, yourScore: s, scoreMode: 'yours' };
-      });
-    } else if (!appliedNationId) {
+    if (!appliedNationId) {
+      autofilledScoreNationRef.current = null;
       setDraftFilters((prev) => (prev.scoreMode !== 'yours' ? prev : { ...prev, scoreMode: 'custom' }));
+      return;
     }
-  }, [effectiveAttackerScore, effectiveAttackerScoreText, appliedNationId]);
+
+    if (autofilledScoreNationRef.current === appliedNationId) return;
+
+    const liveMatches =
+      liveAttacker != null && String(liveAttacker.id) === String(appliedNationId);
+    const liveFailed = liveScoreFetched && (liveScoreError || liveAttacker == null);
+
+    let score: number | null = null;
+    if (liveMatches) {
+      score = liveAttacker.score;
+    } else if (liveFailed && cachedAttackerMatches) {
+      score = data?.attacker?.score ?? null;
+    } else {
+      return;
+    }
+    if (score == null || !Number.isFinite(Number(score))) return;
+
+    const s = String(score);
+    autofilledScoreNationRef.current = appliedNationId;
+    setDraftFilters((prev) => {
+      const sameScore =
+        prev.yourScore === s ||
+        (prev.yourScore !== '' &&
+          Number.isFinite(Number(prev.yourScore)) &&
+          Math.abs(Number(prev.yourScore) - Number(score)) < 0.005);
+      if (prev.scoreMode === 'custom' && (prev.minScore || prev.maxScore)) {
+        if (sameScore) return prev;
+        return { ...prev, yourScore: s };
+      }
+      if (prev.scoreMode === 'yours' && sameScore) return prev;
+      return { ...prev, yourScore: s, scoreMode: 'yours' };
+    });
+  }, [
+    appliedNationId,
+    liveAttacker,
+    liveScoreError,
+    liveScoreFetched,
+    cachedAttackerMatches,
+    data?.attacker?.score,
+  ]);
 
   const allianceOptions = useMemo(() => {
     const names = new Set<string>();
@@ -537,18 +710,8 @@ export function NukeTargetsPage() {
     }
   }, [appliedNationId, effectiveAttackerScoreText, setSearchParams]);
 
-  if (error) {
-    const apiError = error as unknown as ApiError;
-    return (
-      <ErrorState
-        title="Failed to load nuke targets"
-        message={apiError.message || 'An unexpected error occurred'}
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
   const attackerPolicy = data?.attacker?.warpolicy || '';
+  const targetsError = error as unknown as ApiError | null;
 
   return (
     <Container size="xl" py="md">
@@ -574,7 +737,7 @@ export function NukeTargetsPage() {
               </Group>
               {(effectiveAttackerName || effectiveAttackerScore != null) &&
                 appliedNationId &&
-                (!isLoading || liveAttacker) && (
+                (!nationLoadPending || liveAttacker) && (
                 <Group
                   gap="xs"
                   wrap="wrap"
@@ -607,15 +770,16 @@ export function NukeTargetsPage() {
               label="Nation ID"
               placeholder="Nation ID or link"
               size="sm"
-              value={draftNationId}
-              onChange={setDraftNationId}
-              onSubmit={() => {
-                const parsed = parseNationId(draftNationId);
+              value={appliedNationId || draftNationId || ''}
+              disableWhenUnchanged
+              onSubmit={(raw) => {
+                const parsed = parseNationId(raw);
                 if (parsed) {
                   setAppliedNationId(parsed);
                   setDraftNationId(parsed);
-                  setNationId(parsed);
-                  damageModsPresetForNationRef.current = null;
+                  // Page-only override — keep localStorage / linked home nation for restore.
+                  setAttritionOverride(null);
+                  setGuidingSatelliteOverride(null);
                   setSearchParams(
                     (prev) => {
                       const next = new URLSearchParams(prev);
@@ -630,40 +794,11 @@ export function NukeTargetsPage() {
               }}
               buttonLabel="Load Nation"
               buttonIcon={<IconDownload size={14} />}
-              buttonDisabled={!draftNationId || draftNationId === appliedNationId}
-              loading={isLoading && !!appliedNationId}
+              loading={nationLoadPending}
               inputProps={{ style: { maxWidth: 260 } }}
               warningMessage={data?.warning || null}
             />
-            {appliedNationId && data?.attacker && !isLoading ? (
-              <Stack gap={6} mt="xs">
-                <Text size="sm" fw={600}>
-                  Damage modifiers
-                </Text>
-                <Text size="xs" c="dimmed">
-                  {NUKE_TARGET_FILTER_DOCS.damageMods}
-                </Text>
-                <Switch
-                  label="Attrition war policy"
-                  description="+10% infrastructure damage dealt with missiles and nukes."
-                  checked={attritionEnabled}
-                  onChange={(event) => {
-                    damageModsPresetForNationRef.current = appliedNationId;
-                    setAttritionEnabled(event.currentTarget.checked);
-                  }}
-                />
-                <Switch
-                  label="Guiding Satellite"
-                  description="+20% missile and nuke infrastructure damage."
-                  checked={guidingSatelliteEnabled}
-                  onChange={(event) => {
-                    damageModsPresetForNationRef.current = appliedNationId;
-                    setGuidingSatelliteEnabled(event.currentTarget.checked);
-                  }}
-                />
-              </Stack>
-            ) : null}
-            {linkedNationId && appliedNationId && appliedNationId !== linkedNationId && (
+            {isTemporaryLinkedOverride && (
               <Alert color="yellow" variant="light" title="Temporary Override" mt="sm">
                 <Stack gap="sm">
                   <Text size="sm">
@@ -675,10 +810,12 @@ export function NukeTargetsPage() {
                     color="yellow"
                     w="fit-content"
                     onClick={() => {
+                      if (!linkedNationId) return;
                       setAppliedNationId(linkedNationId);
                       setDraftNationId(linkedNationId);
                       setNationId(linkedNationId);
-                      damageModsPresetForNationRef.current = null;
+                      setAttritionOverride(null);
+                      setGuidingSatelliteOverride(null);
                       setSearchParams(
                         (prev) => {
                           const next = new URLSearchParams(prev);
@@ -696,6 +833,32 @@ export function NukeTargetsPage() {
                 </Stack>
               </Alert>
             )}
+            <Stack gap={6} mt="xs">
+              <Text size="sm" fw={600}>
+                Damage modifiers
+              </Text>
+              <Text size="xs" c="dimmed">
+                {NUKE_TARGET_FILTER_DOCS.damageMods}
+              </Text>
+              <Switch
+                label="Attrition war policy"
+                description="+10% infrastructure damage dealt with missiles and nukes."
+                checked={Boolean(attritionEnabled)}
+                disabled={!appliedNationId || damageModsPending}
+                onChange={(event) => {
+                  setAttritionOverride(event.currentTarget.checked);
+                }}
+              />
+              <Switch
+                label="Guiding Satellite"
+                description="+20% missile and nuke infrastructure damage."
+                checked={Boolean(guidingSatelliteEnabled)}
+                disabled={!appliedNationId || damageModsPending}
+                onChange={(event) => {
+                  setGuidingSatelliteOverride(event.currentTarget.checked);
+                }}
+              />
+            </Stack>
             {!appliedNationId ? (
               <Alert color="yellow" icon={<IconInfoCircle size={16} />} variant="light">
                 Load your nation to calculate damage metrics and simulated war net damage.
@@ -1184,7 +1347,7 @@ export function NukeTargetsPage() {
                 variant="light"
                 color="gray"
                 size="sm"
-                disabled={isLoading}
+                disabled={nationLoadPending}
               >
                 Reset All
               </Button>
@@ -1220,6 +1383,12 @@ export function NukeTargetsPage() {
               Load your nation above to view the target table with damage calculations.
             </Text>
           </Paper>
+        ) : targetsError ? (
+          <ErrorState
+            title="Failed to load nuke targets"
+            message={targetsError.message || 'An unexpected error occurred'}
+            onRetry={() => refetch()}
+          />
         ) : (
           <Box pos="relative">
             {isFetching && !isInitialLoading && (

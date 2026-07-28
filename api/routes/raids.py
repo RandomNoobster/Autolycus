@@ -244,20 +244,23 @@ def get_raids() -> tuple[Any, int]:
                 discord_linked = False
 
         attacker = None
-        nation_warning = None
-        # Priority: URL parameter > user profile > first nation
+        requested_attacker_missing = False
+        # Priority: URL parameter > user profile > first nation in the filtered set
         if attacker_nation_id:
             attacker = nations_by_id.get(str(attacker_nation_id))
-            if attacker:
-                logger.info(f"Found attacker nation by URL parameter: {attacker_nation_id}")
-            else:
-                logger.warning(f"Nation {attacker_nation_id} not found in database")
-                nation_warning = f"Nation ID {attacker_nation_id} not found in database. Using default nation for calculations."
+            if attacker is None:
+                # Score-filtered nation slices omit attackers outside the war range —
+                # look up by id before treating as missing.
                 try:
                     attacker_data = get_nation_by_id(data_path, attacker_nation_id)
                     attacker = attacker_data.get('nation')
                 except Exception:
-                    pass
+                    attacker = None
+            if attacker:
+                logger.info(f"Found attacker nation by URL parameter: {attacker_nation_id}")
+            else:
+                requested_attacker_missing = True
+                logger.warning(f"Nation {attacker_nation_id} not found in database")
         if attacker is None and user_profile:
             attacker_id = str(user_profile.get('id', ''))
             attacker = nations_by_id.get(attacker_id)
@@ -270,6 +273,21 @@ def get_raids() -> tuple[Any, int]:
         if attacker is None and nations:
             attacker = nations[0]
             logger.info(f"Falling back to first nation: {attacker.get('id')}")
+
+        nation_warning = None
+        if requested_attacker_missing:
+            if attacker:
+                fallback_id = attacker.get('id')
+                fallback_name = attacker.get('nation_name') or f"Nation {fallback_id}"
+                nation_warning = (
+                    f"Nation ID {attacker_nation_id} not found in database. "
+                    f"Using {fallback_name} (ID {fallback_id}) for calculations."
+                )
+            else:
+                nation_warning = (
+                    f"Nation ID {attacker_nation_id} not found in database. "
+                    "No fallback nation available for calculations."
+                )
 
         beige_alerts = user_profile.get('beige_alerts', []) if user_profile else []
         # Pre-compute set for O(1) membership checks in the loop

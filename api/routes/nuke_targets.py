@@ -126,7 +126,7 @@ def get_nuke_targets() -> tuple[Any, int]:
                 discord_linked = False
 
         attacker = None
-        nation_warning = None
+        requested_attacker_missing = False
         if attacker_nation_id:
             attacker = nations_by_id.get(str(attacker_nation_id))
             if attacker is None:
@@ -136,10 +136,7 @@ def get_nuke_targets() -> tuple[Any, int]:
                 except Exception:
                     attacker = None
             if attacker is None:
-                nation_warning = (
-                    f"Nation ID {attacker_nation_id} not found in database. "
-                    "Damage metrics require a valid attacker nation."
-                )
+                requested_attacker_missing = True
         if attacker is None and user_profile:
             attacker_id = str(user_profile.get("id", ""))
             attacker = nations_by_id.get(attacker_id)
@@ -149,6 +146,21 @@ def get_nuke_targets() -> tuple[Any, int]:
                     attacker = attacker_data.get("nation")
                 except Exception:
                     pass
+
+        nation_warning = None
+        if requested_attacker_missing:
+            if attacker:
+                fallback_id = attacker.get("id")
+                fallback_name = attacker.get("nation_name") or f"Nation {fallback_id}"
+                nation_warning = (
+                    f"Nation ID {attacker_nation_id} not found in database. "
+                    f"Using {fallback_name} (ID {fallback_id}) for damage metrics."
+                )
+            else:
+                nation_warning = (
+                    f"Nation ID {attacker_nation_id} not found in database. "
+                    "Damage metrics require a valid attacker nation."
+                )
 
         attacker_for_calc = None
         if attacker:
