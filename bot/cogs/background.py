@@ -319,6 +319,9 @@ class General(commands.Cog):
     def _calculate_exit_time(beige_turns: int, vm_turns: int) -> datetime:
         """Calculate when a nation will exit beige/vacation mode.
 
+        Uses the later of beige and VM (max turns), since the nation remains
+        protected until both statuses have cleared.
+
         Args:
             beige_turns: Remaining beige turns.
             vm_turns: Remaining vacation mode turns.
@@ -326,12 +329,7 @@ class General(commands.Cog):
         Returns:
             Datetime when the nation exits status.
         """
-        if beige_turns >= 1:
-            return common.get_datetime_of_turns(beige_turns)
-        elif vm_turns >= 1:
-            return common.get_datetime_of_turns(vm_turns)
-        else:
-            return common.get_datetime_of_turns(0)
+        return common.get_datetime_of_turns(max(beige_turns, vm_turns))
 
     @staticmethod
     def _is_reminder_time(reminder_time: datetime) -> bool:
@@ -479,25 +477,22 @@ class General(commands.Cog):
             Formatted Discord message string.
         """
         nation_url = f"https://politicsandwar.com/nation/id={nation_id}"
+        turns = max(beige_turns, vm_turns)
 
-        if beige_turns > 0:
-            exit_time = common.get_datetime_of_turns(beige_turns)
+        if turns > 0:
+            exit_time = common.get_datetime_of_turns(turns)
             timestamp = round(exit_time.timestamp())
+            if beige_turns > 0 and vm_turns > 0:
+                status = "beige/vacation mode"
+            elif beige_turns > 0:
+                status = "beige"
+            else:
+                status = "vacation mode"
             return (
-                f"Hey, {nation_url} is scheduled to leave beige at "
+                f"Hey, {nation_url} is scheduled to leave {status} at "
                 f"<t:{timestamp}:f> (<t:{timestamp}:R>)"
             )
-        elif vm_turns > 0:
-            exit_time = common.get_datetime_of_turns(vm_turns)
-            timestamp = round(exit_time.timestamp())
-            return (
-                f"Hey, {nation_url} is scheduled to leave vacation mode at "
-                f"<t:{timestamp}:f> (<t:{timestamp}:R>)"
-            )
-        else:
-            return (
-                f"Hey, {nation_url} left beige while I wasn't looking!"
-            )
+        return f"Hey, {nation_url} left beige while I wasn't looking!"
 
     @staticmethod
     def _extract_data_timestamp(
@@ -628,24 +623,26 @@ class General(commands.Cog):
         status_lines: list[str] = []
         if preemptive:
             status_lines.append("Exited beige/vacation early")
-        if beige_turns > 0:
-            exit_time = common.get_datetime_of_turns(beige_turns)
+        turns = max(beige_turns, vm_turns)
+        if turns > 0:
+            exit_time = common.get_datetime_of_turns(turns)
             timestamp = round(exit_time.timestamp())
-            status_lines.append(
-                f"Beige turns: **{beige_turns}**"
-            )
-            status_lines.append(
-                f"Exits beige: <t:{timestamp}:f> (<t:{timestamp}:R>)"
-            )
-        elif vm_turns > 0:
-            exit_time = common.get_datetime_of_turns(vm_turns)
-            timestamp = round(exit_time.timestamp())
-            status_lines.append(
-                f"VM turns: **{vm_turns}**"
-            )
-            status_lines.append(
-                f"Exits VM: <t:{timestamp}:f> (<t:{timestamp}:R>)"
-            )
+            if beige_turns > 0:
+                status_lines.append(f"Beige turns: **{beige_turns}**")
+            if vm_turns > 0:
+                status_lines.append(f"VM turns: **{vm_turns}**")
+            if beige_turns > 0 and vm_turns > 0:
+                status_lines.append(
+                    f"Exits beige/VM: <t:{timestamp}:f> (<t:{timestamp}:R>)"
+                )
+            elif beige_turns > 0:
+                status_lines.append(
+                    f"Exits beige: <t:{timestamp}:f> (<t:{timestamp}:R>)"
+                )
+            else:
+                status_lines.append(
+                    f"Exits VM: <t:{timestamp}:f> (<t:{timestamp}:R>)"
+                )
         else:
             status_lines.append("No active beige/VM turns")
 

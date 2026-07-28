@@ -166,18 +166,22 @@ class TargetFinding(commands.Cog):
 
         beige_turns = int(nation.get("beige_turns") or 0)
         vm_turns = int(nation.get("vacation_mode_turns") or 0)
-        if beige_turns > 0:
-            exit_time = common.get_datetime_of_turns(beige_turns)
-            status_value = (
-                f"Beige turns: **{beige_turns}**\n"
-                f"Exits beige: <t:{round(exit_time.timestamp())}:f> (<t:{round(exit_time.timestamp())}:R>)"
-            )
-        elif vm_turns > 0:
-            exit_time = common.get_datetime_of_turns(vm_turns)
-            status_value = (
-                f"VM turns: **{vm_turns}**\n"
-                f"Exits VM: <t:{round(exit_time.timestamp())}:f> (<t:{round(exit_time.timestamp())}:R>)"
-            )
+        turns = max(beige_turns, vm_turns)
+        if turns > 0:
+            exit_time = common.get_datetime_of_turns(turns)
+            ts = round(exit_time.timestamp())
+            lines: list[str] = []
+            if beige_turns > 0:
+                lines.append(f"Beige turns: **{beige_turns}**")
+            if vm_turns > 0:
+                lines.append(f"VM turns: **{vm_turns}**")
+            if beige_turns > 0 and vm_turns > 0:
+                lines.append(f"Exits beige/VM: <t:{ts}:f> (<t:{ts}:R>)")
+            elif beige_turns > 0:
+                lines.append(f"Exits beige: <t:{ts}:f> (<t:{ts}:R>)")
+            else:
+                lines.append(f"Exits VM: <t:{ts}:f> (<t:{ts}:R>)")
+            status_value = "\n".join(lines)
         else:
             status_value = "No active beige/VM turns"
         embed.add_field(name="Status", value=status_value, inline=False)
