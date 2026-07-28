@@ -11,13 +11,12 @@ from core.logging_config import setup_logging
 # --- CONFIGURATION ---
 START_URL = "https://politicsandwar.com/pwpedia/index"
 
-# Define directory and file paths
-DATA_DIR = "/scripts/pwpedia_scraper/"
-OUTPUT_FILE = os.path.join(DATA_DIR, "pwpedia_data.jsonl")
-LOG_FILE = os.path.join(DATA_DIR, "crawler_errors.log")
+# Save files next to this script (same pattern as fandom_scraper)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE = os.path.join(SCRIPT_DIR, "pwpedia_data.jsonl")
+LOG_FILE = os.path.join(SCRIPT_DIR, "crawler_errors.log")
 
-# Ensure the directory exists
-os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(SCRIPT_DIR, exist_ok=True)
 
 # Politeness: Time to wait between requests (seconds)
 DELAY = 1.0 

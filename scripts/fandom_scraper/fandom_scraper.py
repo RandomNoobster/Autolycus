@@ -1,4 +1,4 @@
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, unquote
 import time
@@ -33,7 +33,8 @@ class FandomMainCrawler:
         self.root_url = root_url
         self.output_file = output_file
         
-        self.session = requests.Session()
+        # cloudscraper bypasses Fandom's Cloudflare challenge that blocks plain requests
+        self.session = cloudscraper.create_scraper()
         self.session.headers.update(HEADERS)
         
         self.target_subcategories = [] 
@@ -51,7 +52,7 @@ class FandomMainCrawler:
                     logging.warning(f"Status {response.status_code} for {url}")
                     return None
                 return response.text
-            except requests.exceptions.RequestException as e:
+            except Exception as e:
                 logging.warning(f"Connection attempt {i+1} failed for {url}: {e}")
                 time.sleep(2)
         return None
