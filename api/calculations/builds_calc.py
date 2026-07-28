@@ -20,7 +20,7 @@ async def _call_pnw(query: str, *, use_bot_key: bool = False) -> dict[str, Any]:
 
 
 async def calculate_builds(
-    nation_id: str,
+    nation_id: Optional[str] = None,
     infra: Optional[int] = None,
     land: Optional[int] = None,
     mmr: str = "0/0/0/0",
@@ -40,7 +40,7 @@ async def calculate_builds(
     try:
         return await calculate_builds_logic(
             call_pnw=_call_pnw,
-            nation_id=str(nation_id),
+            nation_id=str(nation_id) if nation_id is not None else None,
             infra=infra,
             land=land,
             mmr=mmr,

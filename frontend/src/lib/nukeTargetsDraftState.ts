@@ -60,7 +60,6 @@ export function buildNukeTargetsDraftFromSearchParams(
   savedNationId: string | undefined,
   nationScore: string
 ): NukeTargetsDraftFilters {
-  const beigeBool = parseBooleanParam(sp, 'beige');
   const base = DEFAULT_NUKE_TARGETS_DRAFT({
     scoreMode: sp.get('scoreMode') || (savedNationId ? 'yours' : 'custom'),
     yourScore: sp.get('yourScore') || nationScore || '',
@@ -74,17 +73,29 @@ export function buildNukeTargetsDraftFromSearchParams(
       ? sortRaw
       : 'simNuke';
 
+  const beigeRaw = sp.get('beige');
+  const beige: NukeTargetsDraftFilters['beige'] =
+    beigeRaw === 'true' || beigeRaw === '1'
+      ? 'only'
+      : beigeRaw === 'false' || beigeRaw === '0'
+        ? 'hide'
+        : beigeRaw === 'all'
+          ? 'all'
+          : base.beige;
+
   return {
     ...base,
     allianceMode: sp.get('allianceMode') === 'exclude' ? 'exclude' : 'include',
     alliance: parseAlliances(sp, 'alliance'),
     allianceExclude: parseAlliances(sp, 'allianceExclude'),
-    beige: beigeBool === true ? 'only' : beigeBool === false ? 'hide' : base.beige,
+    beige,
     maxWars: (() => {
       const n = sp.get('maxWars');
-      if (!n || n === 'all' || n === '3') return 'all';
+      // Missing → page default (2). Explicit "all"/"3" → any wars.
+      if (n === null || n === '') return base.maxWars;
+      if (n === 'all' || n === '3') return 'all';
       if (['0', '1', '2'].includes(n)) return n;
-      return 'all';
+      return base.maxWars;
     })(),
     minMaxInfra: sp.get('minMaxInfra') || '',
     minAvgInfra: sp.get('minAvgInfra') || '',

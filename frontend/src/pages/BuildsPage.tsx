@@ -753,7 +753,7 @@ export function BuildsPage() {
                         </Badge>
                       </Group>
                       <Text size="sm" c="dimmed" mb="sm">
-                        Per-city upkeep for the max units allowed by {form.values.military.barracks}/{form.values.military.factory}/{form.values.military.airforcebase}/{form.values.military.drydock} MMR.
+                        Per-city upkeep for the max units allowed by the exact {form.values.military.barracks}/{form.values.military.factory}/{form.values.military.airforcebase}/{form.values.military.drydock} MMR used in the recommendation.
                       </Text>
                       <Grid gutter="sm" mb="sm">
                         {(['peace', 'war'] as const).map((mode) => {

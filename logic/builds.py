@@ -19,7 +19,20 @@ BuildDict = Dict[str, Any]
 GraphQLCaller = Callable[[str], Awaitable[dict[str, Any]]]
 
 
-def _apply_overrides(nation: dict[str, Any], projects: Optional[List[str]], dom_policy: Optional[str]) -> None:
+def _apply_overrides(
+    nation: dict[str, Any],
+    projects: Optional[List[str]],
+    dom_policy: Optional[str],
+) -> None:
+    """Apply form overrides onto a nation payload.
+
+    ``projects``:
+      - ``None`` keeps the nation's existing project flags
+      - a list (including empty) replaces revenue-relevant project flags
+    ``dom_policy``:
+      - ``None`` keeps the nation's domestic policy
+      - any string (including ``""``) replaces ``dompolicy``
+    """
     if projects is not None:
         selected = set(projects)
         for project_key in [
@@ -40,7 +53,7 @@ def _apply_overrides(nation: dict[str, Any], projects: Optional[List[str]], dom_
             "bureau_of_domestic_affairs",
         ]:
             nation[project_key] = project_key in selected
-    if dom_policy:
+    if dom_policy is not None:
         nation["dompolicy"] = dom_policy
 
 
@@ -175,7 +188,7 @@ def _score_build_cities_sync(
 # Raw resource availability per continent.
 # Source: fandom_data.jsonl - continent-specific articles (Africa, Asia, Australia, Antarctica, Europe, North America, South America)
 # Each continent has exactly 3 raw resources available.
-_CONTINENT_RESTRICTIONS: Dict[str, Dict[str, List[str]]] = {
+_CONTINENT_AVAILABLE: Dict[str, Dict[str, List[str]]] = {
     "af": {  # Africa: Oil, Bauxite, Uranium
         "api_names": ["oil_wells", "bauxite_mines", "uranium_mines"],
         "json_names": ["oilwell", "bauxitemine", "uramine"],
@@ -206,6 +219,18 @@ _CONTINENT_RESTRICTIONS: Dict[str, Dict[str, List[str]]] = {
     },
 }
 
+# Backwards-compatible alias (historical name incorrectly implied "restricted").
+_CONTINENT_RESTRICTIONS = _CONTINENT_AVAILABLE
+
+_ALL_RAW_MINE_JSON = [
+    "coalmine",
+    "oilwell",
+    "uramine",
+    "leadmine",
+    "ironmine",
+    "bauxitemine",
+]
+
 
 _CONTINENT_NORMALISATION = {
     "africa": "af",
@@ -219,8 +244,10 @@ _CONTINENT_NORMALISATION = {
     "europe": "eu",
     "eu": "eu",
     "north america": "na",
+    "north_america": "na",
     "na": "na",
     "south america": "sa",
+    "south_america": "sa",
     "sa": "sa",
 }
 
@@ -243,24 +270,75 @@ _RESOURCE_KEYS = [
 
 
 def parse_mmr(mmr: str) -> Tuple[int, int, int, int]:
-    """Parse minimum military requirement string into numeric tuple."""
+    """Parse military requirement string into numeric tuple (barracks/factory/hangar/drydock)."""
     if mmr.lower() == "any":
         return (0, 0, 0, 0)
 
-    digits = [ch for ch in mmr if ch.isdigit()]
-    if len(digits) < 4:
+    parts = [part.strip() for part in mmr.split("/")]
+    if len(parts) != 4:
         raise ValueError(f"Invalid MMR format: {mmr}")
-    return tuple(int(digit) for digit in digits[:4])  # type: ignore[return-value]
+    try:
+        values = tuple(int(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError(f"Invalid MMR format: {mmr}") from exc
+    return values  # type: ignore[return-value]
+
+
+def normalize_continent_code(continent: str) -> Optional[str]:
+    """Normalize a continent label to a short code (na, sa, …), or None if unknown."""
+    key = continent.strip().lower()
+    return _CONTINENT_NORMALISATION.get(key)
 
 
 def get_continent_resources(continent: str) -> Dict[str, List[str]]:
-    """Return restricted resource improvements for a continent."""
-    key = continent.strip().lower()
-    code = _CONTINENT_NORMALISATION.get(key)
+    """Return available raw-resource improvements for a continent."""
+    code = normalize_continent_code(continent)
     if code is None:
-        logger.debug("Unknown continent '%s'; no restrictions applied", continent)
+        logger.debug("Unknown continent '%s'; no availability list applied", continent)
         return {"api_names": [], "json_names": []}
-    return _CONTINENT_RESTRICTIONS.get(code, {"api_names": [], "json_names": []})
+    return _CONTINENT_AVAILABLE.get(code, {"api_names": [], "json_names": []})
+
+
+def get_restricted_mines(continent: str) -> List[str]:
+    """Return mine fields that must be zero because they are unavailable on the continent."""
+    code = normalize_continent_code(continent)
+    if code is None:
+        logger.debug("Unknown continent '%s'; no mine restrictions applied", continent)
+        return []
+    available = set(_CONTINENT_AVAILABLE.get(code, {}).get("json_names", []))
+    return [mine for mine in _ALL_RAW_MINE_JSON if mine not in available]
+
+
+def _neutral_manual_nation(continent_code: str) -> dict[str, Any]:
+    """Baseline nation used when calculating builds without a real nation id."""
+    return {
+        "id": 0,
+        "nation_name": "Manual Configuration",
+        "leader_name": "",
+        "continent": continent_code,
+        "color": "beige",
+        "num_cities": 30,
+        "dompolicy": "",
+        "alliance_id": 0,
+        "alliance": None,
+        "date": "2010-01-01T00:00:00.000000Z",
+        "cities": [],
+        "ironw": False,
+        "bauxitew": False,
+        "armss": False,
+        "egr": False,
+        "massirr": False,
+        "itc": False,
+        "telecom_satellite": False,
+        "recycling_initiative": False,
+        "green_tech": False,
+        "clinical_research_center": False,
+        "specialized_police_training": False,
+        "uap": False,
+        "fallout_shelter": False,
+        "government_support_agency": False,
+        "bureau_of_domestic_affairs": False,
+    }
 
 
 def generate_build_template(build: BuildDict) -> str:
@@ -375,10 +453,7 @@ async def calculate_builds(
 ) -> dict[str, Any]:
     """Calculate optimal city builds using shared game logic."""
 
-    if nation is None and nation_id is None:
-        raise ValueError("nation or nation_id is required")
-
-    if nation is None:
+    if nation is None and nation_id is not None:
         query = "{" f"nations(first:1 id:{nation_id})" "{data" f"{get_query(queries.REVENUE)}" "}}"  # noqa: E501
         response = await call_pnw(query)
         nation_list = response.get("data", {}).get("nations", {}).get("data", [])
@@ -386,8 +461,15 @@ async def calculate_builds(
             raise ValueError(f"Nation {nation_id} not found in API")
         nation = nation_list[0]
         nation_id = str(nation.get("id"))
-    else:
+    elif nation is not None:
         nation_id = str(nation.get("id")) if nation.get("id") is not None else nation_id
+    else:
+        # Manual configuration: no real nation — use a neutral baseline.
+        if infra is None or land is None:
+            raise ValueError("infra and land are required when nation_id is not provided")
+        continent_code_for_manual = normalize_continent_code(continent_override or "na") or "na"
+        nation = _neutral_manual_nation(continent_code_for_manual)
+        nation_id = "0"
 
     if nation is None:
         raise ValueError("Nation data unavailable after fetch")
@@ -419,8 +501,13 @@ async def calculate_builds(
         raise ValueError(str(exc)) from exc
 
     continent_key = (continent_override or str(nation.get("continent", ""))).strip()
-    restrictions = get_continent_resources(continent_key)
-    continent_code = _CONTINENT_NORMALISATION.get(continent_key.lower(), continent_key.lower())
+    continent_code = normalize_continent_code(continent_key)
+    if continent_code is None:
+        logger.debug("Unknown continent '%s'; defaulting food/radiation scoring to na", continent_key)
+        continent_code = "na"
+    # Ensure food/radiation scoring uses the selected continent, not the fetched nation's.
+    nation["continent"] = continent_code
+    restricted_mines = get_restricted_mines(continent_code)
     available_resources = list(_RESOURCE_KEYS)
 
     _apply_overrides(nation, projects_override, domestic_policy_override)
@@ -453,7 +540,7 @@ async def calculate_builds(
         }
 
     rows = await asyncio.to_thread(
-        db_utils.fetch_build_rows, db_path, infra, mmr_dict, caps, restrictions["json_names"]
+        db_utils.fetch_build_rows, db_path, infra, mmr_dict, caps, restricted_mines
     )
     if not rows:
         raise ValueError(f"No builds found for infrastructure {infra} with the given criteria")
@@ -547,7 +634,6 @@ async def calculate_builds(
             seen.add(frozen)
             top_unique_builds.append(build)
 
-    continent_code = _CONTINENT_NORMALISATION.get(continent_key.lower(), continent_key.lower())
     food_rad_effect_mod = modifiers.get("food_rad_effect_mod", 1)
     radiation_value = radiation.get(continent_code, 0)
     seasonal_value = seasonal_mod.get(continent_code, 1)

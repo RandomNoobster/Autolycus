@@ -141,13 +141,15 @@ def get_builds() -> tuple[Any, int]:
     Get city build templates (public endpoint).
     
     Query parameters:
-        - nation_id: Nation ID to calculate builds for
-        - infra: Infrastructure level (default: nation's average)
-        - land: Land amount (default: nation's average)
-        - mmr: Military minimum requirement (default: 0/0/0/0)
+        - nation_id: Nation ID to calculate builds for (optional for manual config)
+        - infra: Infrastructure level (default: nation's average; required without nation_id)
+        - land: Land amount (default: nation's average; required without nation_id)
+        - mmr: Military requirement (default: 0/0/0/0); values >0 match exactly
         - continent: Continent code (na, sa, eu, af, as, au, an) - overrides nation's continent
         - use_live_prices: Boolean (true/false) - use current market prices vs historical average
         - include_military_upkeep: Boolean (true/false) - include max military unit upkeep costs
+        - projects: Comma-separated project keys. Present (even empty) overrides nation projects.
+        - domestic_policy: Policy name. Present (even empty) overrides nation domestic policy.
     
     Returns:
         JSON response with:
@@ -158,25 +160,21 @@ def get_builds() -> tuple[Any, int]:
         - generatedAt: ISO timestamp of data generation
     """
     try:
-        # Read nation_id from query parameters
-        nation_id = request.args.get('nation_id')
-        
-        if not nation_id:
-            return jsonify({
-                'error': 'Missing parameter',
-                'message': 'nation_id is required',
-                'code': 'MISSING_NATION_ID'
-            }), 400
-        
-        # Convert to integer
-        try:
-            nation_id = int(nation_id)
-        except ValueError:
-            return jsonify({
-                'error': 'Invalid parameter',
-                'message': 'nation_id must be an integer',
-                'code': 'INVALID_PARAMETER'
-            }), 400
+        # Read nation_id from query parameters (optional for fully manual configuration)
+        nation_id_raw = request.args.get('nation_id')
+        nation_id: int | None = None
+
+        if nation_id_raw not in (None, ''):
+            try:
+                nation_id = int(nation_id_raw)
+            except ValueError:
+                return jsonify({
+                    'error': 'Invalid parameter',
+                    'message': 'nation_id must be an integer',
+                    'code': 'INVALID_PARAMETER'
+                }), 400
+            if nation_id <= 0:
+                nation_id = None
         
         # Get optional parameters
         infra = request.args.get('infra')
@@ -195,12 +193,23 @@ def get_builds() -> tuple[Any, int]:
                 'code': 'INVALID_PARAMETER'
             }), 400
 
-        # Optional: override projects/domestic policy for manual configuration
-        projects_param = request.args.get('projects', '')
-        project_overrides = [p for p in projects_param.split(',') if p] if projects_param else []
-        project_overrides = [p for p in project_overrides if p in PROJECTS]
-        domestic_policy_override = request.args.get('domestic_policy')
-        if domestic_policy_override and domestic_policy_override not in DOMESTIC_POLICIES:
+        # Optional: override projects/domestic policy for manual configuration.
+        # Presence of the query key (even when empty) means "use form value";
+        # absence means "keep the nation's existing value".
+        project_overrides: list[str] | None
+        if 'projects' in request.args:
+            projects_param = request.args.get('projects', '')
+            project_overrides = [p for p in projects_param.split(',') if p]
+            project_overrides = [p for p in project_overrides if p in PROJECTS]
+        else:
+            project_overrides = None
+
+        domestic_policy_override: str | None
+        if 'domestic_policy' in request.args:
+            domestic_policy_override = request.args.get('domestic_policy') or ''
+            if domestic_policy_override and domestic_policy_override not in DOMESTIC_POLICIES:
+                domestic_policy_override = ''
+        else:
             domestic_policy_override = None
         
         # Convert infra and land if provided
@@ -227,6 +236,13 @@ def get_builds() -> tuple[Any, int]:
                     'message': 'land must be an integer',
                     'code': 'INVALID_PARAMETER'
                 }), 400
+
+        if nation_id is None and (infra_level is None or land_amount is None):
+            return jsonify({
+                'error': 'Missing parameter',
+                'message': 'nation_id is required unless both infra and land are provided',
+                'code': 'MISSING_PARAMETER'
+            }), 400
         
         if continent:
             # Validate continent code
@@ -245,7 +261,7 @@ def get_builds() -> tuple[Any, int]:
             asyncio.set_event_loop(loop)
             results = loop.run_until_complete(
                 calculate_builds(
-                    nation_id=str(nation_id),
+                    nation_id=str(nation_id) if nation_id is not None else None,
                     infra=infra_level,
                     land=land_amount,
                     mmr=mmr,

@@ -23,7 +23,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { IconDownload, IconInfoCircle, IconX } from '@tabler/icons-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   MRT_ColumnOrderState,
   MRT_DensityState,
@@ -54,8 +54,97 @@ function parseNationId(raw: string): string | null {
   return match ? match[1] : null;
 }
 
-function sortBySimNukeNet(a: NukeTarget, b: NukeTarget): number {
-  return (b.simNukeNet ?? -Infinity) - (a.simNukeNet ?? -Infinity);
+function sortNukeTargets(
+  rows: NukeTarget[],
+  sortMode: NukeTargetsDraftFilters['sortMode']
+): NukeTarget[] {
+  const sorted = [...rows];
+  const net = (v: number | null | undefined) => v ?? -Infinity;
+  switch (sortMode) {
+    case 'simMissile':
+      sorted.sort((a, b) => net(b.simMissileNet) - net(a.simMissileNet));
+      break;
+    case 'nukeNet':
+      sorted.sort((a, b) => net(b.nukeNet) - net(a.nukeNet));
+      break;
+    case 'nukeDamage':
+      sorted.sort((a, b) => net(b.nukeDamage) - net(a.nukeDamage));
+      break;
+    case 'simNuke':
+    default:
+      sorted.sort((a, b) => net(b.simNukeNet) - net(a.simNukeNet));
+      break;
+  }
+  return sorted;
+}
+
+function nukeDraftsEqual(a: NukeTargetsDraftFilters, b: NukeTargetsDraftFilters): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+const NUKE_TARGETS_FILTER_URL_KEYS = [
+  'alliance',
+  'allianceExclude',
+  'allianceMode',
+  'beige',
+  'maxWars',
+  'inactiveMinDays',
+  'minMaxInfra',
+  'minAvgInfra',
+  'hideVds',
+  'hideIronDome',
+  'minScore',
+  'maxScore',
+  'scoreMode',
+  'yourScore',
+  'sortMode',
+] as const;
+
+function writeNukeDraftToSearchParams(
+  prev: URLSearchParams,
+  draft: NukeTargetsDraftFilters
+): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  NUKE_TARGETS_FILTER_URL_KEYS.forEach((k) => next.delete(k));
+
+  if (draft.allianceMode === 'exclude') {
+    next.set('allianceMode', 'exclude');
+    draft.allianceExclude.forEach((a) => {
+      if (a.trim()) next.append('allianceExclude', a.trim());
+    });
+  } else {
+    draft.alliance.forEach((a) => {
+      if (a.trim()) next.append('alliance', a.trim());
+    });
+  }
+
+  if (draft.beige === 'only') next.set('beige', 'true');
+  else if (draft.beige === 'hide') next.set('beige', 'false');
+  else if (draft.beige === 'all') next.set('beige', 'all');
+
+  if (draft.maxWars === 'all') next.set('maxWars', 'all');
+  else next.set('maxWars', draft.maxWars);
+
+  const inactive = effectiveInactiveMinString(draft);
+  if (inactive) next.set('inactiveMinDays', inactive);
+
+  if (draft.minMaxInfra) next.set('minMaxInfra', draft.minMaxInfra);
+  if (draft.minAvgInfra) next.set('minAvgInfra', draft.minAvgInfra);
+  if (draft.hideVds) next.set('hideVds', 'true');
+  if (draft.hideIronDome) next.set('hideIronDome', 'true');
+
+  if (draft.sortMode && draft.sortMode !== 'simNuke') next.set('sortMode', draft.sortMode);
+
+  if (draft.scoreMode === 'yours') {
+    next.set('scoreMode', 'yours');
+    if (draft.yourScore) next.set('yourScore', draft.yourScore);
+  } else {
+    if (draft.scoreMode) next.set('scoreMode', draft.scoreMode);
+    if (draft.minScore) next.set('minScore', draft.minScore);
+    if (draft.maxScore) next.set('maxScore', draft.maxScore);
+  }
+
+  return next;
 }
 
 const NUKE_TARGETS_TABLE_DEFAULTS = {
@@ -136,11 +225,21 @@ export function NukeTargetsPage() {
   const [appliedNationId, setAppliedNationId] = useState(urlAttackerId);
 
   const [draftFilters, setDraftFilters] = useState<NukeTargetsDraftFilters>(() =>
-    DEFAULT_NUKE_TARGETS_DRAFT({
-      scoreMode: urlAttackerId ? 'yours' : 'custom',
-      yourScore: '',
-    })
+    buildNukeTargetsDraftFromSearchParams(searchParams, urlAttackerId || undefined, '')
   );
+
+  const filtersRestoredRef = useRef(false);
+  /**
+   * After hydrating from localStorage, draft URL sync + persist effects must not run in the same
+   * passive effect pass as the restore: they would still see the pre-restore draft and overwrite
+   * the URL / localStorage with defaults.
+   */
+  const suppressDraftUrlSyncAndPersistRef = useRef(false);
+  const searchParamsKey = useMemo(() => searchParams.toString(), [searchParams]);
+
+  useLayoutEffect(() => {
+    suppressDraftUrlSyncAndPersistRef.current = false;
+  });
 
   const {
     columnVisibility,
@@ -152,31 +251,46 @@ export function NukeTargetsPage() {
   } = useTablePersistence('nuke-targets', NUKE_TARGETS_TABLE_DEFAULTS);
 
   useEffect(() => {
+    if (filtersRestoredRef.current) return;
+    const nationKey = appliedNationId || savedNationId || undefined;
+    const hasUrlFilters = NUKE_TARGETS_FILTER_URL_KEYS.some((key) => {
+      if (key === 'alliance') return searchParams.getAll('alliance').some(Boolean);
+      if (key === 'allianceExclude') return searchParams.getAll('allianceExclude').some(Boolean);
+      return searchParams.get(key) !== null;
+    });
+    if (hasUrlFilters) {
+      filtersRestoredRef.current = true;
+      return;
+    }
+
     const stored = parseNukeTargetsFiltersStorage(
       localStorage.getItem(NUKE_TARGETS_FILTER_STORAGE_KEY),
-      appliedNationId || savedNationId || undefined
+      nationKey
     );
+    if (!stored) {
+      filtersRestoredRef.current = true;
+      return;
+    }
+
+    suppressDraftUrlSyncAndPersistRef.current = true;
+    setDraftFilters(stored);
+    setSearchParams((prev) => writeNukeDraftToSearchParams(prev, stored), { replace: true });
+    filtersRestoredRef.current = true;
+  }, [searchParams, setSearchParams, appliedNationId, savedNationId]);
+
+  // Keep draft UI aligned with URL on back/forward (and other external query changes).
+  useEffect(() => {
+    if (!filtersRestoredRef.current) return;
+    if (suppressDraftUrlSyncAndPersistRef.current) return;
     const fromUrl = buildNukeTargetsDraftFromSearchParams(
       searchParams,
       appliedNationId || savedNationId || undefined,
       ''
     );
-    const hasUrlFilters = [
-      'alliance',
-      'allianceExclude',
-      'beige',
-      'maxWars',
-      'inactiveMinDays',
-      'minMaxInfra',
-      'minAvgInfra',
-      'hideVds',
-      'hideIronDome',
-      'minScore',
-      'maxScore',
-      'scoreMode',
-    ].some((k) => searchParams.has(k));
-    setDraftFilters(hasUrlFilters ? fromUrl : stored ?? fromUrl);
-  }, []);
+    setDraftFilters((prev) => (nukeDraftsEqual(prev, fromUrl) ? prev : fromUrl));
+    // Only re-hydrate when the query string changes — not when nation id alone updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- searchParamsKey tracks searchParams
+  }, [searchParamsKey]);
 
   useEffect(() => {
     if (savedNationId && !appliedNationId) {
@@ -185,9 +299,20 @@ export function NukeTargetsPage() {
     }
   }, [savedNationId, appliedNationId]);
 
+  /** Active filters from URL (drives filteredTargets + API score bounds). */
+  const appliedFilters = useMemo(
+    () =>
+      buildNukeTargetsDraftFromSearchParams(
+        searchParams,
+        appliedNationId || savedNationId || undefined,
+        ''
+      ),
+    [searchParams, appliedNationId, savedNationId]
+  );
+
   const apiScoreBounds = useMemo(() => {
-    if (draftFilters.scoreMode === 'yours' && appliedNationId) {
-      const score = parseNumericValue(draftFilters.yourScore);
+    if (appliedFilters.scoreMode === 'yours' && appliedNationId) {
+      const score = parseNumericValue(appliedFilters.yourScore);
       if (score > 0) {
         return {
           minScore: Math.max(15, Math.round(score * 0.75)),
@@ -195,13 +320,13 @@ export function NukeTargetsPage() {
         };
       }
     }
-    const min = parseNumericValue(draftFilters.minScore);
-    const max = parseNumericValue(draftFilters.maxScore);
+    const min = parseNumericValue(appliedFilters.minScore);
+    const max = parseNumericValue(appliedFilters.maxScore);
     return {
       minScore: min > 0 ? min : 15,
       maxScore: max > 0 ? max : undefined,
     };
-  }, [draftFilters, appliedNationId]);
+  }, [appliedFilters, appliedNationId]);
 
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: [
@@ -248,124 +373,87 @@ export function NukeTargetsPage() {
   const filteredTargets = useMemo(() => {
     let rows = [...(data?.targets ?? [])];
 
-    if (draftFilters.beige === 'only') {
+    if (appliedFilters.beige === 'only') {
       rows = rows.filter((r) => r.beigeTurns > 0);
-    } else if (draftFilters.beige === 'hide') {
+    } else if (appliedFilters.beige === 'hide') {
       rows = rows.filter((r) => r.beigeTurns <= 0);
     }
 
-    if (draftFilters.maxWars !== 'all') {
-      const maxWars = Number(draftFilters.maxWars);
+    if (appliedFilters.maxWars !== 'all') {
+      const maxWars = Number(appliedFilters.maxWars);
       rows = rows.filter((r) => r.defSlots <= maxWars);
     }
 
-    const inactiveMin = effectiveInactiveMinString(draftFilters);
+    const inactiveMin = effectiveInactiveMinString(appliedFilters);
     if (inactiveMin) {
       const minDays = parseNumericValue(inactiveMin);
       rows = rows.filter((r) => r.daysInactive >= minDays);
     }
 
-    if (draftFilters.allianceMode === 'exclude' && draftFilters.allianceExclude.length) {
-      const exclude = new Set(draftFilters.allianceExclude.map((a) => a.toLowerCase()));
+    if (appliedFilters.allianceMode === 'exclude' && appliedFilters.allianceExclude.length) {
+      const exclude = new Set(appliedFilters.allianceExclude.map((a) => a.toLowerCase()));
       rows = rows.filter((r) => !exclude.has(r.allianceName.toLowerCase()));
-    } else if (draftFilters.allianceMode === 'include' && draftFilters.alliance.length) {
-      const include = new Set(draftFilters.alliance.map((a) => a.toLowerCase()));
+    } else if (appliedFilters.allianceMode === 'include' && appliedFilters.alliance.length) {
+      const include = new Set(appliedFilters.alliance.map((a) => a.toLowerCase()));
       rows = rows.filter((r) => include.has(r.allianceName.toLowerCase()));
     }
 
-    const minMaxInfra = parseNumericValue(draftFilters.minMaxInfra);
+    const minMaxInfra = parseNumericValue(appliedFilters.minMaxInfra);
     if (minMaxInfra > 0) {
       rows = rows.filter((r) => (r.maxInfra ?? 0) >= minMaxInfra);
     }
 
-    const minAvgInfra = parseNumericValue(draftFilters.minAvgInfra);
+    const minAvgInfra = parseNumericValue(appliedFilters.minAvgInfra);
     if (minAvgInfra > 0) {
       rows = rows.filter((r) => (r.avgInfra ?? 0) >= minAvgInfra);
     }
 
-    if (draftFilters.hideVds) {
+    if (appliedFilters.hideVds) {
       rows = rows.filter((r) => !r.vds);
     }
-    if (draftFilters.hideIronDome) {
+    if (appliedFilters.hideIronDome) {
       rows = rows.filter((r) => !r.ironDome);
     }
 
-    rows.sort(sortBySimNukeNet);
-    return rows;
-  }, [data?.targets, draftFilters]);
-
-  const syncFiltersToUrl = useCallback(
-    (draft: NukeTargetsDraftFilters) => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          [
-            'alliance',
-            'allianceExclude',
-            'allianceMode',
-            'beige',
-            'maxWars',
-            'inactiveMinDays',
-            'minMaxInfra',
-            'minAvgInfra',
-            'hideVds',
-            'hideIronDome',
-            'minScore',
-            'maxScore',
-            'scoreMode',
-            'yourScore',
-          ].forEach((k) => next.delete(k));
-
-          if (draft.allianceMode === 'exclude') {
-            next.set('allianceMode', 'exclude');
-            draft.allianceExclude.forEach((a) => next.append('allianceExclude', a));
-          } else {
-            draft.alliance.forEach((a) => next.append('alliance', a));
-          }
-
-          if (draft.beige === 'only') next.set('beige', 'true');
-          else if (draft.beige === 'hide') next.set('beige', 'false');
-
-          if (draft.maxWars !== 'all') next.set('maxWars', draft.maxWars);
-
-          const inactive = effectiveInactiveMinString(draft);
-          if (inactive) next.set('inactiveMinDays', inactive);
-
-          if (draft.minMaxInfra) next.set('minMaxInfra', draft.minMaxInfra);
-          if (draft.minAvgInfra) next.set('minAvgInfra', draft.minAvgInfra);
-          if (draft.hideVds) next.set('hideVds', 'true');
-          if (draft.hideIronDome) next.set('hideIronDome', 'true');
-
-          if (draft.scoreMode === 'yours') {
-            next.set('scoreMode', 'yours');
-            if (draft.yourScore) next.set('yourScore', draft.yourScore);
-          } else {
-            if (draft.minScore) next.set('minScore', draft.minScore);
-            if (draft.maxScore) next.set('maxScore', draft.maxScore);
-          }
-
-          return next;
-        },
-        { replace: true }
-      );
-      localStorage.setItem(NUKE_TARGETS_FILTER_STORAGE_KEY, serializeNukeTargetsFilters(draft));
-    },
-    [setSearchParams]
-  );
+    return sortNukeTargets(rows, appliedFilters.sortMode);
+  }, [data?.targets, appliedFilters]);
 
   useEffect(() => {
-    syncFiltersToUrl(draftFilters);
-  }, [draftFilters, syncFiltersToUrl]);
+    if (!filtersRestoredRef.current) return;
+    if (suppressDraftUrlSyncAndPersistRef.current) return;
+
+    setSearchParams(
+      (prev) => {
+        const next = writeNukeDraftToSearchParams(prev, draftFilters);
+        if (next.toString() === prev.toString()) return prev;
+        return next;
+      },
+      { replace: true }
+    );
+    try {
+      localStorage.setItem(
+        NUKE_TARGETS_FILTER_STORAGE_KEY,
+        serializeNukeTargetsFilters(draftFilters)
+      );
+    } catch (error) {
+      console.warn('Failed to persist nuke targets filters', error);
+    }
+  }, [draftFilters, setSearchParams]);
 
   const resetFilters = useCallback(() => {
     const nationScore = data?.attacker?.score?.toString() || '';
-    setDraftFilters(
-      DEFAULT_NUKE_TARGETS_DRAFT({
-        scoreMode: appliedNationId ? 'yours' : 'custom',
-        yourScore: nationScore,
-      })
-    );
-  }, [appliedNationId, data?.attacker?.score]);
+    const defaults = DEFAULT_NUKE_TARGETS_DRAFT({
+      scoreMode: appliedNationId ? 'yours' : 'custom',
+      yourScore: nationScore,
+    });
+    setDraftFilters(defaults);
+    setSearchParams((prev) => writeNukeDraftToSearchParams(prev, defaults), { replace: true });
+    try {
+      localStorage.removeItem(NUKE_TARGETS_FILTER_STORAGE_KEY);
+    } catch (error) {
+      console.warn('Failed to clear nuke targets filter storage', error);
+    }
+  }, [appliedNationId, data?.attacker?.score, setSearchParams]);
 
   if (error) {
     const apiError = error as unknown as ApiError;

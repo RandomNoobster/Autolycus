@@ -353,14 +353,18 @@ def fetch_build_rows(
     caps: Dict[str, int],
     restricted_mines: List[str],
 ) -> List[Dict[str, int]]:
-    """Fetch build rows matching criteria from the builds DB."""
+    """Fetch build rows matching criteria from the builds DB.
+
+    MMR values greater than 0 are matched exactly (not as a minimum).
+    ``restricted_mines`` must be unavailable mine fields forced to 0.
+    """
     fields = IMPROVEMENT_FIELDS
     where_clauses = ["infrastructure = ?"]
     params: List[Any] = [infra_level]
 
     for key in ("barracks", "factory", "airforcebase", "drydock"):
         if key in mmr_mins and mmr_mins[key] > 0:
-            where_clauses.append(f"{key} >= ?")
+            where_clauses.append(f"{key} = ?")
             params.append(mmr_mins[key])
 
     for mine in restricted_mines:

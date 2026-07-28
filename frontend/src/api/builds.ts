@@ -14,16 +14,11 @@ import { apiGet } from './client';
  */
 export async function fetchBuilds(config: BuildConfiguration): Promise<BuildsResponse> {
   const params = new URLSearchParams();
-  
-  // Required: Use nation_id or default to 1 for testing
+
   if (config.nationId) {
     params.set('nation_id', config.nationId.toString());
-  } else {
-    // For manual configuration, we still need a nation ID for the API
-    // Use a placeholder that won't affect the calculation
-    params.set('nation_id', '1');
   }
-  
+
   params.set('infra', config.infrastructure.toString());
   params.set('land', config.land.toString());
   params.set('continent', config.continent);
@@ -33,17 +28,15 @@ export async function fetchBuilds(config: BuildConfiguration): Promise<BuildsRes
   if (config.militaryUpkeepMode) {
     params.set('military_upkeep_mode', config.militaryUpkeepMode);
   }
-  if (config.projects?.length) {
-    params.set('projects', config.projects.join(','));
-  }
-  if (config.domesticPolicy) {
-    params.set('domestic_policy', config.domesticPolicy);
-  }
-  
+
+  // Always send projects/policy so cleared form values override the nation profile.
+  params.set('projects', (config.projects ?? []).join(','));
+  params.set('domestic_policy', config.domesticPolicy ?? '');
+
   // Format MMR
   const mmr = `${config.military.barracks}/${config.military.factory}/${config.military.airforcebase}/${config.military.drydock}`;
   params.set('mmr', mmr);
-  
+
   return apiGet<BuildsResponse>(`/api/builds/?${params.toString()}`);
 }
 

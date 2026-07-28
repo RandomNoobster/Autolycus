@@ -223,10 +223,6 @@ class Background(commands.Cog):
 
             unique_builds = results.get("uniqueBuilds", [])
             total_unique_builds = results.get("totalUniqueBuilds", len(unique_builds))
-            displayed_unique_builds = results.get("displayedUniqueBuilds", len(unique_builds))
-            resources = results.get("resources", [])
-            builds = results.get("builds", {})
-            top_unique_builds = results.get("topUniqueBuilds", [])
 
             mmr_values = results.get("mmr") or {}
             mmr_display = "Any MMR"
@@ -245,7 +241,7 @@ class Background(commands.Cog):
             embed = discord.Embed(
                 title=f"Optimal City Builds for {infra_level} Infrastructure",
                 url=builds_url,
-                description=f"Evaluated **{total_unique_builds:,}** valid builds. Showing top **{displayed_unique_builds:,}**.",
+                description=f"Evaluated **{total_unique_builds:,}** valid builds. Best overall shown below.",
                 color=0xff5100,
             )
 
