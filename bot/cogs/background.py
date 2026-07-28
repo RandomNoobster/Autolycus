@@ -33,8 +33,6 @@ logger = logging.getLogger(__name__)
 API_KEY = os.getenv("API_KEY")
 DEBUG_CHANNEL_ID = int(os.getenv("DEBUG_CHANNEL"))
 SCAN_INTERVAL = 100  # seconds
-# Must span at least one poll cycle so a scheduled reminder is not skipped between scans.
-REMINDER_THRESHOLD = SCAN_INTERVAL
 ENABLE_PNW_WS = os.getenv("ENABLE_PNW_WS", "false").lower() in (
     "1",
     "true",
@@ -58,6 +56,8 @@ class General(commands.Cog):
         self._beige_ws_tracked_alerts: list[dict] = []
         # (discord_user_id, nation_id_str) -> consecutive GraphQL misses for that row.
         self._beige_api_miss: dict[tuple[int, str], int] = {}
+        # (discord_user_id, nation_id_str, reminder_minutes) already DMed this process.
+        self._beige_reminders_sent: set[tuple[int, str, int]] = set()
         self.bot.bg_task = self.bot.loop.create_task(self.alert_scanner())
 
     async def alert_scanner(self) -> None:
@@ -185,6 +185,16 @@ class General(commands.Cog):
                 pass
         return variants
 
+    def _clear_beige_reminders_sent(self, mongo_user_id: int, nation_id: str) -> None:
+        """Drop in-memory sent markers for a user/nation when the alert is pulled."""
+        stale = [
+            key
+            for key in self._beige_reminders_sent
+            if key[0] == mongo_user_id and key[1] == nation_id
+        ]
+        for key in stale:
+            self._beige_reminders_sent.discard(key)
+
     async def _pull_beige_alert_for_user(self, mongo_user_id: int, nation_id: str) -> None:
         db = db_mongo.get_db()
         variants = self._beige_alert_ids_for_pull(nation_id)
@@ -192,6 +202,7 @@ class General(commands.Cog):
             {"user": mongo_user_id},
             {"$pull": {"beige_alerts": {"$in": variants}}},
         )
+        self._clear_beige_reminders_sent(mongo_user_id, nation_id)
 
     async def _notify_debug_cannot_dm(
         self,
@@ -316,10 +327,13 @@ class General(commands.Cog):
             exit_time = self._calculate_exit_time(beige_turns, vm_turns)
             sent_scheduled = False
 
+            user_id = int(user["user"])
             for reminder_minutes in times_to_send:
                 reminder_time = exit_time - timedelta(minutes=reminder_minutes)
 
-                if self._is_reminder_time(reminder_time):
+                if self._is_reminder_due(
+                    reminder_time, user_id, nation_id, reminder_minutes
+                ):
                     pull_after = times_to_send.index(reminder_minutes) == (
                         len(times_to_send) - 1
                     )
@@ -329,6 +343,7 @@ class General(commands.Cog):
                         beige_turns,
                         vm_turns,
                         pull_after,
+                        reminder_minutes=reminder_minutes,
                     )
                     sent_scheduled = True
                     break
@@ -363,19 +378,18 @@ class General(commands.Cog):
         """
         return common.get_datetime_of_turns(max(beige_turns, vm_turns))
 
-    @staticmethod
-    def _is_reminder_time(reminder_time: datetime) -> bool:
-        """Check if current time is within reminder threshold.
-
-        Args:
-            reminder_time: The target reminder time.
-
-        Returns:
-            True if within threshold window.
-        """
-        now = datetime.utcnow()
-        time_delta = abs((reminder_time - now).total_seconds())
-        return time_delta <= REMINDER_THRESHOLD
+    def _is_reminder_due(
+        self,
+        reminder_time: datetime,
+        user_id: int,
+        nation_id: str,
+        reminder_minutes: int,
+    ) -> bool:
+        """True if this lead-time offset is overdue and not already sent this process."""
+        key = (user_id, nation_id, reminder_minutes)
+        if key in self._beige_reminders_sent:
+            return False
+        return datetime.utcnow() >= reminder_time
 
     async def _load_reminder_nation_and_revenue(
         self, nation_id: str
@@ -433,6 +447,7 @@ class General(commands.Cog):
         beige_turns: int,
         vm_turns: int,
         pull_after: bool = False,
+        reminder_minutes: Optional[int] = None,
     ) -> None:
         """Send a reminder DM to a user about a nation status change.
 
@@ -442,6 +457,7 @@ class General(commands.Cog):
             beige_turns: Current remaining beige turns.
             vm_turns: Current remaining vacation mode turns.
             pull_after: Whether to remove this alert after sending.
+            reminder_minutes: Lead-time offset that fired, if any (for sent tracking).
         """
         try:
             disc_user = await self.bot.fetch_user(user["user"])
@@ -460,6 +476,11 @@ class General(commands.Cog):
             )
             await disc_user.send(embed=embed)
             logger.info(f"Reminder sent to {user['user']} about {nation_id}")
+
+            if reminder_minutes is not None:
+                self._beige_reminders_sent.add(
+                    (int(user["user"]), nation_id, reminder_minutes)
+                )
 
             if pull_after:
                 await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
