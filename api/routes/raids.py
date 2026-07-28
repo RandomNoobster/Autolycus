@@ -15,6 +15,7 @@ from typing import Any, Optional
 from flask import Blueprint, current_app, jsonify, request
 
 from logic import queries
+from api.rate_limit import rate_limit
 from api.security import optional_discord_session, require_discord_session
 from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
@@ -631,6 +632,74 @@ def update_reminder_config() -> tuple[Any, int]:
         )
 
 
+@raids_bp.route('/nation/<int:nation_id>/live', methods=['GET'])
+@optional_discord_session
+@rate_limit(10, 60, scope='raids-nation-live')
+def get_live_nation_score(nation_id: int) -> tuple[Any, int]:
+    """
+    Fetch a nation's current score from the live Politics & War API.
+
+    Used by the raids page to keep attacker war-range bounds fresh while the
+    full target list still comes from the SQLite cache.
+
+    Rate limited to 10 requests/minute per Discord user (or IP) to protect
+    API quota.
+    """
+    try:
+        api_key = current_app.config.get("API_KEY") or None
+        if not api_key:
+            return _error_response(
+                'Service unavailable',
+                'Live nation lookup is not configured.',
+                'API_KEY_MISSING',
+                503,
+            )
+
+        query = (
+            "{"
+            f"nations(first:1 id:{int(nation_id)})"
+            "{data{id nation_name leader_name score}}"
+            "}"
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            response = loop.run_until_complete(api_client.call(query, api_key))
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
+
+        nations = (
+            (response or {}).get('data', {}).get('nations', {}).get('data', [])
+            or []
+        )
+        if not nations:
+            return _error_response(
+                'Not found',
+                f'Nation {nation_id} not found.',
+                'NATION_NOT_FOUND',
+                404,
+            )
+
+        nation = nations[0]
+        return jsonify({
+            'id': int(nation.get('id')),
+            'nationName': nation.get('nation_name'),
+            'leaderName': nation.get('leader_name'),
+            'score': float(nation.get('score') or 0),
+            'fetchedAt': datetime.now(timezone.utc).isoformat(),
+        }), 200
+    except Exception as e:
+        logger.error(f"Error in get_live_nation_score: {e}", exc_info=True)
+        return _error_response(
+            'Internal server error',
+            'An unexpected error occurred.',
+            'INTERNAL_ERROR',
+            500,
+        )
+
+
 @raids_bp.route('/alliances/search', methods=['GET'])
 @optional_discord_session
 def search_alliances():
@@ -647,6 +716,7 @@ def search_alliances():
     Note:
         Uses cached alliance data from alliances.db (populated by scanner.py).
     """
+
     try:
         query = request.args.get('q', '').strip()
         if not query:

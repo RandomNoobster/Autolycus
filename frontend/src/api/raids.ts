@@ -42,6 +42,19 @@ export function fetchRaids(
   return apiGet<RaidsResponse>(endpoint);
 }
 
+/** Live PnW nation score (not SQLite cache) for war-range autofill. */
+export interface LiveNationScore {
+  id: number;
+  nationName: string;
+  leaderName: string;
+  score: number;
+  fetchedAt: string;
+}
+
+export function fetchLiveNationScore(nationId: number): Promise<LiveNationScore> {
+  return apiGet<LiveNationScore>(`/api/raids/nation/${nationId}/live`);
+}
+
 /** Add a beige/VM exit reminder for a nation (requires Discord session). */
 export function addReminder(
   data: ReminderRequest

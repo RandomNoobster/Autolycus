@@ -30,6 +30,7 @@ import type {
 } from 'mantine-react-table';
 
 import { fetchNukeTargets } from '@/api/nukeTargets';
+import { fetchLiveNationScore } from '@/api/raids';
 import { getLinkedNation } from '@/api/auth';
 import { ErrorState, JumpToTableButton, NationIdField } from '@/components/common';
 import { NukeTargetsTable } from '@/components/nukeTargets/NukeTargetsTable';
@@ -352,6 +353,21 @@ export function NukeTargetsPage() {
     };
   }, [appliedFilters, appliedNationId]);
 
+  const appliedNationIdNum = appliedNationId ? parseInt(appliedNationId, 10) : NaN;
+  const { data: liveAttacker } = useQuery({
+    queryKey: ['live-nation-score', appliedNationId],
+    queryFn: () => fetchLiveNationScore(appliedNationIdNum),
+    enabled: Number.isFinite(appliedNationIdNum) && appliedNationIdNum > 0,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    retry: (failureCount, err) => {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === 'RATE_LIMITED') return false;
+      return failureCount < 1;
+    },
+  });
+
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: [
       'nuke-targets',
@@ -373,6 +389,14 @@ export function NukeTargetsPage() {
     enabled: !!appliedNationId,
     retry: false,
   });
+
+  /** Prefer live PnW score over SQLite-cached attacker from /api/nuke-targets. */
+  const effectiveAttackerScore =
+    liveAttacker?.score ?? data?.attacker?.score ?? null;
+  const effectiveAttackerName =
+    liveAttacker?.nationName ?? data?.attacker?.nation_name ?? null;
+  const effectiveAttackerScoreText =
+    effectiveAttackerScore != null ? String(effectiveAttackerScore) : '';
 
   const isInitialLoading = isLoading && !!appliedNationId;
 
@@ -403,16 +427,20 @@ export function NukeTargetsPage() {
   }, [appliedNationId, attritionEnabled, guidingSatelliteEnabled, setSearchParams]);
 
   useEffect(() => {
-    if (data?.attacker?.score && appliedNationId) {
-      const s = data.attacker.score.toString();
+    if (effectiveAttackerScore != null && appliedNationId) {
+      const s = effectiveAttackerScoreText;
       setDraftFilters((prev) => {
+        if (prev.scoreMode === 'custom' && (prev.minScore || prev.maxScore)) {
+          if (prev.yourScore === s) return prev;
+          return { ...prev, yourScore: s };
+        }
         if (prev.scoreMode === 'yours' && prev.yourScore === s) return prev;
         return { ...prev, yourScore: s, scoreMode: 'yours' };
       });
     } else if (!appliedNationId) {
       setDraftFilters((prev) => (prev.scoreMode !== 'yours' ? prev : { ...prev, scoreMode: 'custom' }));
     }
-  }, [data?.attacker?.score, appliedNationId]);
+  }, [effectiveAttackerScore, effectiveAttackerScoreText, appliedNationId]);
 
   const allianceOptions = useMemo(() => {
     const names = new Set<string>();
@@ -495,7 +523,7 @@ export function NukeTargetsPage() {
   }, [draftFilters, setSearchParams]);
 
   const resetFilters = useCallback(() => {
-    const nationScore = data?.attacker?.score?.toString() || '';
+    const nationScore = effectiveAttackerScoreText;
     const defaults = DEFAULT_NUKE_TARGETS_DRAFT({
       scoreMode: appliedNationId ? 'yours' : 'custom',
       yourScore: nationScore,
@@ -507,7 +535,7 @@ export function NukeTargetsPage() {
     } catch (error) {
       console.warn('Failed to clear nuke targets filter storage', error);
     }
-  }, [appliedNationId, data?.attacker?.score, setSearchParams]);
+  }, [appliedNationId, effectiveAttackerScoreText, setSearchParams]);
 
   if (error) {
     const apiError = error as unknown as ApiError;
@@ -544,7 +572,9 @@ export function NukeTargetsPage() {
                   Optional
                 </Badge>
               </Group>
-              {data?.attacker && appliedNationId && !isLoading && (
+              {(effectiveAttackerName || effectiveAttackerScore != null) &&
+                appliedNationId &&
+                (!isLoading || liveAttacker) && (
                 <Group
                   gap="xs"
                   wrap="wrap"
@@ -554,10 +584,13 @@ export function NukeTargetsPage() {
                   style={{ flex: '1 1 auto', minWidth: 0, maxWidth: '100%' }}
                 >
                   <Text size="sm" c="dimmed" style={{ wordBreak: 'break-word', maxWidth: '100%' }}>
-                    {data.attacker.nation_name}
+                    {effectiveAttackerName}
                   </Text>
                   <Badge variant="light" color="blue" style={{ flexShrink: 0 }}>
-                    Score: {data.attacker.score?.toFixed(2) || 'N/A'}
+                    Score:{' '}
+                    {effectiveAttackerScore != null
+                      ? effectiveAttackerScore.toFixed(2)
+                      : 'N/A'}
                   </Badge>
                   {attackerPolicy ? (
                     <Badge variant="outline" style={{ flexShrink: 0 }}>
@@ -686,7 +719,7 @@ export function NukeTargetsPage() {
                       </Text>
                       {(() => {
                         const defaultMode = appliedNationId ? 'yours' : 'custom';
-                        const defaultScore = data?.attacker?.score?.toString() || '';
+                        const defaultScore = effectiveAttackerScoreText;
                         const isDefault =
                           draftFilters.scoreMode === defaultMode &&
                           draftFilters.yourScore === defaultScore &&
@@ -697,7 +730,7 @@ export function NukeTargetsPage() {
                         <Anchor
                           size="xs"
                           onClick={() => {
-                            const nationScore = data?.attacker?.score?.toString() || '';
+                            const nationScore = effectiveAttackerScoreText;
                             setDraftFilters((prev) => ({
                               ...prev,
                               scoreMode: appliedNationId ? 'yours' : 'custom',

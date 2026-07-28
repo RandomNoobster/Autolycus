@@ -37,7 +37,7 @@ import type {
   MRT_VisibilityState,
 } from 'mantine-react-table';
 
-import { fetchRaids, type RaidFilterParams } from '@/api';
+import { fetchLiveNationScore, fetchRaids, type RaidFilterParams } from '@/api';
 import { getDiscordLoginUrl, getLinkedNation } from '@/api/auth';
 import {
   useUrlParams,
@@ -334,6 +334,22 @@ export function RaidsPage() {
     suppressDraftUrlSyncAndPersistRef.current = false;
   });
 
+  // Live attacker score from PnW (poll while this page is open).
+  const appliedNationIdNum = appliedNationId ? parseInt(appliedNationId, 10) : NaN;
+  const { data: liveAttacker } = useQuery({
+    queryKey: ['live-nation-score', appliedNationId],
+    queryFn: () => fetchLiveNationScore(appliedNationIdNum),
+    enabled: Number.isFinite(appliedNationIdNum) && appliedNationIdNum > 0,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    retry: (failureCount, err) => {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === 'RATE_LIMITED') return false;
+      return failureCount < 1;
+    },
+  });
+
   // Fetch raids: API applies score + VM only; alliance/beige/etc. filtered below.
   const {
     data,
@@ -363,6 +379,14 @@ export function RaidsPage() {
     },
     retry: false,
   });
+
+  /** Prefer live PnW score over SQLite-cached attacker from /api/raids. */
+  const effectiveAttackerScore =
+    liveAttacker?.score ?? data?.attacker?.score ?? null;
+  const effectiveAttackerName =
+    liveAttacker?.nationName ?? data?.attacker?.nation_name ?? null;
+  const effectiveAttackerScoreText =
+    effectiveAttackerScore != null ? String(effectiveAttackerScore) : '';
 
   /** Same option list for sidebar MultiSelect and table column (full API list + current picks). */
   const allianceFilterOptions = useMemo(() => {
@@ -481,11 +505,16 @@ export function RaidsPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  // Auto-fill score when attacker data loads and we have a nation ID
+  // Auto-fill score from live PnW (preferred) or cached raids attacker.
   useEffect(() => {
-    if (data?.attacker?.score && appliedNationId) {
-      const s = data.attacker.score.toString();
+    if (effectiveAttackerScore != null && appliedNationId) {
+      const s = effectiveAttackerScoreText;
       setDraftFilters((prev) => {
+        // Don't yank an explicit custom min/max range on live score polls.
+        if (prev.scoreMode === 'custom' && (prev.minScore || prev.maxScore)) {
+          if (prev.yourScore === s) return prev;
+          return { ...prev, yourScore: s };
+        }
         if (prev.scoreMode === 'yours' && prev.yourScore === s) return prev;
         return { ...prev, yourScore: s, scoreMode: 'yours' };
       });
@@ -495,7 +524,7 @@ export function RaidsPage() {
         return { ...prev, scoreMode: 'custom' };
       });
     }
-  }, [data?.attacker?.score, appliedNationId]);
+  }, [effectiveAttackerScore, effectiveAttackerScoreText, appliedNationId]);
 
   // Sync draftNationId with savedNationId when it changes
   useEffect(() => {
@@ -685,7 +714,7 @@ export function RaidsPage() {
   syncColumnFiltersFromDraftRef.current = syncColumnFiltersFromDraft;
 
   const resetFilters = useCallback(() => {
-    const nationScore = data?.attacker?.score?.toString() || '';
+    const nationScore = effectiveAttackerScoreText;
     setDraftFilters(
       DEFAULT_RAIDS_DRAFT_FILTERS({
         scoreMode: appliedNationId ? 'yours' : 'custom',
@@ -704,7 +733,7 @@ export function RaidsPage() {
     } catch (error) {
       console.warn('Failed to clear raids filter storage', error);
     }
-  }, [setSearchParams, data?.attacker?.score, appliedNationId]);
+  }, [setSearchParams, effectiveAttackerScoreText, appliedNationId]);
 
   // Keep URL + localStorage in sync with draft UI (no debounce — debounced URL lag caused scoreMode query to fight the visible filters).
   useEffect(() => {
@@ -854,7 +883,9 @@ export function RaidsPage() {
                   Optional
                 </Badge>
               </Group>
-              {data?.attacker && appliedNationId && !isLoading && (
+              {(effectiveAttackerName || effectiveAttackerScore != null) &&
+                appliedNationId &&
+                (!isLoading || liveAttacker) && (
                 <Group
                   gap="xs"
                   wrap="wrap"
@@ -868,10 +899,13 @@ export function RaidsPage() {
                     c="dimmed"
                     style={{ wordBreak: 'break-word', maxWidth: '100%' }}
                   >
-                    {data.attacker.nation_name}
+                    {effectiveAttackerName}
                   </Text>
                   <Badge variant="light" color="blue" style={{ flexShrink: 0 }}>
-                    Score: {data.attacker.score?.toFixed(2) || 'N/A'}
+                    Score:{' '}
+                    {effectiveAttackerScore != null
+                      ? effectiveAttackerScore.toFixed(2)
+                      : 'N/A'}
                   </Badge>
                 </Group>
               )}
@@ -1248,7 +1282,7 @@ export function RaidsPage() {
                       <Text size="sm" fw={600}>Score Range</Text>
                       {(() => {
                         const defaultMode = appliedNationId ? 'yours' : 'custom';
-                        const defaultScore = data?.attacker?.score?.toString() || '';
+                        const defaultScore = effectiveAttackerScoreText;
                         const isDefault =
                           draftFilters.scoreMode === defaultMode &&
                           draftFilters.yourScore === defaultScore &&
@@ -1257,7 +1291,7 @@ export function RaidsPage() {
                         return !isDefault;
                       })() && (
                         <Anchor size="xs" onClick={() => {
-                          const nationScore = data?.attacker?.score?.toString() || '';
+                          const nationScore = effectiveAttackerScoreText;
                           setDraftFilters(prev => ({
                             ...prev,
                             scoreMode: appliedNationId ? 'yours' : 'custom',
