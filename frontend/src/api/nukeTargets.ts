@@ -1,7 +1,8 @@
 /**
  * Nuke Targets API
  *
- * GET /api/nuke-targets/ accepts score bounds and optional attackerNationId.
+ * GET /api/nuke-targets/ accepts score bounds, optional attackerNationId, and
+ * optional attacker damage-mod overrides (attrition, guidingSatellite).
  * Alliance, beige, infra, and similar filters are applied client-side.
  */
 
@@ -13,6 +14,10 @@ export interface NukeTargetFilterParams {
   minScore?: number;
   maxScore?: number;
   vmode?: boolean;
+  /** When set, force/clear Attrition for damage math (+10% infra dealt). */
+  attrition?: boolean;
+  /** When set, force Guiding Satellite on/off for damage math (+20% nuke/missile infra). */
+  guidingSatellite?: boolean;
 }
 
 export function fetchNukeTargets(

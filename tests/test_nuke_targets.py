@@ -32,6 +32,7 @@ def _nation(
     vds: bool = False,
     irond: bool = False,
     fallout_shelter: bool = False,
+    guiding_satellite: bool = False,
     warpolicy: str = "None",
     score: float = 1000.0,
 ) -> dict:
@@ -43,6 +44,7 @@ def _nation(
         "vds": vds,
         "irond": irond,
         "fallout_shelter": fallout_shelter,
+        "guiding_satellite": guiding_satellite,
         "warpolicy": warpolicy,
         "wars": [],
     }
@@ -118,6 +120,59 @@ class TestNukeMissileMetrics:
 
         assert with_dome is not None and without_dome is not None
         assert with_dome.missile_damage < without_dome.missile_damage
+
+    def test_guiding_satellite_boosts_nuke_and_missile_infra(self):
+        defender = _nation(2, cities=[_city(2000, 600)])
+        base_attacker = _nation(1, cities=[_city(1000)], warpolicy="None")
+        gs_attacker = _nation(
+            1, cities=[_city(1000)], warpolicy="None", guiding_satellite=True
+        )
+
+        without_gs = compute_nuke_missile_metrics(base_attacker, defender)
+        with_gs = compute_nuke_missile_metrics(gs_attacker, defender)
+
+        assert without_gs is not None and with_gs is not None
+        assert with_gs.nuke_infra_lost == pytest.approx(
+            without_gs.nuke_infra_lost * 1.2, rel=1e-6
+        )
+        assert with_gs.missile_infra_lost == pytest.approx(
+            without_gs.missile_infra_lost * 1.2, rel=1e-6
+        )
+        assert with_gs.nuke_damage > without_gs.nuke_damage
+        assert with_gs.missile_damage > without_gs.missile_damage
+
+    def test_guiding_satellite_stacks_with_attrition(self):
+        defender = _nation(2, cities=[_city(2000, 600)])
+        base = compute_nuke_missile_metrics(
+            _nation(1, cities=[_city(1000)], warpolicy="None"), defender
+        )
+        attrition = compute_nuke_missile_metrics(
+            _nation(1, cities=[_city(1000)], warpolicy="Attrition"), defender
+        )
+        gs = compute_nuke_missile_metrics(
+            _nation(1, cities=[_city(1000)], warpolicy="None", guiding_satellite=True),
+            defender,
+        )
+        both = compute_nuke_missile_metrics(
+            _nation(
+                1,
+                cities=[_city(1000)],
+                warpolicy="Attrition",
+                guiding_satellite=True,
+            ),
+            defender,
+        )
+
+        assert base is not None and attrition is not None
+        assert gs is not None and both is not None
+        assert both.nuke_infra_lost > attrition.nuke_infra_lost
+        assert both.nuke_infra_lost > gs.nuke_infra_lost
+        assert both.nuke_infra_lost == pytest.approx(
+            base.nuke_infra_lost * 1.1 * 1.2, rel=1e-6
+        )
+        assert both.missile_infra_lost == pytest.approx(
+            base.missile_infra_lost * 1.1 * 1.2, rel=1e-6
+        )
 
 
 class TestSimulatedWar:

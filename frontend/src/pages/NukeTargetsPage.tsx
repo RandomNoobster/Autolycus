@@ -54,6 +54,12 @@ function parseNationId(raw: string): string | null {
   return match ? match[1] : null;
 }
 
+function parseOptionalBoolParam(sp: URLSearchParams, key: string): boolean | null {
+  const val = sp.get(key);
+  if (val === null) return null;
+  return val === 'true' || val === '1';
+}
+
 function sortNukeTargets(
   rows: NukeTarget[],
   sortMode: NukeTargetsDraftFilters['sortMode']
@@ -151,7 +157,10 @@ const NUKE_TARGETS_TABLE_DEFAULTS = {
   columnVisibility: {
     id: true,
     nationName: true,
+    leaderName: true,
     allianceName: true,
+    alliancePosition: true,
+    numCities: true,
     score: true,
     simNukeNet: true,
     simMissileNet: true,
@@ -176,7 +185,10 @@ const NUKE_TARGETS_TABLE_DEFAULTS = {
   columnOrder: [
     'id',
     'nationName',
+    'leaderName',
     'allianceName',
+    'alliancePosition',
+    'numCities',
     'score',
     'simNukeNet',
     'simMissileNet',
@@ -223,6 +235,19 @@ export function NukeTargetsPage() {
   const urlAttackerId = searchParams.get('attackerNationId') || savedNationId || '';
   const [draftNationId, setDraftNationId] = useState(urlAttackerId);
   const [appliedNationId, setAppliedNationId] = useState(urlAttackerId);
+
+  const urlAttrition = parseOptionalBoolParam(searchParams, 'attrition');
+  const urlGuidingSatellite = parseOptionalBoolParam(searchParams, 'guidingSatellite');
+  const [attritionEnabled, setAttritionEnabled] = useState<boolean>(urlAttrition ?? true);
+  const [guidingSatelliteEnabled, setGuidingSatelliteEnabled] = useState<boolean>(
+    urlGuidingSatellite ?? false
+  );
+  /** Nation id we already preset (or URL-overrode) damage mods for. */
+  const damageModsPresetForNationRef = useRef<string | null>(
+    urlAttackerId && (urlAttrition !== null || urlGuidingSatellite !== null)
+      ? urlAttackerId
+      : null
+  );
 
   const [draftFilters, setDraftFilters] = useState<NukeTargetsDraftFilters>(() =>
     buildNukeTargetsDraftFromSearchParams(searchParams, urlAttackerId || undefined, '')
@@ -334,6 +359,8 @@ export function NukeTargetsPage() {
       appliedNationId,
       apiScoreBounds.minScore,
       apiScoreBounds.maxScore,
+      attritionEnabled,
+      guidingSatelliteEnabled,
     ],
     queryFn: () =>
       fetchNukeTargets({
@@ -341,12 +368,40 @@ export function NukeTargetsPage() {
         minScore: apiScoreBounds.minScore,
         maxScore: apiScoreBounds.maxScore,
         vmode: false,
+        attrition: attritionEnabled,
+        guidingSatellite: guidingSatelliteEnabled,
       }),
     enabled: !!appliedNationId,
     retry: false,
   });
 
   const isInitialLoading = isLoading && !!appliedNationId;
+
+  useEffect(() => {
+    if (!appliedNationId) {
+      damageModsPresetForNationRef.current = null;
+      return;
+    }
+    if (!data?.attacker) return;
+    if (damageModsPresetForNationRef.current === appliedNationId) return;
+    damageModsPresetForNationRef.current = appliedNationId;
+    setAttritionEnabled(data.attacker.warpolicy === 'Attrition');
+    setGuidingSatelliteEnabled(Boolean(data.attacker.guidingSatellite));
+  }, [data?.attacker, appliedNationId]);
+
+  useEffect(() => {
+    if (!appliedNationId) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('attrition', attritionEnabled ? 'true' : 'false');
+        next.set('guidingSatellite', guidingSatelliteEnabled ? 'true' : 'false');
+        if (next.toString() === prev.toString()) return prev;
+        return next;
+      },
+      { replace: true }
+    );
+  }, [appliedNationId, attritionEnabled, guidingSatelliteEnabled, setSearchParams]);
 
   useEffect(() => {
     if (data?.attacker?.score && appliedNationId) {
@@ -467,15 +522,14 @@ export function NukeTargetsPage() {
   }
 
   const attackerPolicy = data?.attacker?.warpolicy || '';
-  const showAttritionTip = attackerPolicy && attackerPolicy !== 'Attrition';
 
   return (
     <Container size="xl" py="md">
       <Stack gap="md">
         <Group justify="space-between" align="flex-start" wrap="wrap">
           <Stack gap={4}>
-            <Title order={1}>Nuke Targets</Title>
-            <Text size="sm" c="dimmed">
+            <Title order={2}>Nuke Targets</Title>
+            <Text c="dimmed">
               Find nations to burn in Attrition wars, ranked by potential damage from nukes and
               missiles.
             </Text>
@@ -508,7 +562,7 @@ export function NukeTargetsPage() {
                   </Badge>
                   {attackerPolicy ? (
                     <Badge variant="outline" style={{ flexShrink: 0 }}>
-                      Policy: {attackerPolicy}
+                      Nation policy: {attackerPolicy}
                     </Badge>
                   ) : null}
                 </Group>
@@ -529,10 +583,13 @@ export function NukeTargetsPage() {
                   setAppliedNationId(parsed);
                   setDraftNationId(parsed);
                   setNationId(parsed);
+                  damageModsPresetForNationRef.current = null;
                   setSearchParams(
                     (prev) => {
                       const next = new URLSearchParams(prev);
                       next.set('attackerNationId', parsed);
+                      next.delete('attrition');
+                      next.delete('guidingSatellite');
                       return next;
                     },
                     { replace: true }
@@ -546,6 +603,34 @@ export function NukeTargetsPage() {
               inputProps={{ style: { maxWidth: 260 } }}
               warningMessage={data?.warning || null}
             />
+            {appliedNationId && data?.attacker && !isLoading ? (
+              <Stack gap={6} mt="xs">
+                <Text size="sm" fw={600}>
+                  Damage modifiers
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {NUKE_TARGET_FILTER_DOCS.damageMods}
+                </Text>
+                <Switch
+                  label="Attrition war policy"
+                  description="+10% infrastructure damage dealt with missiles and nukes."
+                  checked={attritionEnabled}
+                  onChange={(event) => {
+                    damageModsPresetForNationRef.current = appliedNationId;
+                    setAttritionEnabled(event.currentTarget.checked);
+                  }}
+                />
+                <Switch
+                  label="Guiding Satellite"
+                  description="+20% missile and nuke infrastructure damage."
+                  checked={guidingSatelliteEnabled}
+                  onChange={(event) => {
+                    damageModsPresetForNationRef.current = appliedNationId;
+                    setGuidingSatelliteEnabled(event.currentTarget.checked);
+                  }}
+                />
+              </Stack>
+            ) : null}
             {linkedNationId && appliedNationId && appliedNationId !== linkedNationId && (
               <Alert color="yellow" variant="light" title="Temporary Override" mt="sm">
                 You are currently overriding your linked nation ({linkedNationId}) for this page.
@@ -554,12 +639,6 @@ export function NukeTargetsPage() {
             {!appliedNationId ? (
               <Alert color="yellow" icon={<IconInfoCircle size={16} />} variant="light">
                 Load your nation to calculate damage metrics and simulated war net damage.
-              </Alert>
-            ) : null}
-            {showAttritionTip ? (
-              <Alert color="blue" variant="light" title="Pro Tip">
-                Switch your war policy to <strong>Attrition</strong> for +10% infrastructure damage
-                dealt.
               </Alert>
             ) : null}
           </Stack>
@@ -1057,9 +1136,8 @@ export function NukeTargetsPage() {
           <Group justify="space-between" align="flex-end" wrap="wrap">
             <Stack gap={4}>
               <Title order={2}>Target List</Title>
-              <Text c="dimmed" size="sm">
-                Sorted by Nuke war net dmg. Right-click a row for nation links and the damage
-                calculator.
+              <Text c="dimmed">
+                Find vulnerable nations and calculate expected damage. Click a column header to sort by that column. Use filters to narrow down results.
               </Text>
             </Stack>
             {appliedNationId && data ? (

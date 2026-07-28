@@ -1,8 +1,11 @@
 /** User-facing table column headers for the nuke targets page. */
 export const NUKE_TARGET_COLUMN_LABELS: Record<string, string> = {
-  id: 'Nation ID',
-  nationName: 'Nation',
+  id: 'ID',
+  nationName: 'Nation Name',
+  leaderName: 'Leader',
   allianceName: 'Alliance',
+  alliancePosition: 'Position',
+  numCities: 'Cities',
   score: 'Score',
   simNukeNet: 'Nuke War Net Damage',
   simMissileNet: 'Missile War Net Damage',
@@ -30,7 +33,10 @@ export const NUKE_TARGET_COLUMN_LABELS: Record<string, string> = {
 export const NUKE_TARGET_COLUMN_DOCS: Record<string, string> = {
   id: 'Politics & War nation ID for the target.',
   nationName: 'Target nation. Right-click a row for Politics & War links and a quick-link to the damage calculator.',
+  leaderName: 'Nation leader name.',
   allianceName: 'Their current alliance.',
+  alliancePosition: 'Their position in the alliance.',
+  numCities: 'Number of cities.',
   score: 'Nation score. The server only returns targets within your selected score range.',
   simNukeNet:
     'Simulated Attrition war using only nukes until war resistance reaches 0: total expected rebuild damage minus your nuke launch costs.',
@@ -56,7 +62,7 @@ export const NUKE_TARGET_COLUMN_DOCS: Record<string, string> = {
     'Iron Dome: 30% of missiles are intercepted. Intercepted launches deal no damage and remove no resistance; successful hits remove 18 resistance.',
   falloutShelter: 'National project that reduces infrastructure damage from nukes by 10%.',
   defenderWarPolicy:
-    'Defender War Policy (e.g. Turtle takes 10% less infrastructure damage; Moneybags takes 5% more infrastructure damage).',
+    'Defender War Policy (e.g. Turtle takes 10% less infrastructure damage; Moneybags, Covert, and Arcane take 5% more infrastructure damage).',
   daysInactive: 'Days since the nation last logged in.',
   defSlots:
     'Defensive war slots in use. A nation with 3 defensive wars cannot be declared on.',
@@ -78,6 +84,8 @@ export const NUKE_TARGET_FILTER_DOCS = {
   beige: 'Beige nations cannot be declared on until beige ends. Hide them when hunting active targets.',
   defWars: 'Nations with 3 defensive wars are not attackable. Lower caps find open slots.',
   inactivity: 'Minimum days since last activity.',
+  damageMods:
+    'Attrition war policy and Guiding Satellite are preset from your loaded nation. Toggle them to override the damage math without changing your in-game settings.',
 } as const;
 
 /** Cohesive on-page guide copy (PnW domain language). */
@@ -92,7 +100,7 @@ export const NUKE_TARGETS_PAGE_GUIDE = [
   },
   {
     title: 'Damage modifiers',
-    body: 'We assume that each strike targets their highest-infrastructure city. Vital Defense System and Iron Dome are modeled as intercept probability (25% / 30%), a miss deals no infra damage. Fallout Shelter cuts nuke infrastructure damage by 10%. If you start an offensive war and use the Attrition war policy, you deal +10% infrastructure damage. The defender\'s War Policy further adjusts damage taken and dealt.',
+    body: 'We assume that each strike targets their highest-infrastructure city. Vital Defense System and Iron Dome are modeled as intercept probability (25% / 30%), a miss deals no infra damage. Fallout Shelter cuts nuke infrastructure damage by 10%. Load your nation to preset Attrition war policy (+10% infra dealt) and Guiding Satellite (+20% missile/nuke infra); you can toggle those on or off in Your Nation without changing your in-game settings. The defender\'s War Policy further adjusts damage taken and dealt.',
   },
   {
     title: 'War resistance and full-war net damage',

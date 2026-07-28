@@ -17,6 +17,9 @@ Intercept chances come from PnWPedia (.ctx/pwpedia_data.jsonl):
 - Vital Defense System: 25% of nukes shot down
 - Iron Dome: 30% of missiles shot down
 
+Attacker Guiding Satellite multiplies missile/nuke infrastructure destroyed
+by 1.2 (pwpedia Guiding-Satellite). Improvement destruction is not valued.
+
 We never roll individual intercepts; we accumulate *expected* outcomes per
 launch (``value_if_hit * P(hit)``). War simulations repeat launches until
 expected resistance reaches zero.
@@ -50,6 +53,9 @@ MISSILE_RESISTANCE_ON_HIT = 18.0  # pwpedia Missile-Strike
 
 VDS_INTERCEPT_CHANCE = 0.25  # pwpedia Vital-Defense-System, Nukes
 IRON_DOME_INTERCEPT_CHANCE = 0.30  # pwpedia Iron-Dome, Missiles
+
+# Attacker project: +20% missile/nuke infrastructure damage (pwpedia Guiding-Satellite)
+GUIDING_SATELLITE_INFRA_MOD = 1.2
 
 MAX_SIMULATION_SHOTS = 500
 
@@ -161,6 +167,7 @@ def _policy_modifiers(nation: dict[str, Any]) -> dict[str, float]:
         "policy_infra_dealt": 1.0,
         "policy_infra_lost": 1.0,
         "fallout_shelter_mod": 1.0,
+        "guiding_satellite_mod": 1.0,
     }
     policy = nation.get("warpolicy") or nation.get("war_policy") or ""
     if policy == "Attrition":
@@ -173,6 +180,8 @@ def _policy_modifiers(nation: dict[str, Any]) -> dict[str, float]:
         mods["policy_infra_lost"] = 1.05
     if _project_bool(nation, "fallout_shelter", "falloutShelter"):
         mods["fallout_shelter_mod"] = 0.9
+    if _project_bool(nation, "guiding_satellite", "guidingSatellite"):
+        mods["guiding_satellite_mod"] = GUIDING_SATELLITE_INFRA_MOD
     return mods
 
 
@@ -227,6 +236,7 @@ def _raw_nuke_infra(
     policy_infra_dealt: float,
     policy_infra_lost: float,
     fallout_shelter_mod: float,
+    guiding_satellite_mod: float = 1.0,
 ) -> float:
     infra = city.infrastructure
     land = max(city.land, 1.0)
@@ -243,6 +253,7 @@ def _raw_nuke_infra(
         * policy_infra_dealt
         * policy_infra_lost
         * fallout_shelter_mod
+        * guiding_satellite_mod
     )
 
 
@@ -252,6 +263,7 @@ def _raw_missile_infra(
     war_infra_mod: float,
     policy_infra_dealt: float,
     policy_infra_lost: float,
+    guiding_satellite_mod: float = 1.0,
 ) -> float:
     infra = city.infrastructure
     land = max(city.land, 1.0)
@@ -262,7 +274,13 @@ def _raw_missile_infra(
         ),
         0,
     )
-    return base * war_infra_mod * policy_infra_dealt * policy_infra_lost
+    return (
+        base
+        * war_infra_mod
+        * policy_infra_dealt
+        * policy_infra_lost
+        * guiding_satellite_mod
+    )
 
 
 def _expected_rebuild_damage(
@@ -285,6 +303,7 @@ def _infra_destroyed_if_hit(
     policy_infra_dealt: float,
     policy_infra_lost: float,
     fallout_shelter_mod: float,
+    guiding_satellite_mod: float = 1.0,
 ) -> float:
     if strike.weapon == "nuke":
         return _raw_nuke_infra(
@@ -293,12 +312,14 @@ def _infra_destroyed_if_hit(
             policy_infra_dealt=policy_infra_dealt,
             policy_infra_lost=policy_infra_lost,
             fallout_shelter_mod=fallout_shelter_mod,
+            guiding_satellite_mod=guiding_satellite_mod,
         )
     return _raw_missile_infra(
         city,
         war_infra_mod=war_infra_mod,
         policy_infra_dealt=policy_infra_dealt,
         policy_infra_lost=policy_infra_lost,
+        guiding_satellite_mod=guiding_satellite_mod,
     )
 
 
@@ -311,6 +332,7 @@ def compute_expected_launch_outcome(
     policy_infra_dealt: float,
     policy_infra_lost: float,
     fallout_shelter_mod: float,
+    guiding_satellite_mod: float = 1.0,
 ) -> ExpectedLaunchOutcome:
     """
     Expected infra, rebuild $, and resistance for one launch.
@@ -326,6 +348,7 @@ def compute_expected_launch_outcome(
         policy_infra_dealt=policy_infra_dealt,
         policy_infra_lost=policy_infra_lost,
         fallout_shelter_mod=fallout_shelter_mod,
+        guiding_satellite_mod=guiding_satellite_mod,
     )
     return ExpectedLaunchOutcome(
         hit_probability=p_hit,
@@ -391,6 +414,7 @@ def simulate_war_net_damage(
             policy_infra_dealt=att_mods["policy_infra_dealt"],
             policy_infra_lost=def_mods["policy_infra_lost"],
             fallout_shelter_mod=def_mods["fallout_shelter_mod"],
+            guiding_satellite_mod=att_mods["guiding_satellite_mod"],
         )
 
         total_defender_damage += outcome.expected_rebuild_damage
@@ -441,6 +465,7 @@ def compute_nuke_missile_metrics(
         policy_infra_dealt=att_mods["policy_infra_dealt"],
         policy_infra_lost=def_mods["policy_infra_lost"],
         fallout_shelter_mod=def_mods["fallout_shelter_mod"],
+        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
     )
     nuke_baseline_outcome = compute_expected_launch_outcome(
         nuke_no_vds,
@@ -450,6 +475,7 @@ def compute_nuke_missile_metrics(
         policy_infra_dealt=att_mods["policy_infra_dealt"],
         policy_infra_lost=def_mods["policy_infra_lost"],
         fallout_shelter_mod=def_mods["fallout_shelter_mod"],
+        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
     )
     missile_outcome = compute_expected_launch_outcome(
         missile_strike,
@@ -459,6 +485,7 @@ def compute_nuke_missile_metrics(
         policy_infra_dealt=att_mods["policy_infra_dealt"],
         policy_infra_lost=def_mods["policy_infra_lost"],
         fallout_shelter_mod=def_mods["fallout_shelter_mod"],
+        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
     )
     missile_baseline_outcome = compute_expected_launch_outcome(
         missile_no_dome,
@@ -468,6 +495,7 @@ def compute_nuke_missile_metrics(
         policy_infra_dealt=att_mods["policy_infra_dealt"],
         policy_infra_lost=def_mods["policy_infra_lost"],
         fallout_shelter_mod=def_mods["fallout_shelter_mod"],
+        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
     )
 
     sim_nuke_net, sim_nuke_shots, _, _ = simulate_war_net_damage(attacker, defender, "nuke")

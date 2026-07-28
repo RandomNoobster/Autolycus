@@ -87,11 +87,47 @@ const boolBadge = (on: boolean | undefined, onLabel: string) =>
     </Text>
   );
 
+/** Soft color by defender infra-taken effect relevant to nuke/missile damage. */
+function defenderWarPolicyCell(policy: string | undefined) {
+  const label = (policy || '').trim();
+  if (!label || label === 'None') {
+    return (
+      <Text size="sm" c="dimmed">
+        {label || '—'}
+      </Text>
+    );
+  }
+  // Turtle: −10% infra taken (worse target). Cooler tone.
+  if (label === 'Turtle') {
+    return (
+      <Text size="sm" c="cyan.4" fw={500}>
+        {label}
+      </Text>
+    );
+  }
+  // Moneybags / Covert / Arcane: +5% infra taken (better target). Warmer tone.
+  if (label === 'Moneybags' || label === 'Covert' || label === 'Arcane') {
+    return (
+      <Text size="sm" c="orange.4" fw={500}>
+        {label}
+      </Text>
+    );
+  }
+  return (
+    <Text size="sm" c="dimmed">
+      {label}
+    </Text>
+  );
+}
+
 function buildNukeTargetsCsv(rows: NukeTarget[]): string {
   const headers = [
     'id',
     'nationName',
+    'leaderName',
     'allianceName',
+    'alliancePosition',
+    'numCities',
     'score',
     'simNukeNet',
     'simMissileNet',
@@ -173,34 +209,73 @@ export function NukeTargetsTable({
         accessorKey: 'id',
         header: NUKE_TARGET_COLUMN_LABELS.id,
         Header: () => doc('id'),
-        size: 88,
-        mantineTableBodyCellProps: { align: 'right' },
-        filterFn: minOnlyFilter,
-        Filter: NumericMinOnlyFilterInput,
+        size: 70,
+        enableColumnFilter: false,
       },
       {
         accessorKey: 'nationName',
         header: NUKE_TARGET_COLUMN_LABELS.nationName,
         Header: () => doc('nationName'),
-        size: 160,
+        size: 170,
         enableColumnFilter: false,
         Cell: ({ row }) => (
           <Anchor
             href={`https://politicsandwar.com/nation/id=${row.original.id}`}
             target="_blank"
-            rel="noopener noreferrer"
             size="sm"
-            fw={500}
           >
             {row.original.nationName}
           </Anchor>
         ),
       },
       {
+        accessorKey: 'leaderName',
+        header: NUKE_TARGET_COLUMN_LABELS.leaderName,
+        Header: () => doc('leaderName'),
+        size: 130,
+        enableColumnFilter: false,
+      },
+      {
         accessorKey: 'allianceName',
         header: NUKE_TARGET_COLUMN_LABELS.allianceName,
         Header: () => doc('allianceName'),
-        size: 130,
+        size: 140,
+        enableColumnFilter: false,
+        Cell: ({ row }) =>
+          row.original.allianceId !== '0' ? (
+            <Anchor
+              href={`https://politicsandwar.com/alliance/id=${row.original.allianceId}`}
+              target="_blank"
+              size="sm"
+            >
+              {row.original.allianceName}
+            </Anchor>
+          ) : (
+            <Text size="sm" c="dimmed">
+              None
+            </Text>
+          ),
+      },
+      {
+        accessorKey: 'alliancePosition',
+        header: NUKE_TARGET_COLUMN_LABELS.alliancePosition,
+        Header: () => doc('alliancePosition'),
+        size: 110,
+        enableColumnFilter: false,
+        Cell: ({ cell }) => {
+          const value = cell.getValue<string>() || '';
+          return value === 'NOALLIANCE' || value === 'Unknown' || !value
+            ? 'None'
+            : value.toLowerCase();
+        },
+      },
+      {
+        accessorKey: 'numCities',
+        header: NUKE_TARGET_COLUMN_LABELS.numCities,
+        Header: () => doc('numCities'),
+        size: 90,
+        filterFn: minOnlyFilter,
+        Filter: NumericMinOnlyFilterInput,
       },
       {
         accessorKey: 'score',
@@ -318,6 +393,7 @@ export function NukeTargetsTable({
         Header: () => doc('vds'),
         size: 82,
         enableColumnFilter: false,
+        mantineTableBodyCellProps: { align: 'center' },
         Cell: ({ row }) => boolBadge(row.original.vds, 'VDS'),
       },
       {
@@ -326,6 +402,7 @@ export function NukeTargetsTable({
         Header: () => doc('ironDome'),
         size: 98,
         enableColumnFilter: false,
+        mantineTableBodyCellProps: { align: 'center' },
         Cell: ({ row }) => boolBadge(row.original.ironDome, 'Dome'),
       },
       {
@@ -334,6 +411,7 @@ export function NukeTargetsTable({
         Header: () => doc('falloutShelter'),
         size: 108,
         enableColumnFilter: false,
+        mantineTableBodyCellProps: { align: 'center' },
         Cell: ({ row }) => boolBadge(row.original.falloutShelter, 'Shelter'),
       },
       {
@@ -341,6 +419,7 @@ export function NukeTargetsTable({
         header: NUKE_TARGET_COLUMN_LABELS.defenderWarPolicy,
         Header: () => doc('defenderWarPolicy'),
         size: 132,
+        Cell: ({ row }) => defenderWarPolicyCell(row.original.defenderWarPolicy),
       },
       {
         accessorKey: 'daysInactive',

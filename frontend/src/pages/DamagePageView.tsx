@@ -695,6 +695,7 @@ const buildDefaultInputs = (
     vds: false,
     irond: false,
     falloutShelter: false,
+    guidingSatellite: false,
     militarySalvage: false,
     advancedPirateEconomy: false,
     soldiersUseMunitions: true,
@@ -713,6 +714,7 @@ const buildDefaultInputs = (
     vds: false,
     irond: false,
     falloutShelter: false,
+    guidingSatellite: false,
     militarySalvage: false,
     advancedPirateEconomy: false,
     soldiersUseMunitions: true,
@@ -885,7 +887,8 @@ interface NationDamageModifiersProps {
 }
 
 // Per PWPedia: "Soldiers", "Vital-Defense-System", "Iron-Dome",
-// "Fallout-Shelter", "Military-Salvage", and "Advanced-Pirate-Economy" articles.
+// "Fallout-Shelter", "Guiding-Satellite", "Military-Salvage", and
+// "Advanced-Pirate-Economy" articles.
 const NationDamageModifiers = memo(function NationDamageModifiers({
   form,
   basePath,
@@ -896,6 +899,7 @@ const NationDamageModifiers = memo(function NationDamageModifiers({
       | "vds"
       | "irond"
       | "falloutShelter"
+      | "guidingSatellite"
       | "militarySalvage"
       | "advancedPirateEconomy",
   ) => Boolean(form.values[basePath][field]);
@@ -906,6 +910,7 @@ const NationDamageModifiers = memo(function NationDamageModifiers({
       | "vds"
       | "irond"
       | "falloutShelter"
+      | "guidingSatellite"
       | "militarySalvage"
       | "advancedPirateEconomy",
     checked: boolean,
@@ -941,6 +946,14 @@ const NationDamageModifiers = memo(function NationDamageModifiers({
         checked={isChecked("falloutShelter")}
         onChange={(event) =>
           handleToggle("falloutShelter", event.currentTarget.checked)
+        }
+      />
+      <Switch
+        label="Guiding Satellite"
+        description="Missiles and nukes deal +20% infrastructure damage and destroy +1 improvement (improvement value is not included in $ damage)."
+        checked={isChecked("guidingSatellite")}
+        onChange={(event) =>
+          handleToggle("guidingSatellite", event.currentTarget.checked)
         }
       />
       <Switch

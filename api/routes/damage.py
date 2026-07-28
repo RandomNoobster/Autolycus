@@ -728,6 +728,7 @@ def _apply_nation_overrides(nation: dict[str, Any], overrides: dict[str, Any]) -
         ("vds", "vds"),
         ("irond", "irond"),
         ("falloutShelter", "fallout_shelter"),
+        ("guidingSatellite", "guiding_satellite"),
         ("militarySalvage", "military_salvage"),
         ("advancedPirateEconomy", "advanced_pirate_economy"),
     ]:
@@ -815,6 +816,7 @@ def _build_prefill_inputs(
             "vds": bool(nation.get("vds", False)),
             "irond": bool(nation.get("irond", False)),
             "falloutShelter": bool(nation.get("fallout_shelter", False)),
+            "guidingSatellite": bool(nation.get("guiding_satellite", False)),
             "militarySalvage": bool(nation.get("military_salvage", False)),
             "advancedPirateEconomy": bool(nation.get("advanced_pirate_economy", False)),
             "soldiersUseMunitions": bool(results.get(f"{nation_key}_soldiers_use_munitions", True)),

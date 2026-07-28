@@ -193,6 +193,38 @@ class General(commands.Cog):
             {"$pull": {"beige_alerts": {"$in": variants}}},
         )
 
+    async def _notify_debug_cannot_dm(
+        self,
+        user: dict,
+        nation_id: str,
+        *,
+        reason: str,
+        preemptive: bool = False,
+    ) -> None:
+        """Post to the debug channel when a reminder DM is blocked/user missing."""
+        debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
+        if not debug_channel:
+            return
+        kind = "preemptive reminder" if preemptive else "beige reminder"
+        embed = err_util.error_embed(
+            f"Cannot DM for {kind}",
+            (
+                f"Discord `{reason}` for user `{user['user']}` "
+                f"(nation `{nation_id}`). Beige alert removed."
+            ),
+            reference=None,
+            color=err_util.ERROR_EMBED_COLOR,
+            contact_footer=None,
+        )
+        try:
+            await debug_channel.send(embed=embed)
+        except Exception:
+            logger.exception(
+                "Failed to notify debug channel about cannot-DM for user %s nation %s",
+                user.get("user"),
+                nation_id,
+            )
+
     async def _fetch_nation_data(self, nation_ids: list[str]) -> list[dict]:
         """Fetch current nation data from Politics & War API.
 
@@ -432,13 +464,16 @@ class General(commands.Cog):
             if pull_after:
                 await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
 
-        except (discord.NotFound, discord.Forbidden):
+        except (discord.NotFound, discord.Forbidden) as e:
             logger.warning(
                 "Discord did not find/allow me to message %s; removing beige alert for nation %s",
                 user["user"],
                 nation_id,
             )
             await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
+            await self._notify_debug_cannot_dm(
+                user, nation_id, reason=type(e).__name__
+            )
         except Exception as e:
             logger.error(f"Error sending reminder: {e}", exc_info=True)
             debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)
@@ -733,13 +768,19 @@ class General(commands.Cog):
 
                 await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
 
-            except (discord.NotFound, discord.Forbidden):
+            except (discord.NotFound, discord.Forbidden) as e:
                 logger.warning(
                     "Preemptive reminder: cannot DM user %s; removing beige alert for nation %s",
                     user["user"],
                     nation_id,
                 )
                 await self._pull_beige_alert_for_user(int(user["user"]), nation_id)
+                await self._notify_debug_cannot_dm(
+                    user,
+                    nation_id,
+                    reason=type(e).__name__,
+                    preemptive=True,
+                )
             except Exception as e:
                 logger.error(f"Error sending preemptive reminder: {e}", exc_info=True)
                 debug_channel = self.bot.get_channel(DEBUG_CHANNEL_ID)

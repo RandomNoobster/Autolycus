@@ -390,6 +390,7 @@ def _apply_policy_modifiers(results: Dict[str, Any], nation_key: str) -> None:
     results[f"{nation_key}_vds_mod"] = 1
     results[f"{nation_key}_irond_mod"] = 1
     results[f"{nation_key}_fallout_shelter_mod"] = 1
+    results[f"{nation_key}_guiding_satellite_mod"] = 1
     results[f"{nation_key}_military_salvage_mod"] = 0
     results[f"{nation_key}_pirate_econ_loot"] = 1
     results[f"{nation_key}_advanced_pirate_econ_loot"] = 1
@@ -423,6 +424,8 @@ def _apply_policy_modifiers(results: Dict[str, Any], nation_key: str) -> None:
         results[f"{nation_key}_irond_mod"] = 0.7
     if results[nation_key].get("fallout_shelter"):
         results[f"{nation_key}_fallout_shelter_mod"] = 0.9
+    if results[nation_key].get("guiding_satellite"):
+        results[f"{nation_key}_guiding_satellite_mod"] = 1.2
     if results[nation_key].get("military_salvage"):
         results[f"{nation_key}_military_salvage_mod"] = 1
     if results[nation_key].get("advanced_pirate_economy"):
@@ -582,7 +585,7 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
             results[defender]["city"]["infrastructure"] * 0.8 + 150,
         ),
         0,
-    ) * results[f"{attacker}_war_infra_mod"] * results[f"{attacker}_policy_infra_dealt"] * results[f"{defender}_policy_infra_lost"] * results[f"{defender}_fallout_shelter_mod"]
+    ) * results[f"{attacker}_war_infra_mod"] * results[f"{attacker}_policy_infra_dealt"] * results[f"{defender}_policy_infra_lost"] * results[f"{defender}_fallout_shelter_mod"] * results[f"{attacker}_guiding_satellite_mod"]
 
     results[f"{attacker}_missile_{defender}_lost_infra_avg"] = max(
         min(
@@ -590,7 +593,7 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
             results[defender]["city"]["infrastructure"] * 0.3 + 100,
         ),
         0,
-    ) * results[f"{attacker}_war_infra_mod"] * results[f"{attacker}_policy_infra_dealt"] * results[f"{defender}_policy_infra_lost"]
+    ) * results[f"{attacker}_war_infra_mod"] * results[f"{attacker}_policy_infra_dealt"] * results[f"{defender}_policy_infra_lost"] * results[f"{attacker}_guiding_satellite_mod"]
 
     for key in [
         f"{attacker}_ground_{defender}_lost_infra",

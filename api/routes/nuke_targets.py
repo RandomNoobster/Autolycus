@@ -5,6 +5,7 @@ List nations from SQLite cache with nuke/missile damage metrics and simulated
 attrition-war net damage. Table filters (alliance, beige, infra, etc.) are
 applied on the web client; GET / only applies score bounds and vacation mode.
 """
+import copy
 import logging
 import time
 from datetime import datetime, timezone
@@ -36,6 +37,33 @@ logger = logging.getLogger(__name__)
 nuke_targets_bp = Blueprint("nuke_targets", __name__, url_prefix="/api/nuke-targets")
 
 
+def _parse_optional_bool(raw: Optional[str]) -> Optional[bool]:
+    if raw is None:
+        return None
+    return str(raw).lower() in ("true", "1", "yes")
+
+
+def apply_attacker_damage_overrides(
+    attacker: dict[str, Any],
+    *,
+    attrition: Optional[bool] = None,
+    guiding_satellite: Optional[bool] = None,
+) -> dict[str, Any]:
+    """
+    Return a shallow-copied attacker with optional damage-mod overrides.
+
+    ``attrition=True`` forces Attrition (+10% infra dealt); ``False`` clears the
+    attacker war policy so dealt-damage policy mods do not apply.
+    ``guiding_satellite`` overrides the Guiding Satellite project flag.
+    """
+    out = copy.copy(attacker)
+    if attrition is not None:
+        out["warpolicy"] = "Attrition" if attrition else "None"
+    if guiding_satellite is not None:
+        out["guiding_satellite"] = bool(guiding_satellite)
+    return out
+
+
 @nuke_targets_bp.route("/", methods=["GET"])
 @optional_discord_session
 def get_nuke_targets() -> tuple[Any, int]:
@@ -44,6 +72,10 @@ def get_nuke_targets() -> tuple[Any, int]:
         user_id = getattr(request, "session_user_id", None)
 
         attacker_nation_id = request.args.get("attackerNationId", type=int)
+        attrition_override = _parse_optional_bool(request.args.get("attrition"))
+        guiding_satellite_override = _parse_optional_bool(
+            request.args.get("guidingSatellite")
+        )
         req_min_score = request.args.get("minScore", type=float)
         min_score = 15 if req_min_score is None else max(15, float(req_min_score))
         max_score = request.args.get("maxScore", type=float)
@@ -118,6 +150,14 @@ def get_nuke_targets() -> tuple[Any, int]:
                 except Exception:
                     pass
 
+        attacker_for_calc = None
+        if attacker:
+            attacker_for_calc = apply_attacker_damage_overrides(
+                attacker,
+                attrition=attrition_override,
+                guiding_satellite=guiding_satellite_override,
+            )
+
         now_utc = datetime.now(timezone.utc)
         targets: list[dict[str, Any]] = []
 
@@ -163,8 +203,8 @@ def get_nuke_targets() -> tuple[Any, int]:
                 "nukes": nation.get("nukes", 0),
             }
 
-            if attacker:
-                metrics = compute_nuke_missile_metrics(attacker, nation)
+            if attacker_for_calc:
+                metrics = compute_nuke_missile_metrics(attacker_for_calc, nation)
                 if metrics is None:
                     continue
                 row.update(metrics_to_dict(metrics))
@@ -193,13 +233,21 @@ def get_nuke_targets() -> tuple[Any, int]:
             targets.append(row)
 
         attacker_payload = None
-        if attacker:
+        if attacker and attacker_for_calc:
+            nation_policy = str(attacker.get("warpolicy") or "")
+            nation_gs = bool(attacker.get("guiding_satellite"))
+            effective_policy = str(attacker_for_calc.get("warpolicy") or "")
+            effective_gs = bool(attacker_for_calc.get("guiding_satellite"))
             attacker_payload = {
                 "id": attacker.get("id"),
                 "nation_name": attacker.get("nation_name"),
                 "leader_name": attacker.get("leader_name"),
                 "score": float(attacker.get("score", 0) or 0),
-                "warpolicy": str(attacker.get("warpolicy") or ""),
+                "warpolicy": nation_policy,
+                "guidingSatellite": nation_gs,
+                "effectiveWarPolicy": effective_policy,
+                "effectiveGuidingSatellite": effective_gs,
+                "attrition": effective_policy == "Attrition",
             }
 
         response = {
@@ -219,6 +267,16 @@ def get_nuke_targets() -> tuple[Any, int]:
                 "resistanceOnHit": {"nuke": NUKE_RESISTANCE_ON_HIT, "missile": MISSILE_RESISTANCE_ON_HIT},
                 "interceptChance": {"vds": VDS_INTERCEPT_CHANCE, "ironDome": IRON_DOME_INTERCEPT_CHANCE},
                 "dollarDamage": "infra_rebuild_cost",
+                "attackerAttrition": (
+                    (attacker_for_calc or {}).get("warpolicy") == "Attrition"
+                    if attacker_for_calc
+                    else None
+                ),
+                "attackerGuidingSatellite": (
+                    bool((attacker_for_calc or {}).get("guiding_satellite"))
+                    if attacker_for_calc
+                    else None
+                ),
             },
             "warning": nation_warning,
         }

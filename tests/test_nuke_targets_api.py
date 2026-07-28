@@ -8,7 +8,7 @@ from flask import Flask
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from api.routes.nuke_targets import nuke_targets_bp
+from api.routes.nuke_targets import apply_attacker_damage_overrides, nuke_targets_bp
 
 
 @pytest.fixture
@@ -29,3 +29,26 @@ def test_nuke_targets_route_returns_json(client):
     assert "assumptions" in payload
     assert payload["assumptions"]["warType"] == "ATTRITION"
     assert isinstance(payload["targets"], list)
+
+
+def test_apply_attacker_damage_overrides_attrition_and_satellite():
+    attacker = {
+        "id": 1,
+        "warpolicy": "Turtle",
+        "guiding_satellite": False,
+    }
+    forced = apply_attacker_damage_overrides(
+        attacker, attrition=True, guiding_satellite=True
+    )
+    assert forced["warpolicy"] == "Attrition"
+    assert forced["guiding_satellite"] is True
+    assert attacker["warpolicy"] == "Turtle"
+    assert attacker["guiding_satellite"] is False
+
+    cleared = apply_attacker_damage_overrides(
+        {"id": 2, "warpolicy": "Attrition", "guiding_satellite": True},
+        attrition=False,
+        guiding_satellite=False,
+    )
+    assert cleared["warpolicy"] == "None"
+    assert cleared["guiding_satellite"] is False

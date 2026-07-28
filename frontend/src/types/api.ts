@@ -119,7 +119,16 @@ export interface NukeTarget {
 }
 
 export interface NukeTargetsAttackerInfo extends AttackerInfo {
+  /** Nation's actual war policy from cache. */
   warpolicy?: string;
+  /** Nation's actual Guiding Satellite project from cache. */
+  guidingSatellite?: boolean;
+  /** War policy used for damage math after overrides. */
+  effectiveWarPolicy?: string;
+  /** Guiding Satellite flag used for damage math after overrides. */
+  effectiveGuidingSatellite?: boolean;
+  /** Whether Attrition is applied in damage math. */
+  attrition?: boolean;
 }
 
 export interface NukeTargetsAssumptions {
@@ -127,6 +136,8 @@ export interface NukeTargetsAssumptions {
   warRole: string;
   resistanceModel: string;
   dollarDamage: string;
+  attackerAttrition?: boolean | null;
+  attackerGuidingSatellite?: boolean | null;
 }
 
 export interface NukeTargetsResponse {
@@ -461,6 +472,7 @@ export interface DamageNationInput {
   vds: boolean;
   irond: boolean;
   falloutShelter: boolean;
+  guidingSatellite: boolean;
   militarySalvage: boolean;
   advancedPirateEconomy: boolean;
   soldiersUseMunitions: boolean;
