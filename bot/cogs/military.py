@@ -496,11 +496,9 @@ class TargetFinding(commands.Cog):
                     return
 
             if score:
-                minscore = round(score * 0.75)
-                maxscore = round(score * 2.5)
+                minscore, maxscore = military_logic.war_range_query_bounds(score)
             else:
-                minscore = round(atck_ntn['score'] * 0.75)
-                maxscore = round(atck_ntn['score'] * 2.5)
+                minscore, maxscore = military_logic.war_range_query_bounds(atck_ntn['score'])
 
             file_content = last_fetched = None
             last_load_exception = None
@@ -567,7 +565,8 @@ class TargetFinding(commands.Cog):
                     nation_score = x.get('score')
                     if nation_score is None:
                         continue
-                    if not minscore < nation_score < maxscore:
+                    # Bounds from war_range_query_bounds are already conservative.
+                    if nation_score < minscore or nation_score > maxscore:
                         continue
                     if beige:
                         pass
@@ -1387,12 +1386,10 @@ class TargetFinding(commands.Cog):
             if not fail:
                 res = await api_client.call(f"{{nations(first:1 id:{user['id']}){{data{get_query(queries.NUKETARGETS)}}}}}", api_key)
                 user_nation = res['data']['nations']['data'][0]
-                minscore = round(user_nation['score'] * 0.75)
-                maxscore = round(user_nation['score'] * 2.5)
+                minscore, maxscore = military_logic.war_range_query_bounds(user_nation['score'])
                 all_nations = await api_client.paginate_call(f"{{nations(first:150 page:page_number vmode:false max_score:{maxscore} min_score:{minscore} alliance_id:[{' '.join(alliance_ids)}]) {{paginatorInfo{{hasMorePages}} data{get_query(queries.NUKETARGETS)}}}}}", "nations", api_key)
 
-            minscore = round(user_nation['score'] * 0.75)
-            maxscore = round(user_nation['score'] * 2.5)
+            minscore, maxscore = military_logic.war_range_query_bounds(user_nation['score'])
             nation_list = []
             for nation in all_nations:
                 try:

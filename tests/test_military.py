@@ -13,7 +13,7 @@ import os
 # Add parent directory to path so we can import logic
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from logic.military import calculate_win_chance_raw, score_range
+from logic.military import calculate_win_chance_raw, score_range, war_range_query_bounds
 
 
 class TestCalculateWinChance:
@@ -179,6 +179,30 @@ class TestScoreRange:
         for score in scores:
             min_score, max_score = score_range(score)
             assert min_score < max_score
+
+
+class TestWarRangeQueryBounds:
+    """Conservative ceil/floor war-range bounds for target queries."""
+
+    def test_integer_score(self):
+        assert war_range_query_bounds(100) == (75, 250)
+
+    def test_inward_rounding(self):
+        # true min 750.45 → ceil 751; true max 2501.5 → floor 2501
+        assert war_range_query_bounds(1000.6) == (751, 2501)
+
+    def test_never_wider_than_exact_range(self):
+        scores = [50.3, 100, 777.7, 1000.6, 5432.1]
+        for score in scores:
+            exact_lo, exact_hi = score_range(score)
+            query_lo, query_hi = war_range_query_bounds(score)
+            assert query_lo >= exact_lo
+            assert query_hi <= exact_hi
+
+    def test_min_clamped_to_15(self):
+        lo, hi = war_range_query_bounds(10)
+        assert lo == 15
+        assert hi == 25
 
 
 if __name__ == "__main__":

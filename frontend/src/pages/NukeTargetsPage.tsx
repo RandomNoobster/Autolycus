@@ -45,6 +45,7 @@ import {
 } from '@/lib/nukeTargetsDraftState';
 import { NUKE_TARGET_FILTER_DOCS, NUKE_TARGETS_PAGE_GUIDE } from '@/lib/nukeTargetsColumnDocs';
 import { parseNumericValue } from '@/lib/raidFilterParsing';
+import { warRangeQueryBounds } from '@/lib/warRange';
 import type { ApiError, NukeTarget } from '@/types';
 
 function parseNationId(raw: string): string | null {
@@ -339,10 +340,7 @@ export function NukeTargetsPage() {
     if (appliedFilters.scoreMode === 'yours' && appliedNationId) {
       const score = parseNumericValue(appliedFilters.yourScore);
       if (score > 0) {
-        return {
-          minScore: Math.max(15, Math.round(score * 0.75)),
-          maxScore: Math.round(score * 2.5),
-        };
+        return warRangeQueryBounds(score);
       }
     }
     const min = parseNumericValue(appliedFilters.minScore);

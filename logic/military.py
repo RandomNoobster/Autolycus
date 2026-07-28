@@ -44,9 +44,22 @@ def militarization_checker(nation: dict[str, Any]) -> dict[str, float]:
 
 
 def score_range(score: float) -> tuple[float, float]:
+    """Exact PnW offensive war range (display / docs)."""
     min_score = score * 0.75
     max_score = score * 2.5
     return min_score, max_score
+
+
+def war_range_query_bounds(score: float) -> tuple[int, int]:
+    """
+    Conservative score bounds for raid/nuke target queries.
+
+    Prefer hiding a barely-in-range nation over showing one that fails declare.
+    Pair with inclusive filters (score >= min AND score <= max).
+    """
+    lo = max(15, math.ceil(score * 0.75))
+    hi = math.floor(score * 2.5)
+    return lo, hi
 
 def calculate_win_chance_raw(attacker_value: float, defender_value: float) -> float:
     """

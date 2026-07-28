@@ -72,6 +72,7 @@ import {
   parseRaidsFiltersStorageJson,
   serializeRaidsFiltersStorageV3,
 } from '@/lib/raidsFiltersStorage';
+import { warRangeQueryBounds } from '@/lib/warRange';
 
 type TableSettings = {
   columnVisibility: MRT_VisibilityState;
@@ -757,8 +758,9 @@ export function RaidsPage() {
       if (draftFilters.scoreMode === 'yours' && draftFilters.yourScore) {
         const score = Number(draftFilters.yourScore);
         if (!Number.isNaN(score)) {
-          next.set('minScore', String(Math.round(score * 0.75)));
-          next.set('maxScore', String(Math.round(score * 2.5)));
+          const { minScore, maxScore } = warRangeQueryBounds(score);
+          next.set('minScore', String(minScore));
+          next.set('maxScore', String(maxScore));
           next.set('scoreMode', 'yours');
           next.set('yourScore', draftFilters.yourScore);
         } else if (preservedScore.scoreMode === 'yours' && preservedScore.yourScore) {
