@@ -209,7 +209,7 @@ export function RaidsPage() {
   const [searchParams, setSearchParams] = useRaidsSearchParams();
 
   const attackerNationIdParam = searchParams.get('attackerNationId') || undefined;
-  const { data: linkedNationData, refetch: refetchLinkedNation } = useQuery({
+  const { data: linkedNationData, isFetched: linkedNationFetched, refetch: refetchLinkedNation } = useQuery({
     queryKey: ['linkedNation'],
     queryFn: async () => {
       try {
@@ -221,7 +221,8 @@ export function RaidsPage() {
     retry: false,
   });
   const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || undefined : undefined;
-  const resolvedNationId = attackerNationIdParam || linkedNationId || savedNationId;
+  // Prefer URL override, then local saved/applied id. Linked nation is only an empty-field prefill.
+  const resolvedNationId = attackerNationIdParam || savedNationId || undefined;
   const [appliedNationId, setAppliedNationId] = useState(resolvedNationId);
   const [draftNationId, setDraftNationId] = useState(resolvedNationId);
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
@@ -230,18 +231,46 @@ export function RaidsPage() {
   });
 
   useEffect(() => {
-    const nextNationId = attackerNationIdParam || linkedNationId || savedNationId;
-    if (nextNationId && nextNationId !== appliedNationId) {
-      setAppliedNationId(nextNationId);
-      setDraftNationId(nextNationId);
-    }
+    // Explicit URL attacker always wins.
     if (attackerNationIdParam) {
-      const parsed = parseNationId(attackerNationIdParam);
-      if (parsed) {
-        setNationId(parsed);
+      const parsed = parseNationId(attackerNationIdParam) || attackerNationIdParam;
+      if (parsed !== appliedNationId) {
+        setAppliedNationId(parsed);
+        setDraftNationId(parsed);
       }
+      if (parsed) setNationId(parsed);
+      return;
     }
-  }, [attackerNationIdParam, linkedNationId, savedNationId, appliedNationId, parseNationId, setNationId]);
+
+    // Linked nation only prefills when the nation field is still empty — never overrides
+    // a saved/localStorage or already-applied id (e.g. 346 sitting in localStorage).
+    if (!appliedNationId && !draftNationId) {
+      const fallback = linkedNationId || savedNationId;
+      if (fallback) {
+        setAppliedNationId(fallback);
+        setDraftNationId(fallback);
+        if (linkedNationId && !savedNationId) {
+          setNationId(linkedNationId);
+        }
+      }
+      return;
+    }
+
+    // Keep draft in sync if saved id appears and both fields were empty above didn't run.
+    if (!appliedNationId && savedNationId) {
+      setAppliedNationId(savedNationId);
+      setDraftNationId(savedNationId);
+    }
+  }, [
+    attackerNationIdParam,
+    linkedNationId,
+    linkedNationFetched,
+    savedNationId,
+    appliedNationId,
+    draftNationId,
+    parseNationId,
+    setNationId,
+  ]);
 
   const parseNumber = (key: string): number | undefined => {
     const val = searchParams.get(key);
@@ -378,6 +407,8 @@ export function RaidsPage() {
       return fetchRaids(filters);
     },
     retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   /** Prefer live PnW score over SQLite-cached attacker from /api/raids. */
@@ -392,14 +423,16 @@ export function RaidsPage() {
   const allianceFilterOptions = useMemo(() => {
     const names = new Set<string>();
     for (const t of data?.targets ?? []) {
-      const a = t.allianceName;
+      const a = String(t.allianceName ?? '').trim();
       if (a && a !== 'None') names.add(a);
     }
     for (const a of draftFilters.alliance) {
-      if (a.trim()) names.add(a.trim());
+      const s = String(a ?? '').trim();
+      if (s) names.add(s);
     }
     for (const a of draftFilters.allianceExclude) {
-      if (a.trim()) names.add(a.trim());
+      const s = String(a ?? '').trim();
+      if (s) names.add(s);
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }, [data?.targets, draftFilters.alliance, draftFilters.allianceExclude]);
@@ -943,7 +976,29 @@ export function RaidsPage() {
           />
           {linkedNationId && appliedNationId && appliedNationId !== linkedNationId && (
             <Alert color="yellow" variant="light" title="Temporary Override" mt="sm">
-              You are currently overriding your linked nation ({linkedNationId}) for this page.
+              <Stack gap="sm">
+                <Text size="sm">
+                  You are currently overriding your linked nation ({linkedNationId}) for this page.
+                </Text>
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="yellow"
+                  w="fit-content"
+                  onClick={() => {
+                    setAppliedNationId(linkedNationId);
+                    setDraftNationId(linkedNationId);
+                    setNationId(linkedNationId);
+                    setSearchParams((prev) => {
+                      const next = new URLSearchParams(prev);
+                      next.set('attackerNationId', linkedNationId);
+                      return next;
+                    }, { replace: true });
+                  }}
+                >
+                  Use linked nation
+                </Button>
+              </Stack>
             </Alert>
           )}
         </Paper>

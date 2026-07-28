@@ -15,6 +15,7 @@ Usage:
     app = create_app()
     app.run()
 """
+import gzip
 import logging
 import os
 from typing import Optional
@@ -85,7 +86,7 @@ def create_app(config_object: Optional[object] = None) -> Flask:
     app.register_blueprint(damage_bp)
     app.register_blueprint(stats_bp)
 
-    # Security headers
+    # Security headers + gzip for large JSON payloads (raids/nuke lists).
     @app.after_request
     def add_security_headers(response):
         if app.config.get("SECURITY_HEADERS_ENABLED", True):
@@ -105,6 +106,27 @@ def create_app(config_object: Optional[object] = None) -> Flask:
         if request.path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-store")
             response.headers.setdefault("Pragma", "no-cache")
+
+        # Compress large JSON when the client accepts gzip (cuts ~7MB raids payloads
+        # down substantially over the wire).
+        accept = request.headers.get("Accept-Encoding", "")
+        if (
+            response.status_code == 200
+            and response.direct_passthrough is False
+            and "gzip" in accept
+            and "Content-Encoding" not in response.headers
+            and response.mimetype
+            and "json" in response.mimetype
+        ):
+            data = response.get_data()
+            if len(data) >= 2048:
+                compressed = gzip.compress(data, compresslevel=5)
+                if len(compressed) < len(data):
+                    response.set_data(compressed)
+                    response.headers["Content-Encoding"] = "gzip"
+                    response.headers["Content-Length"] = str(len(compressed))
+                    response.headers["Vary"] = "Accept-Encoding"
+
         return response
     
     # Health check endpoints for API clients and infrastructure probes.

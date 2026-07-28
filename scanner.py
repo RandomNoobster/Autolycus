@@ -4,7 +4,7 @@ import logging
 import os
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from functools import partial
 from typing import Any
@@ -22,6 +22,8 @@ from database.sqlite_cache import (ensure_metadata_table, ensure_table_and_colum
 from logic.api_client import call
 from logic.common import compute_beige_loot, normalize_alliance_position
 from logic.merge_utils import get_query
+from logic.raids import derive_def_slots_and_time_since_war
+from logic.revenue import get_cached_game_context, revenue_calc_sync
 
 load_dotenv()
 api_key = os.getenv("API_KEY")
@@ -200,7 +202,14 @@ async def persist_nation_row(
     *,
     source: str,
     prices: dict[str, Any] | None = None,
+    revenue_context: tuple[Any, ...] | None = None,
 ) -> dict[str, Any]:
+    """Persist a nation row and precompute raids-table scalars when possible.
+
+    ``revenue_context`` is ``(colors, prices, treasures, radiation, seasonal_mod)``
+    from :func:`get_cached_game_context`. When set, stores ``monetary_net_num`` /
+    ``net_cash_num`` so ``GET /api/raids`` never recomputes revenue on request.
+    """
     nation_id = row.get("id")
     backoffs = (0.0,) if source != "subscription" else (0.0, *SUBSCRIPTION_LOCK_RETRY_BACKOFF_SECONDS)
     for attempt_idx, backoff in enumerate(backoffs, start=1):
@@ -214,11 +223,62 @@ async def persist_nation_row(
                     working_row["alliance_position"] = normalize_alliance_position(
                         working_row["alliance_position"]
                     )
-                ensure_table_and_columns(conn, "nations", working_row)
+
+                # Raids API scalars — avoid parsing wars/cities/treasures on each request.
+                try:
+                    def_slots, time_since_war = derive_def_slots_and_time_since_war(
+                        working_row, datetime.now(timezone.utc)
+                    )
+                    working_row["def_slots"] = int(def_slots)
+                    working_row["time_since_war"] = time_since_war
+                except Exception as exc:
+                    logger.debug(
+                        "[nation-%s] def_slots derivation failed nation_id=%s error=%s",
+                        source,
+                        nation_id,
+                        exc,
+                    )
+                treasures = working_row.get("treasures") or []
+                working_row["treasure_count"] = len(treasures) if isinstance(treasures, list) else 0
+
                 loot_computed = False
-                if prices:
+                income_computed = False
+                effective_prices = prices
+                if revenue_context and len(revenue_context) >= 5:
+                    colors, ctx_prices, treasures_ctx, radiation, seasonal_mod = revenue_context[:5]
+                    if effective_prices is None:
+                        effective_prices = ctx_prices
                     try:
-                        loot = compute_beige_loot(working_row, prices)
+                        revenue_result = revenue_calc_sync(
+                            nation=working_row,
+                            radiation=radiation or {},
+                            treasures=treasures_ctx or [],
+                            prices=ctx_prices or {},
+                            colors=colors or {},
+                            seasonal_mod=seasonal_mod or {},
+                            include_spies=False,
+                        ) or {}
+                        if revenue_result.get("monetary_net_num") is not None:
+                            working_row["monetary_net_num"] = int(
+                                round(float(revenue_result["monetary_net_num"]))
+                            )
+                            income_computed = True
+                        if revenue_result.get("net_cash_num") is not None:
+                            working_row["net_cash_num"] = int(
+                                round(float(revenue_result["net_cash_num"]))
+                            )
+                    except Exception as exc:
+                        logger.debug(
+                            "[nation-%s] revenue precompute failed nation_id=%s error=%s",
+                            source,
+                            nation_id,
+                            exc,
+                        )
+
+                ensure_table_and_columns(conn, "nations", working_row)
+                if effective_prices:
+                    try:
+                        loot = compute_beige_loot(working_row, effective_prices)
                         if loot is not None:
                             working_row["nation_loot_value"] = loot
                             loot_computed = True
@@ -236,6 +296,7 @@ async def persist_nation_row(
                 "persist_ms": persist_ms,
                 "fields_count": len(working_row),
                 "loot_computed": loot_computed,
+                "income_computed": income_computed,
                 "attempt": attempt_idx,
             }
         except sqlite3.OperationalError as exc:
@@ -335,6 +396,7 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
     conn = sqlite3.connect(get_nations_db_path())
     try:
         prices = None
+        revenue_context = None
         try:
             prices_query = get_query(queries.PRICES)
             prices_resp = await call_api(
@@ -346,8 +408,20 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
         except Exception as exc:
             logger.warning("[nation-scan] failed to fetch prices for beige loot: %s", exc)
 
+        try:
+            colors, ctx_prices, treasures, radiation, seasonal_mod = await get_cached_game_context(
+                call_api, get_query, queries
+            )
+            revenue_context = (colors, ctx_prices, treasures, radiation, seasonal_mod)
+            if prices is None and isinstance(ctx_prices, dict):
+                prices = ctx_prices
+            logger.info("[nation-scan] revenue game context ready for income precompute")
+        except Exception as exc:
+            logger.warning("[nation-scan] revenue game context unavailable: %s", exc)
+
         fetched_ids: list[int] = []
         loot_computed = 0
+        income_computed = 0
         rows_written = 0
         table_ready = False
         more_pages = True
@@ -393,11 +467,19 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
                 table_ready = True
 
             for row in page_data:
-                result = await persist_nation_row(conn, row, source="scan", prices=prices)
+                result = await persist_nation_row(
+                    conn,
+                    row,
+                    source="scan",
+                    prices=prices,
+                    revenue_context=revenue_context,
+                )
                 if result.get("success"):
                     rows_written += 1
                     if result.get("loot_computed"):
                         loot_computed += 1
+                    if result.get("income_computed"):
+                        income_computed += 1
 
             fetched_ids += [
                 int(row.get('id')) for row in page_data if row.get('id') is not None
@@ -422,11 +504,12 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
             last_ts = round(datetime.utcnow().timestamp())
             set_metadata(conn, metadata_key, last_ts)
         logger.info(
-            "[nation-scan] completed pages=%s rows_saved=%s loot_precomputed=%s min_score=%s "
-            "vmode=%s duration_min=%.2f",
+            "[nation-scan] completed pages=%s rows_saved=%s loot_precomputed=%s income_precomputed=%s "
+            "min_score=%s vmode=%s duration_min=%.2f",
             n - 1,
             rows_written,
             loot_computed,
+            income_computed,
             min_score,
             vmode,
             (time.time() - series_start) / 60,

@@ -171,8 +171,18 @@ def get_all_nations_filtered(
     min_score: Optional[float] = None,
     max_score: Optional[float] = None,
     nation_ids: Optional[Set[str]] = None,
+    columns: Optional[List[str]] = None,
+    json_fields: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
-    """Fetch nations with optional SQL-level filters and selective JSON parsing."""
+    """Fetch nations with optional SQL-level filters and selective JSON parsing.
+
+    Args:
+        columns: When set, SELECT only these columns (must exist). Speeds up
+            raids/nuke loads that do not need cities blobs (~80MB+).
+        json_fields: When set, only parse these JSON columns. When None, parse
+            ``_JSON_FIELDS`` plus any other string that looks like JSON (legacy).
+            Pass an empty set to skip JSON parsing entirely.
+    """
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -191,29 +201,46 @@ def get_all_nations_filtered(
             where_clauses.append(f"id IN ({placeholders})")
             params.extend([int(nid) for nid in nation_ids if nid.isdigit()])
 
-        sql = "SELECT * FROM nations"
+        select_cols = "*"
+        if columns:
+            existing = {row[1] for row in cur.execute("PRAGMA table_info(nations)")}
+            safe_cols = [c for c in columns if c in existing]
+            if not safe_cols:
+                raise ValueError("get_all_nations_filtered: none of the requested columns exist")
+            select_cols = ", ".join(safe_cols)
+
+        sql = f"SELECT {select_cols} FROM nations"
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
         cur.execute(sql, params)
         nations = [dict(row) for row in cur.fetchall()]
 
-        for nation in nations:
-            for key in _JSON_FIELDS:
-                val = nation.get(key)
-                if isinstance(val, str):
-                    try:
-                        nation[key] = json.loads(val)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-            for key, val in nation.items():
-                if key in _JSON_FIELDS:
-                    continue
-                if isinstance(val, str) and val and val[0] in ('{', '['):
-                    try:
-                        nation[key] = json.loads(val)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+        if json_fields is None:
+            parse_keys = _JSON_FIELDS
+            parse_unknown = True
+        else:
+            parse_keys = json_fields
+            parse_unknown = False
+
+        if parse_keys or parse_unknown:
+            for nation in nations:
+                for key in parse_keys:
+                    val = nation.get(key)
+                    if isinstance(val, str):
+                        try:
+                            nation[key] = json.loads(val)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                if parse_unknown:
+                    for key, val in nation.items():
+                        if key in parse_keys:
+                            continue
+                        if isinstance(val, str) and val and val[0] in ('{', '['):
+                            try:
+                                nation[key] = json.loads(val)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
 
         ensure_metadata_table(conn)
         last_fetched = get_metadata(conn, 'last_fetched')

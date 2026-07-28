@@ -665,7 +665,35 @@ export function NukeTargetsPage() {
             ) : null}
             {linkedNationId && appliedNationId && appliedNationId !== linkedNationId && (
               <Alert color="yellow" variant="light" title="Temporary Override" mt="sm">
-                You are currently overriding your linked nation ({linkedNationId}) for this page.
+                <Stack gap="sm">
+                  <Text size="sm">
+                    You are currently overriding your linked nation ({linkedNationId}) for this page.
+                  </Text>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="yellow"
+                    w="fit-content"
+                    onClick={() => {
+                      setAppliedNationId(linkedNationId);
+                      setDraftNationId(linkedNationId);
+                      setNationId(linkedNationId);
+                      damageModsPresetForNationRef.current = null;
+                      setSearchParams(
+                        (prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.set('attackerNationId', linkedNationId);
+                          next.delete('attrition');
+                          next.delete('guidingSatellite');
+                          return next;
+                        },
+                        { replace: true }
+                      );
+                    }}
+                  >
+                    Use linked nation
+                  </Button>
+                </Stack>
               </Alert>
             )}
             {!appliedNationId ? (

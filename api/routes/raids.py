@@ -14,18 +14,15 @@ from typing import Any, Optional
 
 from flask import Blueprint, current_app, jsonify, request
 
-from logic import queries
 from api.rate_limit import try_acquire_rate_limit
 from api.security import optional_discord_session, require_discord_session
 from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
                                    get_nation_by_id)
-from logic import api_client, merge_utils
-from logic.common import compute_beige_loot, normalize_alliance_position
+from logic import api_client
+from logic.common import normalize_alliance_position
 from logic.military import calculate_win_chance_raw
-from logic.revenue import pre_revenue_calc, revenue_calc_sync
 from logic.raids import (calculate_days_inactive,
-                         derive_def_slots_and_time_since_war,
                          is_in_vacation_mode)
 
 logger = logging.getLogger(__name__)
@@ -35,6 +32,36 @@ raids_bp = Blueprint('raids', __name__, url_prefix='/api/raids')
 DEFAULT_REMINDER_MINUTES = [15]
 MAX_REMINDER_OFFSETS = 10
 MAX_REMINDER_OFFSET_MINUTES = 7 * 24 * 60
+
+# Scalar only — never pull cities/wars blobs on the request path.
+# Income / def_slots / treasure_count are precomputed by the nation scanner (and a one-time backfill).
+_RAIDS_SELECT_COLUMNS = [
+    'id',
+    'nation_name',
+    'leader_name',
+    'alliance_id',
+    'alliance_position',
+    'num_cities',
+    'score',
+    'color',
+    'beige_turns',
+    'nation_loot_value',
+    'last_active',
+    'soldiers',
+    'tanks',
+    'aircraft',
+    'ships',
+    'missiles',
+    'nukes',
+    'population',
+    'vacation_mode_turns',
+    '_created_at',
+    'monetary_net_num',
+    'net_cash_num',
+    'def_slots',
+    'time_since_war',
+    'treasure_count',
+]
 
 
 def _error_response(error: str, message: str, code: str, status: int) -> tuple[Any, int]:
@@ -127,6 +154,10 @@ def get_raids() -> tuple[Any, int]:
 
     Alliance, beige, scope, wars, inactivity, loot, and performance filters are
     not supported here — the raids page applies those in the browser.
+
+    Income, defensive slots, and treasure counts are read from scanner-precomputed
+    SQLite columns so this endpoint never re-parses cities/wars or runs revenue
+    calculation on the request path.
     """
     try:
         req_start = time.perf_counter()
@@ -150,24 +181,31 @@ def get_raids() -> tuple[Any, int]:
         )
 
         data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
+        load_t0 = time.perf_counter()
         nations_data = get_all_nations_filtered(
             data_path,
             min_score=min_score,
             max_score=max_score,
+            columns=_RAIDS_SELECT_COLUMNS,
+            # Only parse wars/treasures when precomputed columns are absent (handled per row).
+            json_fields=set(),
         )
         nations = nations_data['nations']
         last_fetched = nations_data.get('last_fetched')
+        load_ms = (time.perf_counter() - load_t0) * 1000
+
         # Build O(1) lookup dict for attacker resolution
         nations_by_id: dict[str, dict[str, Any]] = {
             str(n.get('id')): n for n in nations
         }
         logger.info(
-            "[raids] loaded nations count=%d lastFetched=%s",
+            "[raids] loaded nations count=%d lastFetched=%s load_ms=%.0f",
             len(nations),
             last_fetched,
+            load_ms,
         )
 
-        # Load alliances (for alliance colors/fallback name)
+        # Load alliances (for alliance colors/name — avoids parsing nation.alliance JSON)
         alliances_by_id: dict[str, dict[str, Any]] = {}
         alliances_path = Path(current_app.root_path).parent / 'data' / 'alliances.db'
         if alliances_path.exists():
@@ -215,6 +253,11 @@ def get_raids() -> tuple[Any, int]:
             else:
                 logger.warning(f"Nation {attacker_nation_id} not found in database")
                 nation_warning = f"Nation ID {attacker_nation_id} not found in database. Using default nation for calculations."
+                try:
+                    attacker_data = get_nation_by_id(data_path, attacker_nation_id)
+                    attacker = attacker_data.get('nation')
+                except Exception:
+                    pass
         if attacker is None and user_profile:
             attacker_id = str(user_profile.get('id', ''))
             attacker = nations_by_id.get(attacker_id)
@@ -233,32 +276,6 @@ def get_raids() -> tuple[Any, int]:
         beige_alert_set: set[str] = {str(x) for x in beige_alerts}
 
         targets: list[dict[str, Any]] = []
-        backfill_attempts = 0
-        backfill_successes = 0
-
-        # Attempt to prepare revenue context (prices, treasures, radiation)
-        revenue_context: Optional[tuple[Any, dict[str, float], dict[str, float], list[dict[str, Any]], dict[str, float], dict[str, float]]] = None
-        prices: Optional[dict[str, float]] = None
-        api_key = current_app.config.get("API_KEY") or None
-        if api_key and attacker:
-            try:
-                # pre_revenue_calc returns (nation, colors, prices, treasures, radiation, seasonal_mod)
-                revenue_context = asyncio.run(
-                    pre_revenue_calc(
-                        message=None,
-                        query_for_nation=False,
-                        parsed_nation=attacker,
-                        call_func=lambda q: api_client.call(q, api_key),
-                        get_query_func=merge_utils.get_query,
-                        queries_module=queries,
-                    )
-                )
-                # Keep prices handy for beige loot backfill
-                _, _, prices, _, _, _ = revenue_context
-                logger.info("[raids] revenue context prepared; prices loaded")
-            except Exception as e:
-                logger.warning(f"Revenue context unavailable: {e}")
-                revenue_context = None
 
         # Pre-compute attacker combat values (constant across all targets)
         if attacker:
@@ -268,6 +285,7 @@ def get_raids() -> tuple[Any, int]:
         # Compute current time once for all inactivity calculations
         now_utc = datetime.now(timezone.utc)
 
+        loop_t0 = time.perf_counter()
         for nation in nations:
             alliance_position = normalize_alliance_position(nation.get('alliance_position'))
             in_vm = is_in_vacation_mode(nation)
@@ -276,13 +294,21 @@ def get_raids() -> tuple[Any, int]:
             if vmode_param is True and not in_vm:
                 continue
 
-            alliance_id = str(nation.get('alliance_id', ''))
-            alliance_obj = (nation.get('alliance', {}) or {})
+            alliance_id = str(nation.get('alliance_id', '') or '0')
+            alliance_meta = alliances_by_id.get(alliance_id, {}) or {}
 
-            # Defensive slots and war recency
-            def_slots, time_since_war = derive_def_slots_and_time_since_war(nation, now_utc)
+            # Prefer scanner-precomputed war fields; default when mid-scan / old rows.
+            def_slots = nation.get('def_slots')
+            time_since_war = nation.get('time_since_war')
+            if def_slots is None:
+                def_slots = 0
+            if time_since_war is None:
+                time_since_war = '14+'
+            try:
+                def_slots = int(def_slots)
+            except (TypeError, ValueError):
+                def_slots = 0
 
-            # Inactivity
             days_inactive = calculate_days_inactive(nation.get('last_active'), now_utc)
 
             # Win chances (attacker values pre-computed above the loop)
@@ -297,8 +323,16 @@ def get_raids() -> tuple[Any, int]:
             else:
                 ground_win = air_win = naval_win = total_win = 50.0
 
-            monetary_net_income = nation.get('monetary_net_num', 0)
-            net_cash_income = nation.get('net_cash_num', 0)
+            monetary_net_income = nation.get('monetary_net_num') or 0
+            net_cash_income = nation.get('net_cash_num') or 0
+            try:
+                monetary_net_income = int(round(float(monetary_net_income)))
+            except (TypeError, ValueError):
+                monetary_net_income = 0
+            try:
+                net_cash_income = int(round(float(net_cash_income)))
+            except (TypeError, ValueError):
+                net_cash_income = 0
 
             nation_loot_value = 0
             try:
@@ -306,37 +340,25 @@ def get_raids() -> tuple[Any, int]:
             except (TypeError, ValueError):
                 nation_loot_value = 0
 
-            # Backfill missing beige loot from cached war logs when possible
-            # (Scanner pre-computes this now, so backfill is a rare fallback)
-            if nation_loot_value <= 0:
-                backfill_attempts += 1
-                computed_loot = compute_beige_loot(nation, prices)
-                if computed_loot is not None:
-                    nation_loot_value = computed_loot
-                    backfill_successes += 1
-            # Compute revenue if context is available (sync — no event loop overhead)
-            if revenue_context:
-                try:
-                    _, colors, prices_ctx, treasures, radiation, seasonal_mod = revenue_context
+            treasure_count = nation.get('treasure_count')
+            if treasure_count is None:
+                treasure_count = 0
+            try:
+                treasure_count = int(treasure_count)
+            except (TypeError, ValueError):
+                treasure_count = 0
 
-                    revenue_result = revenue_calc_sync(
-                        nation=nation,
-                        radiation=radiation,
-                        treasures=treasures,
-                        prices=prices_ctx,
-                        colors=colors,
-                        seasonal_mod=seasonal_mod,
-                        include_spies=False,
-                    ) or {}
-                    monetary_net_income = revenue_result.get('monetary_net_num', monetary_net_income)
-                    net_cash_income = revenue_result.get('net_cash_num', net_cash_income)
-                except Exception as e:
-                    logger.debug(f"Revenue calc failed for nation {nation.get('id')}: {e}")
-
-            alliance_color = alliance_obj.get('color') or (alliances_by_id.get(alliance_id, {}) or {}).get('color')
-            alliance_name = alliance_obj.get('name', 'None') or (alliances_by_id.get(alliance_id, {}) or {}).get('name', 'None')
+            alliance_color = alliance_meta.get('color')
+            raw_alliance_name = alliance_meta.get('name')
+            alliance_name = (
+                str(raw_alliance_name).strip() if raw_alliance_name not in (None, '') else 'None'
+            )
             nation_color = nation.get('color', '')
-            taxable = bool(nation_color and alliance_color and str(nation_color).lower() == str(alliance_color).lower())
+            taxable = bool(
+                nation_color
+                and alliance_color
+                and str(nation_color).lower() == str(alliance_color).lower()
+            )
 
             updated_at = None
             try:
@@ -365,7 +387,7 @@ def get_raids() -> tuple[Any, int]:
                 'monetaryNetIncome': monetary_net_income,
                 'netCashIncome': net_cash_income,
                 'taxable': taxable,
-                'treasures': len(nation.get('treasures') or []),
+                'treasures': treasure_count,
                 'defSlots': def_slots,
                 'timeSinceWar': time_since_war,
                 'soldiers': nation.get('soldiers', 0),
@@ -381,6 +403,7 @@ def get_raids() -> tuple[Any, int]:
                 'hasReminderActive': str(nation.get('id')) in beige_alert_set,
                 'updatedAt': updated_at,
             })
+        loop_ms = (time.perf_counter() - loop_t0) * 1000
 
         response = {
             'attacker': {
@@ -394,16 +417,16 @@ def get_raids() -> tuple[Any, int]:
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
             'discordAuthenticated': user_id is not None,
             'discordLinked': discord_linked,
-                'warning': nation_warning if 'nation_warning' in locals() else None,
+            'warning': nation_warning,
         }
 
         duration = time.perf_counter() - req_start
         logger.info(
-            "[raids] request done nations=%d targets=%d backfill=%d/%d duration=%.2fs",
+            "[raids] request done nations=%d targets=%d load_ms=%.0f loop_ms=%.0f duration=%.2fs",
             len(nations),
             len(targets),
-            backfill_successes,
-            backfill_attempts,
+            load_ms,
+            loop_ms,
             duration,
         )
 
