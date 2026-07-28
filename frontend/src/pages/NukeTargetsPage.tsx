@@ -31,7 +31,7 @@ import type {
 
 import { fetchNukeTargets } from '@/api/nukeTargets';
 import { getLinkedNation } from '@/api/auth';
-import { ErrorState, NationIdField } from '@/components/common';
+import { ErrorState, JumpToTableButton, NationIdField } from '@/components/common';
 import { NukeTargetsTable } from '@/components/nukeTargets/NukeTargetsTable';
 import { useNationId, useNukeTargetsSearchParams, useTablePersistence } from '@/hooks';
 import {
@@ -244,6 +244,7 @@ export function NukeTargetsPage() {
     urlGuidingSatellite ?? false
   );
   /** Nation id we already preset (or URL-overrode) damage mods for. */
+  const tableSectionRef = useRef<HTMLDivElement>(null);
   const damageModsPresetForNationRef = useRef<string | null>(
     urlAttackerId && (urlAttrition !== null || urlGuidingSatellite !== null)
       ? urlAttackerId
@@ -1130,7 +1131,11 @@ export function NukeTargetsPage() {
           </Stack>
         </Paper>
 
-        <Stack gap="xs">
+        <Stack
+          gap="xs"
+          ref={tableSectionRef}
+          style={{ scrollMarginTop: 72 }}
+        >
           <Group justify="space-between" align="flex-end" wrap="wrap">
             <Stack gap={4}>
               <Title order={2}>Target List</Title>
@@ -1145,6 +1150,8 @@ export function NukeTargetsPage() {
             ) : null}
           </Group>
         </Stack>
+
+        <JumpToTableButton targetRef={tableSectionRef} />
 
         {!appliedNationId ? (
           <Paper withBorder p="xl" radius="md">

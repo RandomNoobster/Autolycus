@@ -46,7 +46,7 @@ import {
   useRaidsSearchParams,
 } from '@/hooks';
 import { RaidsTable } from '@/components/raids';
-import { ErrorState, NationIdField, VerifyNationModal } from '@/components/common';
+import { ErrorState, JumpToTableButton, NationIdField, VerifyNationModal } from '@/components/common';
 import type { ApiError } from '@/types';
 import {
   parseNumericValue,
@@ -316,6 +316,7 @@ export function RaidsPage() {
   const [columnFilters, setColumnFilters] = useState<MRT_ColumnFiltersState>(
     () => [...DEFAULT_TABLE_SETTINGS.columnFilters]
   );
+  const tableSectionRef = useRef<HTMLDivElement>(null);
   const prevColumnFiltersRef = useRef<MRT_ColumnFiltersState>(
     DEFAULT_TABLE_SETTINGS.columnFilters
   );
@@ -1474,13 +1475,15 @@ export function RaidsPage() {
         />
 
         {/* Header */}
-        <Stack gap="xs">
+        <Stack gap="xs" ref={tableSectionRef} style={{ scrollMarginTop: 72 }}>
           <Title order={2}>Raid Targets</Title>
           <Text c="dimmed">
             Find profitable targets to raid. Click a column header to sort by
             that column. Use filters to narrow down results.
           </Text>
         </Stack>
+
+        <JumpToTableButton targetRef={tableSectionRef} />
 
         {/* Table */}
         <Box pos="relative">
