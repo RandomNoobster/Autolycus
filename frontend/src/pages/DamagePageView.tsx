@@ -1133,10 +1133,11 @@ function DamageNationFlagHeader({
 
   return (
     <Box
-      w={56}
-      h={40}
+      w={120}
+      h={80}
       style={{
         flexShrink: 0,
+        aspectRatio: "3 / 2",
         borderRadius: theme.radius.md,
         overflow: "hidden",
         border: `1px solid ${border}`,
@@ -1147,9 +1148,9 @@ function DamageNationFlagHeader({
         <Image
           src={flagUrl!.trim()}
           alt=""
-          w={56}
-          h={40}
-          fit="cover"
+          w={120}
+          h={80}
+          fit="contain"
           onError={() => setImgFailed(true)}
         />
       ) : (
