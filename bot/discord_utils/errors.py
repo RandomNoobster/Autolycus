@@ -231,6 +231,16 @@ async def send_embed_with_trace_thread(
             log.error("failed_debug_channel: %s", e, exc_info=e)
 
 
+def _resolve_debug_channel(bot: discord.Client) -> discord.abc.Messageable | None:
+    channel_id_raw = os.getenv("DEBUG_CHANNEL")
+    if not channel_id_raw:
+        return None
+    try:
+        return bot.get_channel(int(channel_id_raw))
+    except (TypeError, ValueError):
+        return None
+
+
 async def report_handled_exception(
     bot: commands.Bot,
     ctx: discord.ApplicationContext,
@@ -247,13 +257,49 @@ async def report_handled_exception(
     ref = reference or new_error_reference()
     root = unwrap_command_error(error)
     log_command_error(log, root, ctx=ctx, reference=ref, command_name=command_name)
+    await send_debug_channel_messages(_resolve_debug_channel(bot), ctx, error, ref, log)
+    return ref
 
-    debug_channel = None
-    channel_id_raw = os.getenv("DEBUG_CHANNEL")
-    if channel_id_raw:
-        try:
-            debug_channel = bot.get_channel(int(channel_id_raw))
-        except (TypeError, ValueError):
-            debug_channel = None
-    await send_debug_channel_messages(debug_channel, ctx, error, ref, log)
+
+async def report_bot_exception(
+    bot: discord.Client | None,
+    error: BaseException,
+    log: logging.Logger,
+    *,
+    reference: str | None = None,
+    title: str = "Bot error",
+    details: str | None = None,
+) -> str:
+    """
+    Log a bot-side exception and forward it to the configured debug channel.
+    Use for non-command paths (e.g. interaction handlers) that still have a bot instance.
+    """
+    ref = reference or new_error_reference()
+    root = unwrap_command_error(error)
+    log.error(
+        "bot_error reference=%r title=%r: %s",
+        ref,
+        title,
+        root,
+        exc_info=(type(root), root, root.__traceback__),
+        extra={"error_reference": ref},
+    )
+    if bot is None:
+        return ref
+
+    embed = error_embed(
+        f"{title} — {ref}",
+        details or f"```{repr(root)[:900]}```",
+        reference=ref,
+        contact_footer=None,
+    )
+    embed.add_field(name="Type", value=type(root).__name__[:1024], inline=False)
+    await send_embed_with_trace_thread(
+        _resolve_debug_channel(bot),
+        embed=embed,
+        traceback_text=_format_traceback_text(error),
+        log=log,
+        thread_name=f"trace-{ref}",
+        reference=ref,
+    )
     return ref

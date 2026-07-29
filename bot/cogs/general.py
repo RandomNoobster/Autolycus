@@ -210,8 +210,13 @@ class Background(commands.Cog):
                     results.get("displayedUniqueBuilds"),
                 )
             except ValueError as exc:
-                reference = err_util.new_error_reference()
-                err_util.log_command_error(logger, exc, ctx=ctx, reference=reference)
+                reference = await err_util.report_handled_exception(
+                    self.bot,
+                    ctx,
+                    exc,
+                    logger,
+                    command_name="builds",
+                )
                 embed = err_util.error_embed(
                     "Builds request failed",
                     "Could not run that builds query. Check **infrastructure** (multiple of 50), **land**, and **MMR** "

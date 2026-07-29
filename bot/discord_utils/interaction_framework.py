@@ -6,6 +6,7 @@ from typing import Awaitable, Callable, Optional
 
 import discord
 
+from bot.discord_utils import errors as err_util
 from database import interaction_sessions
 
 logger = logging.getLogger(__name__)
@@ -100,12 +101,21 @@ class InteractionRegistry:
 
         try:
             await handler(interaction, session, parsed.action_id)
-        except Exception:
-            logger.exception(
-                "Failed dispatching interaction session",
-                extra={"session_id": parsed.session_id, "handler_key": parsed.handler_key},
+        except Exception as exc:
+            ref = await err_util.report_bot_exception(
+                interaction.client,
+                exc,
+                logger,
+                title="Interaction dispatch failed",
+                details=(
+                    f"handler=`{parsed.handler_key}` session=`{parsed.session_id}` "
+                    f"action=`{parsed.action_id}` user=`{interaction.user.id}`"
+                ),
             )
-            await _safe_ephemeral(interaction, "Something went wrong handling this interaction. Please try the command again.")
+            await _safe_ephemeral(
+                interaction,
+                f"Something went wrong handling this interaction. Please try the command again. (Reference: {ref})",
+            )
         return True
 
 
