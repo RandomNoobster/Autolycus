@@ -270,11 +270,19 @@ _RESOURCE_KEYS = [
 
 
 def parse_mmr(mmr: str) -> Tuple[int, int, int, int]:
-    """Parse military requirement string into numeric tuple (barracks/factory/hangar/drydock)."""
-    if mmr.lower() == "any":
+    """Parse military requirement string into numeric tuple (barracks/factory/hangar/drydock).
+
+    Accepts slash-separated values (`5/5/3/1`, `10/0/0/2`), a compact 4-digit
+    string (`1251` → `1/2/5/1`), or `any`.
+    """
+    raw = mmr.strip()
+    if raw.lower() == "any":
         return (0, 0, 0, 0)
 
-    parts = [part.strip() for part in mmr.split("/")]
+    if len(raw) == 4 and raw.isdigit():
+        return tuple(int(digit) for digit in raw)  # type: ignore[return-value]
+
+    parts = [part.strip() for part in raw.split("/")]
     if len(parts) != 4:
         raise ValueError(f"Invalid MMR format: {mmr}")
     try:

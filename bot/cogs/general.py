@@ -158,7 +158,7 @@ class Background(commands.Cog):
         ctx: discord.ApplicationContext,
         infra: Option(str, "How much infra the builds should be for"),
         land: Option(str, "How much land the builds should be for"),
-        mmr: Option(str, "The minimum military requirement for the builds. Defaults to 0/0/0/0.") = "0/0/0/0",
+        mmr: Option(str, "MMR as barracks/factory/hangar/drydock, 4 digits (e.g. 1251), or any. Defaults to 0/0/0/0.") = "0/0/0/0",
         person: Option(str, "The person the builds should be for. Defaults to you.") = None
     ) -> None:
         """Find optimal city builds from stored JSON configurations.
@@ -167,7 +167,7 @@ class Background(commands.Cog):
             ctx: Discord application context.
             infra: Target infrastructure level (must be multiple of 50).
             land: Target land amount.
-            mmr: Military requirement (format: barracks/factory/hangar/drydock or "any").
+            mmr: Military requirement (`barracks/factory/hangar/drydock`, 4-digit `1251`, or `any`).
             person: Discord ID or nation identifier (defaults to command author).
         """
         loading: LoadingDisplay | None = None
@@ -215,7 +215,7 @@ class Background(commands.Cog):
                 embed = err_util.error_embed(
                     "Builds request failed",
                     "Could not run that builds query. Check **infrastructure** (multiple of 50), **land**, and **MMR** "
-                    "using `barracks/factory/hangar/drydock` or `any`, then try again.",
+                    "using `barracks/factory/hangar/drydock`, a 4-digit string like `1251`, or `any`, then try again.",
                     reference=reference,
                 )
                 await ctx.edit(content="", embed=embed, attachments=[])

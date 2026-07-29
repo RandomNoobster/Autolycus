@@ -59,8 +59,9 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
             ),
             "land": "The amount of land the city should have (e.g. 3000).",
             "mmr": (
-                "Minimum Military Requirement in the format `barracks/factory/hangar/drydock` "
-                "(e.g. `5/3/0/0`). Use `any` for no military constraint. Defaults to `0/0/0/0`."
+                "Minimum Military Requirement as `barracks/factory/hangar/drydock` "
+                "(e.g. `5/3/0/0`) or a compact 4-digit string (e.g. `5300`). "
+                "Use `any` for no military constraint. Defaults to `0/0/0/0`."
             ),
             "person": (
                 "The nation to calculate builds for. Accepts the same formats as `/who`. "
@@ -70,6 +71,7 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
         "examples": [
             "`/builds 2000 3000` — best builds for 2k infra, 3k land, no military",
             "`/builds 1500 2500 5/3/0/0` — with a 5/3/0/0 MMR constraint",
+            "`/builds 1500 2500 5300` — same MMR as a 4-digit string",
             "`/builds 2000 3000 any @SomeUser` — any MMR, for another player",
         ],
     },

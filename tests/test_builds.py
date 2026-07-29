@@ -26,11 +26,21 @@ def test_parse_mmr_slash_format_supports_multi_digit():
     assert parse_mmr("any") == (0, 0, 0, 0)
 
 
+def test_parse_mmr_compact_four_digit():
+    assert parse_mmr("1251") == (1, 2, 5, 1)
+    assert parse_mmr("0250") == (0, 2, 5, 0)
+    assert parse_mmr("0000") == (0, 0, 0, 0)
+
+
 def test_parse_mmr_rejects_invalid():
     with pytest.raises(ValueError):
         parse_mmr("5/5/3")
     with pytest.raises(ValueError):
         parse_mmr("a/b/c/d")
+    with pytest.raises(ValueError):
+        parse_mmr("125")
+    with pytest.raises(ValueError):
+        parse_mmr("12510")
 
 
 def test_normalize_continent_accepts_aliases():
