@@ -80,7 +80,7 @@ def test_apply_overrides_clears_and_sets_policy_and_projects():
 @pytest.mark.skipif(not get_builds_db_path().exists(), reason="city_builds.db not present")
 def test_fetch_build_rows_uses_exact_mmr_and_restricted_mines():
     db_path: Path = get_builds_db_path()
-    caps = {"hospital": 5, "recyclingcenter": 3, "bank": 5, "mall": 4}
+    caps = {"supermarket": 4, "hospital": 5, "recyclingcenter": 3, "bank": 5, "mall": 4}
     mmr = {"barracks": 5, "factory": 5, "airforcebase": 3, "drydock": 1}
     restricted = get_restricted_mines("na")
 
@@ -92,8 +92,23 @@ def test_fetch_build_rows_uses_exact_mmr_and_restricted_mines():
         assert row["factory"] == 5
         assert row["airforcebase"] == 3
         assert row["drydock"] == 1
+        assert row["supermarket"] <= 4
+        assert row["hospital"] <= 5
+        assert row["recyclingcenter"] <= 3
+        assert row["bank"] <= 5
+        assert row["mall"] <= 4
         for mine in restricted:
             assert row[mine] == 0
 
     # At least some rows should use an available NA mine (otherwise filter likely inverted).
     assert any(row["coalmine"] or row["ironmine"] or row["uramine"] for row in rows)
+
+
+@pytest.mark.skipif(not get_builds_db_path().exists(), reason="city_builds.db not present")
+def test_fetch_build_rows_rejects_legacy_supermarket_over_cap():
+    """Historical city dumps still contain supermarket 5–6; live max is 4."""
+    db_path: Path = get_builds_db_path()
+    caps = {"supermarket": 4, "hospital": 5, "recyclingcenter": 3, "bank": 5, "mall": 4}
+    rows = fetch_build_rows(db_path, 2500, {}, caps, [])
+    assert rows
+    assert all(row["supermarket"] <= 4 for row in rows)

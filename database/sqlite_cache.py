@@ -397,7 +397,7 @@ def fetch_build_rows(
     for mine in restricted_mines:
         where_clauses.append(f"{mine} = 0")
 
-    for key in ("hospital", "recyclingcenter", "bank", "mall"):
+    for key in ("supermarket", "hospital", "recyclingcenter", "bank", "mall"):
         if key in caps:
             where_clauses.append(f"{key} <= ?")
             params.append(caps[key])

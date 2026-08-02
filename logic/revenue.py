@@ -450,6 +450,8 @@ def calculate_civil_improvements(city: dict[str, Any], modifiers: dict[str, floa
     result['pollution'] -= city.get('subway', 0) * modifiers['subw_poll_red']
     result['pollution'] += city.get('mall', 0) * 2
     result['pollution'] += city.get('stadium', 0) * 5
+    # Commerce % per in-game city UI: SM +4, Bank +6, Mall +8, Stadium +10, Subway +8.
+    # (.ctx / fandom still list the outdated 3/5/9/12 values.)
     result['commerce'] += city.get('subway', 0) * 8
     result['commerce'] += city.get('supermarket', 0) * 4
     result['commerce'] += city.get('bank', 0) * 6

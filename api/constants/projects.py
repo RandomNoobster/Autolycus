@@ -28,11 +28,11 @@ PROJECTS = {
     },
     'itc': {
         'name': 'International Trade Center',
-        'description': 'Raises city commerce cap to 115% and grants +1 base commerce.'
+        'description': 'Raises city commerce cap to 115%, grants +1 base commerce, and raises bank cap from 5 to 6.'
     },
     'telecom_satellite': {
         'name': 'Telecommunications Satellite',
-        'description': 'Adds +2 commerce to every city and lifts commerce cap to 125%.'
+        'description': 'Adds +2 commerce to every city, lifts commerce cap to 125%, and raises mall cap from 4 to 5.'
     },
     'recycling_initiative': {
         'name': 'Recycling Initiative',

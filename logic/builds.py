@@ -531,7 +531,13 @@ async def calculate_builds(
     if not db_path.exists():
         raise FileNotFoundError(f"Builds database not found at {db_path}")
 
+    # Hard / project-gated per-city improvement caps.
+    # Live P&W city dumps (2026-07) show supermarket max is 4 (pwpedia still says 6).
+    # Project-gated caps confirmed by live dumps: hospital 5→6, recycling 3→4,
+    # bank 5→6 (ITC), mall 4→5 (Telecom). Stadium/subway/police hard maxes
+    # are already respected by city_builds.db contents.
     caps = {
+        "supermarket": 4,
         "hospital": _project_cap(nation, "clinical_research_center", 5),
         "recyclingcenter": _project_cap(nation, "recycling_initiative", 3),
         "bank": _project_cap(nation, "itc", 5),
