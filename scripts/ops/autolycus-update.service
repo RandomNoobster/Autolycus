@@ -6,4 +6,4 @@ Requires=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/autolycus
-ExecStart=/opt/autolycus/scripts/ops/update.sh
+ExecStart=/bin/bash /opt/autolycus/scripts/ops/update.sh
