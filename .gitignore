@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -103,6 +103,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.prod
 .venv
 env/
 venv/
@@ -132,4 +133,11 @@ dmypy.json
 .env
 .vscode/launch.json
 cities*.csv
-nations.json
+/data/nations.db
+/data/alliances.db
+*.db-shm
+*.db-wal
+*.db-journal
+/scripts/**/*.db
+/scripts/**/*.jsonl
+/logs/

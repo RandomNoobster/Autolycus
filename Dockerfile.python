@@ -1,0 +1,42 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_NO_DEV=1 \
+    UV_LINK_MODE=copy
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Lockfile + metadata only: install deps into .venv (no local package yet).
+COPY pyproject.toml uv.lock README.md /app/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project
+
+COPY api /app/api
+COPY bot /app/bot
+COPY core /app/core
+COPY database /app/database
+COPY infra /app/infra
+COPY logic /app/logic
+COPY scanner.py /app/scanner.py
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+RUN useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app
+
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+# Windows checkouts often use CRLF; Linux then treats shebang as /bin/sh\r → "no such file or directory"
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
+
+# Invoke via sh so a stray CR on the shebang line cannot break exec
+ENTRYPOINT ["/bin/sh", "/docker-entrypoint.sh"]

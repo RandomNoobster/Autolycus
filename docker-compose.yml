@@ -1,0 +1,133 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      network: host
+    command: python -m api.app
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AUTOLYCUS_WEB_BASE_URL: ${AUTOLYCUS_WEB_BASE_URL-http://localhost:8080}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      # Local Vite / tooling (`npm run dev` on the host) can reach the API here; not exposed on LAN.
+      - "127.0.0.1:5000:5000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/api/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      network: host
+    command: python -m bot
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AUTOLYCUS_WEB_BASE_URL: ${AUTOLYCUS_WEB_BASE_URL-http://localhost:8080}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      network: host
+    command: python scanner.py
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      network: host
+      args:
+        VITE_API_URL: ${VITE_API_URL-}
+        VITE_AUTH_TOKEN_API_KEY: ${VITE_AUTH_TOKEN_API_KEY-}
+        VITE_SITE_ORIGIN: ${VITE_SITE_ORIGIN:-${AUTOLYCUS_WEB_BASE_URL:-}}
+    ports:
+      - "8080:80"
+    expose:
+      - "80"
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Vite dev server (HMR). Enable with --profile dev; omit nginx frontend to avoid two UIs, e.g. --scale frontend=0
+  frontend-dev:
+    profiles: ["dev"]
+    image: node:20-alpine
+    working_dir: /app
+    command: >
+      sh -c "if [ ! -x node_modules/.bin/vite ]; then npm ci; fi && npm run dev -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_dev_node_modules:/app/node_modules
+    env_file: .env
+    environment:
+      VITE_API_URL: ${VITE_API_URL-}
+      VITE_AUTH_TOKEN_API_KEY: ${VITE_AUTH_TOKEN_API_KEY-}
+      VITE_DEV_API_PROXY: http://api:5000
+      VITE_DOCKER_DEV: "1"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2.8-alpine
+    profiles: ["prod"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    env_file: .env
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}
+  frontend_dev_node_modules:

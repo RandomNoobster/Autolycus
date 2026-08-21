@@ -1,0 +1,7 @@
+# pip install requests beautifulsoup4 markdownify cloudscraper tqdm
+
+requests
+beautifulsoup4
+markdownify
+cloudscraper
+tqdm

@@ -1,0 +1,1 @@
+export { DamagePage } from './DamagePageView';
