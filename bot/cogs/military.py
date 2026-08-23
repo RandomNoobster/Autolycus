@@ -575,14 +575,16 @@ class TargetFinding(commands.Cog):
                             continue
                         else: 
                             pass
+                    nation_wars = x.get('wars') or []
                     used_slots = 0
-                    for war in x['wars']:
+                    for war in nation_wars:
                         tl = war.get('turnsleft') or 0
-                        if tl > 0 and war['defid'] == x['id']:
+                        if tl > 0 and war.get('defid') == x['id']:
                             used_slots += 1
-                        for attack in war['attacks']:
-                            if attack['loot_info']:
-                                attack['loot_info'] = attack['loot_info'].replace("\r\n", "")
+                        for attack in war.get('attacks') or []:
+                            loot_info = attack.get('loot_info')
+                            if loot_info:
+                                attack['loot_info'] = loot_info.replace("\r\n", "")
                     if x['alliance_id'] in ["4729", "8819"] + dnr_alliance_ids:
                         continue
                     if used_slots > max_wars:
@@ -594,15 +596,15 @@ class TargetFinding(commands.Cog):
                     x['def_slots'] = 0
                     x['time_since_war'] = "14+"
                     
-                    if x['wars'] != []:
-                        for war in x['wars']:
-                            if war['date'] == '-0001-11-30 00:00:00':
-                                x['wars'].remove(war)
-                            elif war['defid'] == x['id']:
+                    if nation_wars:
+                        for war in list(nation_wars):
+                            if war.get('date') == '-0001-11-30 00:00:00':
+                                nation_wars.remove(war)
+                            elif war.get('defid') == x['id']:
                                 if (war.get('turnsleft') or 0) > 0:
                                     x['def_slots'] += 1
-                                
-                        wars = sorted(x['wars'], key=lambda k: k['date'], reverse=True)
+                        x['wars'] = nation_wars
+                        wars = sorted(nation_wars, key=lambda k: k['date'], reverse=True)
                         war = wars[0]
                         if x['def_slots'] == 0:
                             x['time_since_war'] = (datetime.utcnow() - datetime.strptime(war['date'], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)).days

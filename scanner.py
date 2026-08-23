@@ -149,6 +149,97 @@ def _merge_military_research(conn: sqlite3.Connection, row: dict[str, Any]) -> d
     return merged
 
 
+def _get_existing_json_column(
+    conn: sqlite3.Connection,
+    nation_id: int | None,
+    column: str,
+) -> Any | None:
+    if nation_id is None:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT {column} FROM nations WHERE id = ?", (nation_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        current = row[0]
+        if isinstance(current, str):
+            try:
+                current = json.loads(current)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return current
+    except sqlite3.OperationalError:
+        return None
+
+
+def _merge_subscription_wars(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, Any]:
+    """Keep cached war history when live subscription payloads omit or clear wars."""
+    if "wars" not in row:
+        return row
+
+    merged = dict(row)
+    incoming = merged.get("wars")
+    if isinstance(incoming, list) and incoming:
+        return merged
+
+    try:
+        nation_id_int = int(merged.get("id")) if merged.get("id") is not None else None
+    except (TypeError, ValueError):
+        nation_id_int = None
+
+    existing = _get_existing_json_column(conn, nation_id_int, "wars")
+    if isinstance(existing, list) and existing:
+        merged["wars"] = existing
+        return merged
+
+    # Avoid overwriting stored wars with null/empty subscription snapshots.
+    merged.pop("wars", None)
+    return merged
+
+
+_subscription_persist_context: tuple[Any, ...] | None = None
+_subscription_persist_context_monotonic: float = 0.0
+SUBSCRIPTION_PERSIST_CONTEXT_TTL_SECONDS = 3600
+
+
+async def _get_subscription_persist_context() -> tuple[dict[str, Any] | None, tuple[Any, ...] | None]:
+    """Cached prices + revenue context for subscription row precomputation."""
+    global _subscription_persist_context, _subscription_persist_context_monotonic
+
+    now = time.monotonic()
+    if (
+        _subscription_persist_context is not None
+        and now - _subscription_persist_context_monotonic < SUBSCRIPTION_PERSIST_CONTEXT_TTL_SECONDS
+    ):
+        prices, revenue_context = _subscription_persist_context
+        return prices, revenue_context
+
+    prices: dict[str, Any] | None = None
+    revenue_context: tuple[Any, ...] | None = None
+    try:
+        prices_query = get_query(queries.PRICES)
+        prices_resp = await call_api(f"{{tradeprices(first:1){{data{prices_query}}}}}")
+        prices = prices_resp["data"]["tradeprices"]["data"][0]
+        prices["money"] = 1
+    except Exception as exc:
+        logger.debug("[nation-subscription] failed to fetch prices: %s", exc)
+
+    try:
+        colors, ctx_prices, treasures, radiation, seasonal_mod = await get_cached_game_context(
+            call_api, get_query, queries
+        )
+        revenue_context = (colors, ctx_prices, treasures, radiation, seasonal_mod)
+        if prices is None and isinstance(ctx_prices, dict):
+            prices = ctx_prices
+    except Exception as exc:
+        logger.debug("[nation-subscription] revenue game context unavailable: %s", exc)
+
+    _subscription_persist_context = (prices, revenue_context)
+    _subscription_persist_context_monotonic = now
+    return prices, revenue_context
+
+
 def _to_plain_dict(payload: Any) -> dict[str, Any]:
     if isinstance(payload, dict):
         return dict(payload)
@@ -219,6 +310,8 @@ async def persist_nation_row(
         try:
             async with _nation_scan_write_lock:
                 working_row = _to_json_safe(_merge_military_research(conn, row))
+                if source == "subscription":
+                    working_row = _merge_subscription_wars(conn, working_row)
                 if "alliance_position" in working_row:
                     working_row["alliance_position"] = normalize_alliance_position(
                         working_row["alliance_position"]
@@ -661,7 +754,14 @@ async def nation_subscription_worker() -> None:
                 )
                 async with _nation_scan_write_lock:
                     set_metadata(conn, "last_subscription_event_ts", _utc_ts())
-                result = await persist_nation_row(conn, nation_row, source="subscription")
+                sub_prices, sub_revenue_context = await _get_subscription_persist_context()
+                result = await persist_nation_row(
+                    conn,
+                    nation_row,
+                    source="subscription",
+                    prices=sub_prices,
+                    revenue_context=sub_revenue_context,
+                )
                 if result.get("success"):
                     writes_ok_1m += 1
                     persist_ms = result.get("persist_ms", 0)
