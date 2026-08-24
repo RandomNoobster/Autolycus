@@ -9,6 +9,22 @@ from typing import Any, Dict, Optional
 RSS = ['aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium', 'credits']
 EMBED_COLOR = 0xff5100  # Orange color used throughout Autolycus embeds
 
+# Resource order matches legacy loot_info strings and GraphQL ``*_looted`` fields.
+BEIGE_LOOT_RESOURCES: tuple[str, ...] = (
+    'money',
+    'coal',
+    'oil',
+    'uranium',
+    'iron',
+    'bauxite',
+    'lead',
+    'gasoline',
+    'munitions',
+    'steel',
+    'aluminum',
+    'food',
+)
+
 
 def cut_string(string: str, length: int = 2000) -> str:
     if len(string) > length:
@@ -37,18 +53,17 @@ def get_datetime_of_turns(turns: int) -> datetime:
 def beige_loot_value(loot_string: str, prices: dict[str, float]) -> int:
     loot_string = loot_string[loot_string.index('$'):loot_string.index('Food.')]
     loot_string = re.sub(r"[^0-9-]+", "", loot_string.replace(", ", "-"))
-    rss = ['money', 'coal', 'oil', 'uranium', 'iron', 'bauxite', 'lead', 'gasoline', 'munitions', 'steel', 'aluminum', 'food']
     n = 0
     loot: dict[str, int] = {}
     for sub in loot_string.split("-"):
-        loot[rss[n]] = int(sub)
+        loot[BEIGE_LOOT_RESOURCES[n]] = int(sub)
         n += 1
-    nation_loot = 0
-    for rs in rss:
+    nation_loot = 0.0
+    for rs in BEIGE_LOOT_RESOURCES:
         amount = loot[rs]
-        price = int(prices[rs])
+        price = float(prices[rs])
         nation_loot += amount * price
-    return nation_loot
+    return int(round(nation_loot))
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +91,107 @@ def parse_war_date(date_str: Optional[str]) -> datetime:
         return datetime.fromtimestamp(0, tz=timezone.utc)
 
 
+def _price_for(prices: dict[str, float], resource: str) -> float:
+    if resource == 'money':
+        return 1.0
+    raw = prices.get(resource)
+    if raw is None:
+        return 0.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _looted_field_name(resource: str) -> str:
+    return 'money_looted' if resource == 'money' else f'{resource}_looted'
+
+
+def attack_has_structured_loot(attack: dict[str, Any]) -> bool:
+    """True when the attack payload includes GraphQL ``*_looted`` fields."""
+    return any(_looted_field_name(rs) in attack for rs in BEIGE_LOOT_RESOURCES)
+
+
+def structured_beige_loot_value(attack: dict[str, Any], prices: dict[str, float]) -> Optional[float]:
+    """Market value of victory loot from GraphQL ``*_looted`` fields.
+
+    ``loot_info`` is deprecated on the Politics & War API ("No longer in use").
+    Victory / beige loot is exposed as ``money_looted`` plus ``{resource}_looted``.
+    Returns *None* when the attack has no structured loot payload at all.
+    """
+    if not attack_has_structured_loot(attack):
+        return None
+    total = 0.0
+    for resource in BEIGE_LOOT_RESOURCES:
+        raw = attack.get(_looted_field_name(resource))
+        if raw is None:
+            continue
+        try:
+            amount = float(raw)
+        except (TypeError, ValueError):
+            continue
+        total += amount * _price_for(prices, resource)
+    return total
+
+
+def _attack_beige_loot_market_value(
+    attack: dict[str, Any],
+    prices: dict[str, float],
+) -> Optional[float]:
+    """Resolve beige loot market value for one attack.
+
+    Prefers structured ``*_looted`` fields; falls back to legacy ``loot_info``
+    text parsing for older cached war rows.
+    """
+    structured = structured_beige_loot_value(attack, prices)
+    if structured is not None:
+        return structured
+
+    text = attack.get('loot_info')
+    if not text or "won the war and looted" not in str(text):
+        return None
+    try:
+        return float(beige_loot_value(str(text), prices))
+    except Exception:
+        return None
+
+
+def _is_beige_loot_attack(attack: dict[str, Any], nation_id: str) -> bool:
+    """True when *attack* is a victory loot event against *nation_id*."""
+    victor = str(attack.get('victor', '') or '')
+    if victor and victor == nation_id:
+        return False  # they won, so this is not their beige loot
+
+    attack_type = str(attack.get('type') or '').upper()
+    if attack_type == 'ALLIANCELOOT':
+        return False  # alliance bank loot, not nation beige loot
+    if attack_type == 'VICTORY':
+        return True
+
+    # Legacy cached rows: only loot_info text identified beige loot.
+    text = attack.get('loot_info')
+    return bool(text and "won the war and looted" in str(text))
+
+
+def _undo_loot_multipliers(loot_value: float, war: dict[str, Any]) -> float:
+    """Reverse attacker policy / war-type multipliers to estimate base loot."""
+    attacker_info = war.get('attacker') or {}
+    policy = (attacker_info.get('war_policy') or '').upper()
+    if policy == "ATTRITION":
+        loot_value = loot_value / 0.8
+    elif policy == "PIRATE":
+        loot_value = loot_value / 1.4
+    if attacker_info.get('advanced_pirate_economy'):
+        loot_value = loot_value / 1.1
+
+    war_type = (war.get('war_type') or '').upper()
+    if war_type == "ATTRITION":
+        loot_value *= 4
+    elif war_type == "ORDINARY":
+        loot_value *= 2
+    return loot_value
+
+
 def compute_beige_loot(
     nation: dict[str, Any],
     prices: Optional[dict[str, float]],
@@ -86,6 +202,10 @@ def compute_beige_loot(
     defender and lost, then reverse-engineers the *base* loot value by
     undoing attacker policy / war-type multipliers.  This gives a rough
     estimate of how much loot the nation is holding.
+
+    Prefers GraphQL structured ``money_looted`` / ``*_looted`` fields because
+    ``loot_info`` is deprecated and commonly empty. Falls back to parsing
+    legacy ``loot_info`` strings when structured fields are absent.
 
     The function performs a single linear pass (no sorting) over the wars
     list to find the most recent qualifying war.
@@ -112,7 +232,7 @@ def compute_beige_loot(
 
     for war in wars:
         try:
-            turns_left = war.get('turnsleft', 1)
+            turns_left = war.get('turnsleft', war.get('turns_left', 1))
             try:
                 turns_left_val = float(turns_left)
             except (TypeError, ValueError):
@@ -120,41 +240,22 @@ def compute_beige_loot(
             if turns_left_val > 0:
                 continue  # still active
 
-            if str(war.get('defid')) != nation_id:
+            def_id = war.get('defid', war.get('def_id'))
+            if str(def_id) != nation_id:
                 continue  # only care about wars where this nation was defender
 
             war_dt = parse_war_date(war.get('date'))
             attacks = war.get('attacks') or []
 
             for attack in reversed(attacks):  # reverse to favour latest attack
-                text = attack.get('loot_info')
-                if not text or "won the war and looted" not in text:
-                    continue
-                victor = str(attack.get('victor', ''))
-                if victor == nation_id:
-                    continue  # they won, so no beige loot
-
-                try:
-                    loot_value = float(beige_loot_value(text, prices))
-                except Exception:
+                if not _is_beige_loot_attack(attack, nation_id):
                     continue
 
-                # Undo attacker policy multipliers to estimate base loot
-                attacker_info = war.get('attacker') or {}
-                policy = (attacker_info.get('war_policy') or '').upper()
-                if policy == "ATTRITION":
-                    loot_value = loot_value / 0.8
-                elif policy == "PIRATE":
-                    loot_value = loot_value / 1.4
-                if attacker_info.get('advanced_pirate_economy'):
-                    loot_value = loot_value / 1.1
+                loot_value = _attack_beige_loot_market_value(attack, prices)
+                if loot_value is None:
+                    continue
 
-                # Undo war-type multipliers
-                war_type = (war.get('war_type') or '').upper()
-                if war_type == "ATTRITION":
-                    loot_value *= 4
-                elif war_type == "ORDINARY":
-                    loot_value *= 2
+                loot_value = _undo_loot_multipliers(float(loot_value), war)
 
                 if best_date is None or war_dt > best_date:
                     best_date = war_dt

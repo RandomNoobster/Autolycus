@@ -9,7 +9,25 @@ PRICES = {"tradeprices": ["coal", "oil", "uranium", "iron", "bauxite", "lead", "
 
 
 # backgraound.py
-WARS_SCANNER = {"wars": ["id", "war_type", "att_peace", "def_peace", "turnsleft", "reason", "date", "att_id", "def_id", "att_alliance_id", "def_alliance_id", {"attacker": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"defender": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"attacks": ["type", "id", "date", "att_id", "def_id", "loot_info", "victor", "moneystolen", "success", "cityid", "resistance_eliminated", "infra_destroyed", "infra_destroyed_value", "improvements_destroyed", "att_soldiers_lost", "def_soldiers_lost", "att_tanks_lost", "def_tanks_lost", "att_aircraft_lost", "def_aircraft_lost", "att_ships_lost", "def_ships_lost", "money_destroyed"]}]}
+_WAR_ATTACK_LOOT_FIELDS = [
+    "type",
+    "loot_info",
+    "victor",
+    "moneystolen",
+    "money_looted",
+    "coal_looted",
+    "oil_looted",
+    "uranium_looted",
+    "iron_looted",
+    "bauxite_looted",
+    "lead_looted",
+    "gasoline_looted",
+    "munitions_looted",
+    "steel_looted",
+    "aluminum_looted",
+    "food_looted",
+]
+WARS_SCANNER = {"wars": ["id", "war_type", "att_peace", "def_peace", "turnsleft", "reason", "date", "att_id", "def_id", "att_alliance_id", "def_alliance_id", {"attacker": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"defender": ["nation_name", "leader_name", {"alliance": ["name"]}, "alliance_id", "id", "num_cities"]}, {"attacks": ["id", "date", "att_id", "def_id", "success", "cityid", "resistance_eliminated", "infra_destroyed", "infra_destroyed_value", "improvements_destroyed", "att_soldiers_lost", "def_soldiers_lost", "att_tanks_lost", "def_tanks_lost", "att_aircraft_lost", "def_aircraft_lost", "att_ships_lost", "def_ships_lost", "money_destroyed"] + _WAR_ATTACK_LOOT_FIELDS}]}
 
 
 # config.py
@@ -32,7 +50,7 @@ WAR_STATUS = (MILITARIZATION_CHECKER, BATTLE_CALC, {"nations": WAR_STATUS_DEPEND
 
 
 # scanner.py
-BACKGROUND_SCANNER = {"nations": ["id", "discord", "leader_name", "nation_name", "warpolicy", "vacation_mode_turns", "flag", "last_active", "alliance_position_id", "continent", "fallout_shelter", "guiding_satellite", "military_salvage", "pirate_economy", "advanced_pirate_economy", "warpolicy", "resource_production_center", "government_support_agency", "bureau_of_domestic_affairs", "dompolicy", "vds", "irond", "population", "alliance_id", "beige_turns", "score", "color", "spies", "soldiers", "tanks", "aircraft", "ships", "missiles", "nukes", {"bounties": ["amount", "type"]}, {"treasures": ["name"]}, {"alliance": ["name", "id", "color", "flag"]}, {"wars": ["date", "winner", {"attacker": ["war_policy", "advanced_pirate_economy"]}, {"defender": ["war_policy", "advanced_pirate_economy"]}, "war_type", "defid", "turnsleft", {"attacks": ["loot_info", "victor", "moneystolen"]}]}, "alliance_position", "num_cities", "ironw", "bauxitew", "armss", "egr", "massirr", "itc", "recycling_initiative", "telecom_satellite", "green_tech", "clinical_research_center", "specialized_police_training", "uap", {"military_research": ['ground_cost', 'ground_capacity', 'air_cost', 'air_capacity', 'naval_cost', 'naval_capacity']}, {"cities": ["date", "powered", "infrastructure", "land", "oilpower", "windpower", "coalpower", "nuclearpower", "coalmine", "oilwell", "uramine", "barracks", "farm", "policestation", "hospital", "recyclingcenter", "subway", "supermarket", "bank", "mall", "stadium", "leadmine", "ironmine", "bauxitemine", "gasrefinery", "aluminumrefinery", "steelmill", "munitionsfactory", "factory", "airforcebase", "drydock"]}]}
+BACKGROUND_SCANNER = {"nations": ["id", "discord", "leader_name", "nation_name", "warpolicy", "vacation_mode_turns", "flag", "last_active", "alliance_position_id", "continent", "fallout_shelter", "guiding_satellite", "military_salvage", "pirate_economy", "advanced_pirate_economy", "warpolicy", "resource_production_center", "government_support_agency", "bureau_of_domestic_affairs", "dompolicy", "vds", "irond", "population", "alliance_id", "beige_turns", "score", "color", "spies", "soldiers", "tanks", "aircraft", "ships", "missiles", "nukes", {"bounties": ["amount", "type"]}, {"treasures": ["name"]}, {"alliance": ["name", "id", "color", "flag"]}, {"wars": ["date", "winner", {"attacker": ["war_policy", "advanced_pirate_economy"]}, {"defender": ["war_policy", "advanced_pirate_economy"]}, "war_type", "defid", "turnsleft", {"attacks": list(_WAR_ATTACK_LOOT_FIELDS)}]}, "alliance_position", "num_cities", "ironw", "bauxitew", "armss", "egr", "massirr", "itc", "recycling_initiative", "telecom_satellite", "green_tech", "clinical_research_center", "specialized_police_training", "uap", {"military_research": ['ground_cost', 'ground_capacity', 'air_cost', 'air_capacity', 'naval_cost', 'naval_capacity']}, {"cities": ["date", "powered", "infrastructure", "land", "oilpower", "windpower", "coalpower", "nuclearpower", "coalmine", "oilwell", "uramine", "barracks", "farm", "policestation", "hospital", "recyclingcenter", "subway", "supermarket", "bank", "mall", "stadium", "leadmine", "ironmine", "bauxitemine", "gasrefinery", "aluminumrefinery", "steelmill", "munitionsfactory", "factory", "airforcebase", "drydock"]}]}
 TRANSACTIONS_DEPENDENCY = ["id", "date", "sender_id", "sender_type", "receiver_id", "receiver_type", "banker_id", "note", "money", "coal", "oil", "uranium", "iron", "bauxite", "lead", "gasoline", "munitions", "steel", "aluminum", "food"]
 TRANSACTIONS = {"alliances": [{"bankrecs": TRANSACTIONS_DEPENDENCY}, {"taxrecs": TRANSACTIONS_DEPENDENCY}]}
 
