@@ -135,11 +135,30 @@ def create_app(config_object: Optional[object] = None) -> Flask:
     @app.route('/healthz')
     def health_check():
         """Health check endpoint for monitoring."""
-        return jsonify({
+        from pathlib import Path
+        import json as _json
+
+        deploy = None
+        deploy_path = Path(app.root_path).parent / 'data' / 'deploy.json'
+        try:
+            if deploy_path.is_file():
+                deploy = _json.loads(deploy_path.read_text(encoding='utf-8'))
+        except Exception:
+            deploy = None
+
+        payload = {
             'status': 'healthy',
             'service': 'autolycus-api',
             'version': os.getenv('version', 'unknown'),
-        }), 200
+        }
+        if isinstance(deploy, dict):
+            if deploy.get('commit'):
+                payload['commit'] = deploy.get('commit')
+            if deploy.get('branch'):
+                payload['branch'] = deploy.get('branch')
+            if deploy.get('syncedAt'):
+                payload['syncedAt'] = deploy.get('syncedAt')
+        return jsonify(payload), 200
     
     # Root endpoint
     @app.route('/')
