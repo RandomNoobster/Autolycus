@@ -296,6 +296,17 @@ The update timer runs every 6 hours by default. Edit
 [scripts/ops/autolycus-update.timer](scripts/ops/autolycus-update.timer) to change
 the interval.
 
+Force an update immediately (useful after merging to `master`):
+
+```
+sudo systemctl start autolycus-update.service
+sudo systemctl status autolycus-update.service --no-pager
+```
+
+If updates fail with git **dubious ownership**, either re-run `sudo scripts/ops/bootstrap.sh`
+or the update script itself now passes `safe.directory` per git command. Confirm the
+running commit via `GET /api/health` (`commit` / `syncedAt` from `data/deploy.json`).
+
 ### 6) Firewall (Oracle Linux)
 
 Allow inbound HTTP + HTTPS access:
