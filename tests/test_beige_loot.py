@@ -240,6 +240,9 @@ def test_normalize_attack_type_maps_ordinals():
 
 def test_background_scanner_query_requests_structured_loot_fields():
     q = get_query(queries.BACKGROUND_SCANNER)
+    # Finished (beige) wars are omitted unless active:false — otherwise loot stays $0
+    # and time_since_war defaults to "14+" for currently-beige nations.
+    assert "wars(active:false)" in q
     for field in (
         "money_looted",
         "coal_looted",

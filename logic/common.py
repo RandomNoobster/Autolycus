@@ -103,7 +103,8 @@ def _price_for(prices: dict[str, float], resource: str) -> float:
         return 0.0
 
 
-# pnwkit AttackType enum ordinals (see pnwkit.data.AttackType).
+# pnwkit subscription payloads may coerce AttackType to ordinals (VICTORY=14).
+# HTTP GraphQL nation scans return enum *names*; this map is for the sub path only.
 _ATTACK_TYPE_BY_ORDINAL: dict[int, str] = {
     0: 'AIRVINFRA',
     1: 'AIRVSOLDIERS',
@@ -125,12 +126,10 @@ _ATTACK_TYPE_BY_ORDINAL: dict[int, str] = {
 
 
 def normalize_attack_type(value: Any) -> str:
-    """Normalize GraphQL / pnwkit attack type to an uppercase enum name.
+    """Normalize attack type to an uppercase enum name.
 
-    HTTP GraphQL returns names like ``VICTORY``. pnwkit subscription payloads
-    often coerce enums to their integer ``.value`` (VICTORY -> 14) via
-    ``_to_json_safe``, which previously made beige-loot detection miss every
-    victory attack.
+    Nation scans use raw HTTP GraphQL (string names like ``VICTORY``).
+    Subscription updates go through pnwkit and may store ordinals (``14``).
     """
     if value is None or isinstance(value, bool):
         return ''
