@@ -173,15 +173,43 @@ def _get_existing_json_column(
         return None
 
 
+def _wars_loot_signal(wars: Any) -> int:
+    """Rough score for how useful a wars payload is for beige-loot computation."""
+    if not isinstance(wars, list) or not wars:
+        return 0
+    score = len(wars)
+    for war in wars:
+        if not isinstance(war, dict):
+            continue
+        attacks = war.get("attacks") or []
+        if not isinstance(attacks, list):
+            continue
+        for attack in attacks:
+            if not isinstance(attack, dict):
+                continue
+            if attack.get("money_looted") is not None or attack.get("food_looted") is not None:
+                score += 5
+            if attack.get("type") is not None:
+                score += 1
+            if attack.get("loot_info"):
+                score += 2
+        if war.get("att_money_looted") is not None:
+            score += 2
+    return score
+
+
 def _merge_subscription_wars(conn: sqlite3.Connection, row: dict[str, Any]) -> dict[str, Any]:
-    """Keep cached war history when live subscription payloads omit or clear wars."""
+    """Keep cached war history when live subscription payloads omit or clear wars.
+
+    Subscription snapshots sometimes include a non-empty but incomplete ``wars``
+    list (active wars only, or attacks without loot fields). Prefer the richer
+    cached payload so beige-loot history is not wiped on every nation update.
+    """
     if "wars" not in row:
         return row
 
     merged = dict(row)
     incoming = merged.get("wars")
-    if isinstance(incoming, list) and incoming:
-        return merged
 
     try:
         nation_id_int = int(merged.get("id")) if merged.get("id") is not None else None
@@ -189,6 +217,14 @@ def _merge_subscription_wars(conn: sqlite3.Connection, row: dict[str, Any]) -> d
         nation_id_int = None
 
     existing = _get_existing_json_column(conn, nation_id_int, "wars")
+    incoming_score = _wars_loot_signal(incoming)
+    existing_score = _wars_loot_signal(existing)
+
+    if isinstance(incoming, list) and incoming:
+        if existing_score > incoming_score:
+            merged["wars"] = existing
+        return merged
+
     if isinstance(existing, list) and existing:
         merged["wars"] = existing
         return merged
@@ -263,6 +299,11 @@ def _to_json_safe(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, Enum):
+        # Prefer enum names for GraphQL enums (e.g. AttackType.VICTORY -> "VICTORY").
+        # Using .value turns VICTORY into 14 and broke beige-loot detection.
+        name = getattr(value, "name", None)
+        if isinstance(name, str) and name and not name.startswith("_"):
+            return name
         return value.value
     if isinstance(value, datetime):
         return value.isoformat()

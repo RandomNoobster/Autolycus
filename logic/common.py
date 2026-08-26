@@ -103,6 +103,48 @@ def _price_for(prices: dict[str, float], resource: str) -> float:
         return 0.0
 
 
+# pnwkit subscription payloads may coerce AttackType to ordinals (VICTORY=14).
+# HTTP GraphQL nation scans return enum *names*; this map is for the sub path only.
+_ATTACK_TYPE_BY_ORDINAL: dict[int, str] = {
+    0: 'AIRVINFRA',
+    1: 'AIRVSOLDIERS',
+    2: 'AIRVTANKS',
+    3: 'AIRVMONEY',
+    4: 'AIRVSHIPS',
+    5: 'AIRVAIR',
+    6: 'GROUND',
+    7: 'MISSILE',
+    8: 'MISSILEFAIL',
+    9: 'NUKE',
+    10: 'NUKEFAIL',
+    11: 'NAVAL',
+    12: 'FORTIFY',
+    13: 'PEACE',
+    14: 'VICTORY',
+    15: 'ALLIANCELOOT',
+}
+
+
+def normalize_attack_type(value: Any) -> str:
+    """Normalize attack type to an uppercase enum name.
+
+    Nation scans use raw HTTP GraphQL (string names like ``VICTORY``).
+    Subscription updates go through pnwkit and may store ordinals (``14``).
+    """
+    if value is None or isinstance(value, bool):
+        return ''
+    if isinstance(value, (int, float)) and float(value).is_integer():
+        return _ATTACK_TYPE_BY_ORDINAL.get(int(value), str(int(value)))
+    text = str(value).strip()
+    if not text:
+        return ''
+    if text.isdigit():
+        return _ATTACK_TYPE_BY_ORDINAL.get(int(text), text)
+    if '.' in text:
+        text = text.split('.')[-1]
+    return text.upper()
+
+
 def _looted_field_name(resource: str) -> str:
     return 'money_looted' if resource == 'money' else f'{resource}_looted'
 
@@ -110,6 +152,20 @@ def _looted_field_name(resource: str) -> str:
 def attack_has_structured_loot(attack: dict[str, Any]) -> bool:
     """True when the attack payload includes GraphQL ``*_looted`` fields."""
     return any(_looted_field_name(rs) in attack for rs in BEIGE_LOOT_RESOURCES)
+
+
+def attack_has_nonzero_structured_loot(attack: dict[str, Any]) -> bool:
+    """True when any structured loot amount is present and non-zero."""
+    for resource in BEIGE_LOOT_RESOURCES:
+        raw = attack.get(_looted_field_name(resource))
+        if raw is None:
+            continue
+        try:
+            if float(raw) != 0.0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 def structured_beige_loot_value(attack: dict[str, Any], prices: dict[str, float]) -> Optional[float]:
@@ -162,7 +218,7 @@ def _is_beige_loot_attack(attack: dict[str, Any], nation_id: str) -> bool:
     if victor and victor == nation_id:
         return False  # they won, so this is not their beige loot
 
-    attack_type = str(attack.get('type') or '').upper()
+    attack_type = normalize_attack_type(attack.get('type'))
     if attack_type == 'ALLIANCELOOT':
         return False  # alliance bank loot, not nation beige loot
     if attack_type == 'VICTORY':
@@ -170,13 +226,19 @@ def _is_beige_loot_attack(attack: dict[str, Any], nation_id: str) -> bool:
 
     # Legacy cached rows: only loot_info text identified beige loot.
     text = attack.get('loot_info')
-    return bool(text and "won the war and looted" in str(text))
+    if text and "won the war and looted" in str(text):
+        return True
+
+    # Structured loot amounts without a usable type (partial cache / enum loss).
+    if attack_type in ('', 'NONE') and attack_has_nonzero_structured_loot(attack):
+        return True
+    return False
 
 
 def _undo_loot_multipliers(loot_value: float, war: dict[str, Any]) -> float:
     """Reverse attacker policy / war-type multipliers to estimate base loot."""
     attacker_info = war.get('attacker') or {}
-    policy = (attacker_info.get('war_policy') or '').upper()
+    policy = str(attacker_info.get('war_policy') or attacker_info.get('warpolicy') or '').upper()
     if policy == "ATTRITION":
         loot_value = loot_value / 0.8
     elif policy == "PIRATE":
@@ -184,12 +246,34 @@ def _undo_loot_multipliers(loot_value: float, war: dict[str, Any]) -> float:
     if attacker_info.get('advanced_pirate_economy'):
         loot_value = loot_value / 1.1
 
-    war_type = (war.get('war_type') or '').upper()
+    war_type = _normalize_war_type(war.get('war_type'))
     if war_type == "ATTRITION":
         loot_value *= 4
     elif war_type == "ORDINARY":
         loot_value *= 2
     return loot_value
+
+
+_WAR_TYPE_BY_ORDINAL: dict[int, str] = {
+    0: 'ORDINARY',
+    1: 'ATTRITION',
+    2: 'RAID',
+}
+
+
+def _normalize_war_type(value: Any) -> str:
+    if value is None or isinstance(value, bool):
+        return ''
+    if isinstance(value, (int, float)) and float(value).is_integer():
+        return _WAR_TYPE_BY_ORDINAL.get(int(value), str(int(value)))
+    text = str(value).strip()
+    if not text:
+        return ''
+    if text.isdigit():
+        return _WAR_TYPE_BY_ORDINAL.get(int(text), text)
+    if '.' in text:
+        text = text.split('.')[-1]
+    return text.upper()
 
 
 def compute_beige_loot(
@@ -246,6 +330,7 @@ def compute_beige_loot(
 
             war_dt = parse_war_date(war.get('date'))
             attacks = war.get('attacks') or []
+            found_attack_loot = False
 
             for attack in reversed(attacks):  # reverse to favour latest attack
                 if not _is_beige_loot_attack(attack, nation_id):
@@ -256,11 +341,35 @@ def compute_beige_loot(
                     continue
 
                 loot_value = _undo_loot_multipliers(float(loot_value), war)
+                found_attack_loot = True
 
                 if best_date is None or war_dt > best_date:
                     best_date = war_dt
                     best_loot = int(round(loot_value))
                     break  # latest attack in this war found; move to next war
+
+            if found_attack_loot:
+                continue
+
+            # Fallback: war-level money looted by the attacker when this nation lost.
+            # Nested attacks are often empty in bulk nation scans; att_money_looted on
+            # the war still reflects end-of-war / battle money loot.
+            winner = str(war.get('winner') if war.get('winner') is not None else war.get('winner_id') or '')
+            if winner in ('', '0', nation_id):
+                continue
+            raw_money = war.get('att_money_looted')
+            if raw_money is None:
+                continue
+            try:
+                money_loot = float(raw_money)
+            except (TypeError, ValueError):
+                continue
+            if money_loot <= 0:
+                continue
+            loot_value = _undo_loot_multipliers(money_loot, war)
+            if best_date is None or war_dt > best_date:
+                best_date = war_dt
+                best_loot = int(round(loot_value))
         except Exception:
             continue
 

@@ -191,12 +191,63 @@ def test_compute_beige_loot_ordinary_war_type_multiplier():
     assert compute_beige_loot(nation, SAMPLE_PRICES) == 2000
 
 
+def test_compute_beige_loot_accepts_numeric_victory_type():
+    """pnwkit serializes AttackType.VICTORY as integer 14 in subscription payloads."""
+    nation = {
+        "id": "55556",
+        "wars": [
+            {
+                "date": "2026-08-17T19:43:00+00:00",
+                "defid": "55556",
+                "turnsleft": 0,
+                "war_type": 2,  # RAID
+                "attacker": {"war_policy": "FORTRESS"},
+                "attacks": [
+                    _victory_attack(type=14, money_looted=2_000_000, coal_looted=0, food_looted=0),
+                ],
+            }
+        ],
+    }
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == 2_000_000
+
+
+def test_compute_beige_loot_falls_back_to_war_att_money_looted():
+    nation = {
+        "id": "55556",
+        "wars": [
+            {
+                "date": "2026-08-17T19:43:00+00:00",
+                "defid": "55556",
+                "turnsleft": 0,
+                "war_type": "RAID",
+                "winner": "999",
+                "att_money_looted": 1_250_000,
+                "attacker": {"war_policy": "FORTRESS"},
+                "attacks": [],  # bulk scans often omit nested attacks
+            }
+        ],
+    }
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == 1_250_000
+
+
+def test_normalize_attack_type_maps_ordinals():
+    from logic.common import normalize_attack_type
+    assert normalize_attack_type(14) == "VICTORY"
+    assert normalize_attack_type("14") == "VICTORY"
+    assert normalize_attack_type("VICTORY") == "VICTORY"
+    assert normalize_attack_type("AttackType.VICTORY") == "VICTORY"
+
+
 def test_background_scanner_query_requests_structured_loot_fields():
     q = get_query(queries.BACKGROUND_SCANNER)
+    # Finished (beige) wars are omitted unless active:false — otherwise loot stays $0
+    # and time_since_war defaults to "14+" for currently-beige nations.
+    assert "wars(active:false)" in q
     for field in (
         "money_looted",
         "coal_looted",
         "food_looted",
+        "att_money_looted",
         "type",
         "loot_info",
         "victor",
