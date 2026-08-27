@@ -409,7 +409,6 @@ async def persist_nation_row(
                             exc,
                         )
 
-                ensure_table_and_columns(conn, "nations", working_row)
                 if effective_prices:
                     try:
                         loot = compute_beige_loot(working_row, effective_prices)
@@ -426,6 +425,9 @@ async def persist_nation_row(
                             nation_id,
                             exc,
                         )
+                # After all precomputed keys (incl. nation_loot_value) are attached —
+                # ensure_table_and_columns only ALTERs for keys present on the row.
+                ensure_table_and_columns(conn, "nations", working_row)
                 upsert(conn, "nations", working_row)
             persist_ms = round((time.monotonic() - started) * 1000, 2)
             return {
