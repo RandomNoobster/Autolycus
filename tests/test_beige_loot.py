@@ -59,6 +59,70 @@ def test_structured_beige_loot_value_none_without_fields():
     assert structured_beige_loot_value({"type": "GROUND", "moneystolen": 500}, SAMPLE_PRICES) is None
 
 
+def test_structured_beige_loot_value_none_when_all_null():
+    """GraphQL/pnwkit often include *_looted keys as null — that is not a 0 total."""
+    attack = {
+        "type": "VICTORY",
+        "money_looted": None,
+        "coal_looted": None,
+        "oil_looted": None,
+        "uranium_looted": None,
+        "iron_looted": None,
+        "bauxite_looted": None,
+        "lead_looted": None,
+        "gasoline_looted": None,
+        "munitions_looted": None,
+        "steel_looted": None,
+        "aluminum_looted": None,
+        "food_looted": None,
+    }
+    assert structured_beige_loot_value(attack, SAMPLE_PRICES) is None
+
+
+def test_compute_beige_loot_falls_back_when_structured_fields_are_null():
+    """Null *_looted keys must not mask a usable loot_info string as $0."""
+    loot_info = (
+        "Sparkle won the war and looted $16,754, 77 Coal, 11 Oil, 19 Uranium, "
+        "68 Iron, 5 Bauxite, 15 Lead, 52 Gasoline, 242 Munitions, 31 Steel, "
+        "35 Aluminum, and 2,422 Food. Kingdom of Svearmark also lost 4% of the "
+        "infrastructure in each of their cities."
+    )
+    nation = {
+        "id": "55556",
+        "wars": [
+            {
+                "date": "2026-08-17T19:43:00+00:00",
+                "defid": "55556",
+                "turnsleft": 0,
+                "war_type": "RAID",
+                "attacker": {"war_policy": "FORTRESS"},
+                "attacks": [
+                    {
+                        "type": "VICTORY",
+                        "victor": "999",
+                        "loot_info": loot_info,
+                        "money_looted": None,
+                        "coal_looted": None,
+                        "oil_looted": None,
+                        "uranium_looted": None,
+                        "iron_looted": None,
+                        "bauxite_looted": None,
+                        "lead_looted": None,
+                        "gasoline_looted": None,
+                        "munitions_looted": None,
+                        "steel_looted": None,
+                        "aluminum_looted": None,
+                        "food_looted": None,
+                    }
+                ],
+            }
+        ],
+    }
+    expected = beige_loot_value(loot_info, SAMPLE_PRICES)
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == expected
+    assert expected > 0
+
+
 def test_compute_beige_loot_uses_structured_fields_when_loot_info_empty():
     """Reproduce production failure mode: loot_info deprecated/empty, *_looted present."""
     nation = {
@@ -201,14 +265,14 @@ def test_compute_beige_loot_accepts_numeric_victory_type():
                 "defid": "55556",
                 "turnsleft": 0,
                 "war_type": 2,  # RAID
-                "attacker": {"war_policy": "FORTRESS"},
+                "attacker": {"war_policy": 6},  # PIRATE
                 "attacks": [
                     _victory_attack(type=14, money_looted=2_000_000, coal_looted=0, food_looted=0),
                 ],
             }
         ],
     }
-    assert compute_beige_loot(nation, SAMPLE_PRICES) == 2_000_000
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == int(round(2_000_000 / 1.4))
 
 
 def test_compute_beige_loot_falls_back_to_war_att_money_looted():
@@ -240,9 +304,6 @@ def test_normalize_attack_type_maps_ordinals():
 
 def test_background_scanner_query_requests_structured_loot_fields():
     q = get_query(queries.BACKGROUND_SCANNER)
-    # Finished (beige) wars are omitted unless active:false — otherwise loot stays $0
-    # and time_since_war defaults to "14+" for currently-beige nations.
-    assert "wars(active:false)" in q
     for field in (
         "money_looted",
         "coal_looted",
@@ -253,3 +314,5 @@ def test_background_scanner_query_requests_structured_loot_fields():
         "victor",
     ):
         assert field in q
+    # Nation.wars already returns finished wars by default; do not require active:false.
+    assert "wars(active:false)" not in q

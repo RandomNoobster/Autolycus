@@ -413,7 +413,10 @@ async def persist_nation_row(
                 if effective_prices:
                     try:
                         loot = compute_beige_loot(working_row, effective_prices)
-                        if loot is not None:
+                        # Only persist positive estimates. A 0/None result must not
+                        # overwrite a previously computed nation_loot_value when the
+                        # current wars snapshot is incomplete or null-padded.
+                        if loot is not None and loot > 0:
                             working_row["nation_loot_value"] = loot
                             loot_computed = True
                     except Exception as exc:
@@ -976,5 +979,6 @@ async def main():
     except Exception as e:
         logger.critical("[scanner] fatal unhandled error: %s", e, exc_info=True)
 
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())

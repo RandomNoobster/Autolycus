@@ -173,11 +173,11 @@ def structured_beige_loot_value(attack: dict[str, Any], prices: dict[str, float]
 
     ``loot_info`` is deprecated on the Politics & War API ("No longer in use").
     Victory / beige loot is exposed as ``money_looted`` plus ``{resource}_looted``.
-    Returns *None* when the attack has no structured loot payload at all.
+    Returns *None* when no numeric ``*_looted`` amounts are present (keys may
+    still exist as JSON ``null`` from GraphQL / pnwkit defaults).
     """
-    if not attack_has_structured_loot(attack):
-        return None
     total = 0.0
+    found_amount = False
     for resource in BEIGE_LOOT_RESOURCES:
         raw = attack.get(_looted_field_name(resource))
         if raw is None:
@@ -186,8 +186,9 @@ def structured_beige_loot_value(attack: dict[str, Any], prices: dict[str, float]
             amount = float(raw)
         except (TypeError, ValueError):
             continue
+        found_amount = True
         total += amount * _price_for(prices, resource)
-    return total
+    return total if found_amount else None
 
 
 def _attack_beige_loot_market_value(
@@ -196,15 +197,20 @@ def _attack_beige_loot_market_value(
 ) -> Optional[float]:
     """Resolve beige loot market value for one attack.
 
-    Prefers structured ``*_looted`` fields; falls back to legacy ``loot_info``
-    text parsing for older cached war rows.
+    Prefers structured ``*_looted`` fields when they carry a positive total;
+    otherwise falls back to legacy ``loot_info`` text. Null/zero structured
+    payloads must not mask a usable ``loot_info`` string (that previously
+    forced ``nation_loot_value`` to 0 on the raids page).
     """
     structured = structured_beige_loot_value(attack, prices)
-    if structured is not None:
+    if structured is not None and structured > 0:
         return structured
 
     text = attack.get('loot_info')
     if not text or "won the war and looted" not in str(text):
+        # Genuine structured zero-loot victory (no loot_info fallback).
+        if structured is not None:
+            return structured
         return None
     try:
         return float(beige_loot_value(str(text), prices))
@@ -238,7 +244,9 @@ def _is_beige_loot_attack(attack: dict[str, Any], nation_id: str) -> bool:
 def _undo_loot_multipliers(loot_value: float, war: dict[str, Any]) -> float:
     """Reverse attacker policy / war-type multipliers to estimate base loot."""
     attacker_info = war.get('attacker') or {}
-    policy = str(attacker_info.get('war_policy') or attacker_info.get('warpolicy') or '').upper()
+    policy = _normalize_war_policy(
+        attacker_info.get('war_policy') or attacker_info.get('warpolicy')
+    )
     if policy == "ATTRITION":
         loot_value = loot_value / 0.8
     elif policy == "PIRATE":
@@ -260,6 +268,20 @@ _WAR_TYPE_BY_ORDINAL: dict[int, str] = {
     2: 'RAID',
 }
 
+# pnwkit WarPolicy ordinals (ATTRITION starts at 1).
+_WAR_POLICY_BY_ORDINAL: dict[int, str] = {
+    1: 'ATTRITION',
+    2: 'TURTLE',
+    3: 'BLITZKRIEG',
+    4: 'FORTRESS',
+    5: 'MONEYBAGS',
+    6: 'PIRATE',
+    7: 'TACTICIAN',
+    8: 'GUARDIAN',
+    9: 'COVERT',
+    10: 'ARCANE',
+}
+
 
 def _normalize_war_type(value: Any) -> str:
     if value is None or isinstance(value, bool):
@@ -271,6 +293,21 @@ def _normalize_war_type(value: Any) -> str:
         return ''
     if text.isdigit():
         return _WAR_TYPE_BY_ORDINAL.get(int(text), text)
+    if '.' in text:
+        text = text.split('.')[-1]
+    return text.upper()
+
+
+def _normalize_war_policy(value: Any) -> str:
+    if value is None or isinstance(value, bool):
+        return ''
+    if isinstance(value, (int, float)) and float(value).is_integer():
+        return _WAR_POLICY_BY_ORDINAL.get(int(value), str(int(value)))
+    text = str(value).strip()
+    if not text:
+        return ''
+    if text.isdigit():
+        return _WAR_POLICY_BY_ORDINAL.get(int(text), text)
     if '.' in text:
         text = text.split('.')[-1]
     return text.upper()
@@ -337,10 +374,12 @@ def compute_beige_loot(
                     continue
 
                 loot_value = _attack_beige_loot_market_value(attack, prices)
-                if loot_value is None:
+                if loot_value is None or float(loot_value) <= 0:
                     continue
 
                 loot_value = _undo_loot_multipliers(float(loot_value), war)
+                if loot_value <= 0:
+                    continue
                 found_attack_loot = True
 
                 if best_date is None or war_dt > best_date:
