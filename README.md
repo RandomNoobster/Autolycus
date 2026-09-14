@@ -67,6 +67,9 @@ Optional but needed for some features:
 - `VITE_API_URL` / `VITE_AUTH_TOKEN_API_KEY` — frontend build-time values (usually left empty for same-origin `/api`)
 - `VITE_SITE_ORIGIN` — public site URL without a trailing slash (for `og:image`, canonical links in `index.html`). Docker builds can inherit this from `AUTOLYCUS_WEB_BASE_URL` when `VITE_SITE_ORIGIN` is unset
 - `REDIS_URL` — optional Redis cache backend (leave unset for in-memory cache in local dev)
+- `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` — browser push notifications for beige reminders. Generate a key with `uv run python scripts/generate_vapid_keys.py`; the subject must be a `mailto:` or `https://` contact. Leave unset to keep push off
+- `AUTOLYCUS_DISCORD_INVITE_URL` — Discord server link shown to users whose reminder DMs fail because they don't share a server with the bot
+- `REMINDER_DM_RATE_PER_SECOND` / `REMINDER_STATUS_POLL_SECONDS` — reminder delivery tuning (defaults: 25 DMs per second, status check every 100 seconds)
 
 ### 3) Run services
 
@@ -229,6 +232,11 @@ DISCORD_CLIENT_SECRET=YOUR_DISCORD_APP_CLIENT_SECRET
 # Optional: POST /api/auth/token/generate; if set, use the same value for VITE_AUTH_TOKEN_API_KEY below
 AUTH_TOKEN_API_KEY=
 
+# Optional: browser push notifications for beige reminders
+# (generate the key with: uv run python scripts/generate_vapid_keys.py)
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:you@your-domain.com
+
 # Optional tuning
 WAITRESS_THREADS=8
 WAITRESS_CONNECTION_LIMIT=200
@@ -365,6 +373,9 @@ Collections currently used by the app:
 - `commands`
 - `auth_codes`
 - `interactive_sessions`
+- `reminder_jobs` (scheduled reminder deliveries; finished ones expire after 14 days)
+- `dm_tests` (test DMs that check delivery; expire after 7 days)
+- `push_subscriptions` (browser push devices)
 
 MongoDB collections are created automatically on first write, so users do not
 need to create them manually ahead of time. This means a fresh deployment may
