@@ -4,7 +4,7 @@ import asyncio
 import re
 import time
 from collections import OrderedDict
-from typing import Any, Optional, Union
+from typing import Any, Mapping, Optional, Union
 
 import discord
 
@@ -16,10 +16,33 @@ _ALLIANCE_AC_TTL_SECONDS = 6.0
 _ALLIANCE_AC_MAX = 128
 _alliance_ac_cache: "OrderedDict[str, tuple[float, list[str]]]" = OrderedDict()
 
+NATION_NOT_LINKED_MESSAGE = (
+    "Your Discord account is not linked to a Politics & War nation yet. "
+    "Use `/verify` to link your nation, then try again."
+)
+
+
+def linked_nation_id(user_doc: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """Return the nation id linked to a ``global_users`` document, or ``None``.
+
+    Profiles created by the website for beige reminders only store ``user`` and the
+    alert settings (no ``id``), so they are not linked to a nation. Use this instead
+    of ``user_doc['id']`` whenever a nation is required.
+    """
+    if not user_doc:
+        return None
+    raw_id = user_doc.get("id")
+    if raw_id is None or isinstance(raw_id, bool):
+        return None
+    nation_id = str(raw_id).strip()
+    return nation_id if nation_id.isdigit() else None
+
 
 async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str, Any]]:
     """Find a nation by id/name/leader/discord or via global user mapping.
     Discord member list is consulted only for name matching.
+    Returns ``None`` when the matched user profile has no linked nation
+    (e.g. reminder-only profiles created by the website).
     """
     if isinstance(arg, str):
         arg = arg.strip()
@@ -30,12 +53,15 @@ async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[d
             # Last resort: scan Discord members for matching display names
             for member in bot.get_all_members():
                 if arg.lower() in member.name.lower() or arg.lower() in member.display_name.lower() or str(member).lower() == arg.lower():
-                    user = await get_global_user_by_any(member.id)
-                    if user:
+                    match = await get_global_user_by_any(member.id)
+                    # Skip reminder-only profiles and keep looking for a linked member.
+                    if linked_nation_id(match):
+                        user = match
                         break
-        if not user:
+        nation_id = linked_nation_id(user)
+        if nation_id is None:
             return None
-        nation = await asyncio.to_thread(db_find_nation, user['id'])
+        nation = await asyncio.to_thread(db_find_nation, nation_id)
         if nation is None:
             return None
     return nation
@@ -53,7 +79,11 @@ async def yes_or_no(bot: discord.Bot, ctx: discord.ApplicationContext) -> Option
 
 
 async def find_user(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str, Any]]:
-    """Locate a verified user document by nation id, discord id, or name."""
+    """Locate a ``global_users`` document by nation id, discord id, or name.
+
+    The document may be a reminder-only profile without a linked nation (no ``id``).
+    Callers that need a nation must use :func:`linked_nation_id` rather than ``user['id']``.
+    """
     if isinstance(arg, str):
         arg = arg.strip()
 
