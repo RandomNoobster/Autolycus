@@ -57,18 +57,6 @@ export function DmFailureHelp({ reason, supportInviteUrl }: DmFailureHelpProps) 
       ),
     },
     {
-      title: 'Optional, for future servers',
-      details: (
-        <Text size="xs" c="dimmed">
-          User Settings → Content &amp; Social → Social permissions → Direct messages on, and apply it to existing
-          servers.
-        </Text>
-      ),
-    },
-    {
-      title: "Unblock Autolycus from its profile, and finish the server's rules screen if it has one.",
-    },
-    {
       title: 'Press Send test DM again.',
       details: (
         <Text size="xs" c="dimmed">
@@ -139,7 +127,7 @@ export function DmFailureHelp({ reason, supportInviteUrl }: DmFailureHelpProps) 
           })}
         </Box>
         <Text size="xs" c="dimmed">
-          Friend requests and messaging the bot first don't help — Discord only allows DMs through a shared server.
+          Discord only allows DMs through a shared server.
         </Text>
       </Stack>
     </Paper>
