@@ -244,3 +244,43 @@ def optional_discord_session(f: F) -> F:
         return f(*args, **kwargs)
 
     return cast(F, decorated)
+
+
+def _trusted_origins() -> Optional[set[str]]:
+    """Origins allowed to make cookie-authenticated writes; None means any (development)."""
+    configured = [str(origin).rstrip('/') for origin in current_app.config.get('CORS_ORIGINS', []) if origin]
+    if '*' in configured:
+        return None
+    origins = set(configured)
+    web_base = current_app.config.get('AUTOLYCUS_WEB_BASE_URL')
+    if web_base:
+        origins.add(str(web_base).rstrip('/'))
+    return origins
+
+
+def require_same_origin(f: F) -> F:
+    """Reject state-changing requests a browser sent from another site (CSRF defence).
+
+    The session cookie is ``SameSite=Lax``; this adds an explicit check of
+    ``Sec-Fetch-Site`` (sent by current browsers), falling back to ``Origin``.
+    Requests with neither header (non-browser clients) are allowed.
+    """
+
+    @wraps(f)
+    def decorated(*args: Any, **kwargs: Any) -> Any:
+        fetch_site = (request.headers.get('Sec-Fetch-Site') or '').lower()
+        origin = (request.headers.get('Origin') or '').rstrip('/')
+        blocked = fetch_site == 'cross-site'
+        if not blocked and not fetch_site and origin:
+            trusted = _trusted_origins()
+            blocked = trusted is not None and origin not in trusted
+        if blocked:
+            logger.warning("Blocked cross-site %s %s from origin=%r", request.method, request.path, origin)
+            return jsonify({
+                'error': 'Forbidden',
+                'message': 'This request must come from the Autolycus website.',
+                'code': 'CROSS_SITE_REQUEST',
+            }), 403
+        return f(*args, **kwargs)
+
+    return cast(F, decorated)

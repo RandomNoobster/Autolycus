@@ -15,7 +15,7 @@ from typing import Any, Optional
 from flask import Blueprint, current_app, jsonify, request
 
 from api.rate_limit import try_acquire_rate_limit
-from api.security import optional_discord_session, require_discord_session
+from api.security import optional_discord_session, require_discord_session, require_same_origin
 from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
                                    get_nation_by_id)
@@ -24,14 +24,19 @@ from logic.common import normalize_alliance_position
 from logic.military import calculate_win_chance_raw
 from logic.raids import (calculate_days_inactive,
                          is_in_vacation_mode)
+from api.routes.reminder_views import delivery_view, test_dm_view, upcoming_by_nation
+from database import reminders as reminder_db
+from infra.webpush import get_push_sender
+from logic import reminders as reminder_rules
+from services import reminders as reminder_service
 
 logger = logging.getLogger(__name__)
 
 raids_bp = Blueprint('raids', __name__, url_prefix='/api/raids')
 
-DEFAULT_REMINDER_MINUTES = [15]
-MAX_REMINDER_OFFSETS = 10
-MAX_REMINDER_OFFSET_MINUTES = 7 * 24 * 60
+DEFAULT_REMINDER_MINUTES = list(reminder_rules.DEFAULT_REMINDER_OFFSETS)
+MAX_REMINDER_OFFSETS = reminder_rules.MAX_REMINDER_OFFSETS
+MAX_REMINDER_OFFSET_MINUTES = reminder_rules.MAX_REMINDER_OFFSET_MINUTES
 
 # Scalar only — never pull cities/wars blobs on the request path.
 # Income / def_slots / treasure_count are precomputed by the nation scanner (and a one-time backfill).
@@ -89,56 +94,30 @@ def _parse_session_user_id() -> tuple[Optional[int], Optional[tuple[Any, int]]]:
 
 
 def _normalize_nation_id(value: Any) -> Optional[str]:
-    normalized = str(value or '').strip()
-    if normalized.isdigit():
-        return normalized
-    return None
+    return reminder_rules.normalize_nation_id(value)
 
 
 def _sanitize_reminder_offsets(raw_offsets: Any) -> Optional[list[int]]:
-    if not isinstance(raw_offsets, list):
-        return None
-    if len(raw_offsets) == 0 or len(raw_offsets) > MAX_REMINDER_OFFSETS:
-        return None
-    out: set[int] = set()
-    for value in raw_offsets:
-        if not isinstance(value, int):
-            return None
-        if value <= 0 or value > MAX_REMINDER_OFFSET_MINUTES:
-            return None
-        out.add(value)
-    return sorted(out, reverse=True)
+    return reminder_rules.sanitize_offsets(raw_offsets)
 
 
-def _get_or_init_reminder_profile(mongo_db: Any, uid: int) -> dict[str, Any]:
-    profile = mongo_db.global_users.find_one({'user': uid}) or {}
-    alerts = [_normalize_nation_id(x) for x in profile.get('beige_alerts', [])]
-    clean_alerts = sorted({x for x in alerts if x is not None})
-    config = _sanitize_reminder_offsets(profile.get('beige_alerts_config')) or DEFAULT_REMINDER_MINUTES
-
-    if profile:
-        update_set: dict[str, Any] = {}
-        if profile.get('beige_alerts') != clean_alerts:
-            update_set['beige_alerts'] = clean_alerts
-        if profile.get('beige_alerts_config') != config:
-            update_set['beige_alerts_config'] = config
-        if update_set:
-            mongo_db.global_users.update_one({'user': uid}, {'$set': update_set})
-        profile['beige_alerts'] = clean_alerts
-        profile['beige_alerts_config'] = config
-        return profile
-
-    profile = {
-        'user': uid,
-        'beige_alerts': [],
-        'beige_alerts_config': DEFAULT_REMINDER_MINUTES,
-    }
-    mongo_db.global_users.update_one(
-        {'user': uid},
-        {'$setOnInsert': profile},
-        upsert=True,
+def _db_unavailable() -> tuple[Any, int]:
+    return _error_response(
+        'Database unavailable',
+        'MongoDB is not configured.',
+        'DB_UNAVAILABLE',
+        503,
     )
-    return profile
+
+
+def _reminder_state(mongo_db: Any, uid: int) -> dict[str, Any]:
+    """Watch list, timings and delivery status for reminder responses (read-only)."""
+    profile = reminder_db.get_profile_sync(mongo_db, uid) or {}
+    return {
+        'beigeAlerts': reminder_db.watched_nation_ids(profile),
+        'beigeAlertConfig': reminder_rules.effective_offsets(profile.get('beige_alerts_config')),
+        'delivery': delivery_view(mongo_db, uid, profile),
+    }
 
 
 @raids_bp.route('/', methods=['GET'])
@@ -461,18 +440,20 @@ def get_raids() -> tuple[Any, int]:
 
 @raids_bp.route('/reminders', methods=['POST'])
 @require_discord_session
+@require_same_origin
 def add_reminder() -> tuple[Any, int]:
     """
     Add a beige/VM exit reminder for a nation.
 
-    Requires Discord session auth. Body: { "nationId": <number> }.
+    Requires Discord session auth. Body: { "nationId": <number> }. A user's first
+    reminder also queues a test DM when their DM delivery hasn't been confirmed.
     """
     try:
         uid, auth_error = _parse_session_user_id()
         if auth_error:
             return auth_error
 
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         nation_id = _normalize_nation_id(data.get('nationId'))
         if nation_id is None:
             return _error_response(
@@ -484,41 +465,36 @@ def add_reminder() -> tuple[Any, int]:
 
         mongo_db = get_sync_db()
         if mongo_db is None:
-            return _error_response(
-                'Database unavailable',
-                'MongoDB is not configured.',
-                'DB_UNAVAILABLE',
-                503,
-            )
+            return _db_unavailable()
 
-        _get_or_init_reminder_profile(mongo_db, uid)
-        mongo_db.global_users.update_one(
-            {'user': uid},
-            {'$addToSet': {'beige_alerts': nation_id}},
-        )
-        updated_profile = _get_or_init_reminder_profile(mongo_db, uid)
-
+        result = reminder_service.add_reminder_sync(mongo_db, uid, nation_id)
         return jsonify({
             'success': True,
-            'message': 'Reminder added successfully.',
+            'message': (
+                'Reminder added successfully.'
+                if result.added
+                else 'You already have a reminder for this nation.'
+            ),
             'nationId': int(nation_id),
-            'beigeAlerts': updated_profile.get('beige_alerts', []),
-            'beigeAlertConfig': updated_profile.get('beige_alerts_config', DEFAULT_REMINDER_MINUTES),
+            **_reminder_state(mongo_db, uid),
+            'testDm': test_dm_view(result.test_dm),
         }), 200
-        
+
     except Exception as e:
         logger.error(f"Error adding reminder: {e}", exc_info=True)
-        return jsonify({
-            'error': 'Internal server error',
-            'message': 'Failed to set reminder.',
-            'code': 'INTERNAL_ERROR'
-        }), 500
+        return _error_response(
+            'Internal server error',
+            'Failed to set reminder.',
+            'INTERNAL_ERROR',
+            500,
+        )
 
 
 @raids_bp.route('/reminders/<nation_id>', methods=['DELETE'])
 @require_discord_session
+@require_same_origin
 def remove_reminder(nation_id: str) -> tuple[Any, int]:
-    """Remove a beige/VM exit reminder for a nation (requires Discord session)."""
+    """Remove a beige/VM exit reminder and cancel its scheduled messages."""
     try:
         uid, auth_error = _parse_session_user_id()
         if auth_error:
@@ -534,40 +510,30 @@ def remove_reminder(nation_id: str) -> tuple[Any, int]:
 
         mongo_db = get_sync_db()
         if mongo_db is None:
-            return _error_response(
-                'Database unavailable',
-                'MongoDB is not configured.',
-                'DB_UNAVAILABLE',
-                503,
-            )
+            return _db_unavailable()
 
-        _get_or_init_reminder_profile(mongo_db, uid)
-        mongo_db.global_users.update_one(
-            {'user': uid},
-            {'$pull': {'beige_alerts': normalized_nation_id}},
-        )
-        updated_profile = _get_or_init_reminder_profile(mongo_db, uid)
-
+        reminder_service.remove_reminder_sync(mongo_db, uid, normalized_nation_id)
         return jsonify({
             'success': True,
             'message': 'Reminder removed successfully.',
             'nationId': int(normalized_nation_id),
-            'beigeAlerts': updated_profile.get('beige_alerts', []),
-            'beigeAlertConfig': updated_profile.get('beige_alerts_config', DEFAULT_REMINDER_MINUTES),
+            **_reminder_state(mongo_db, uid),
         }), 200
-        
+
     except Exception as e:
         logger.error(f"Error removing reminder: {e}", exc_info=True)
-        return jsonify({
-            'error': 'Internal server error',
-            'message': 'Failed to remove reminder.',
-            'code': 'INTERNAL_ERROR'
-        }), 500
+        return _error_response(
+            'Internal server error',
+            'Failed to remove reminder.',
+            'INTERNAL_ERROR',
+            500,
+        )
 
 
 @raids_bp.route('/reminders', methods=['GET'])
 @require_discord_session
 def get_reminders() -> tuple[Any, int]:
+    """List reminders with their exit and next reminder times, plus delivery status."""
     try:
         uid, auth_error = _parse_session_user_id()
         if auth_error:
@@ -575,36 +541,28 @@ def get_reminders() -> tuple[Any, int]:
 
         mongo_db = get_sync_db()
         if mongo_db is None:
-            return _error_response(
-                'Database unavailable',
-                'MongoDB is not configured.',
-                'DB_UNAVAILABLE',
-                503,
-            )
+            return _db_unavailable()
 
-        profile = _get_or_init_reminder_profile(mongo_db, uid)
-        reminder_ids = profile.get('beige_alerts', [])
+        profile = reminder_db.get_profile_sync(mongo_db, uid) or {}
+        reminder_ids = reminder_db.watched_nation_ids(profile)
+        schedule = upcoming_by_nation(
+            reminder_db.upcoming_jobs_for_user_sync(mongo_db, uid, reminder_rules.utcnow())
+        )
         reminders: list[dict[str, Any]] = []
         data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
 
         for nation_id in reminder_ids:
             nation_data = get_nation_by_id(data_path, nation_id)
-            nation = nation_data.get('nation') if nation_data else None
-            if not nation:
-                reminders.append({
-                    'nationId': int(nation_id),
-                    'nationName': f'Nation {nation_id}',
-                    'leaderName': 'Unknown',
-                    'beigeTurns': 0,
-                    'vacationModeTurns': 0,
-                })
-                continue
+            nation = (nation_data.get('nation') if nation_data else None) or {}
+            timing = schedule.get(nation_id, {})
             reminders.append({
                 'nationId': int(nation_id),
                 'nationName': nation.get('nation_name', f'Nation {nation_id}'),
                 'leaderName': nation.get('leader_name', 'Unknown'),
                 'beigeTurns': int(nation.get('beige_turns') or 0),
                 'vacationModeTurns': int(nation.get('vacation_mode_turns') or 0),
+                'exitAt': timing.get('exitAt'),
+                'nextReminderAt': timing.get('nextReminderAt'),
             })
 
         reminders.sort(key=lambda x: x['nationId'])
@@ -612,7 +570,8 @@ def get_reminders() -> tuple[Any, int]:
             'success': True,
             'reminders': reminders,
             'beigeAlerts': reminder_ids,
-            'beigeAlertConfig': profile.get('beige_alerts_config', DEFAULT_REMINDER_MINUTES),
+            'beigeAlertConfig': reminder_rules.effective_offsets(profile.get('beige_alerts_config')),
+            'delivery': delivery_view(mongo_db, uid, profile),
         }), 200
     except Exception as e:
         logger.error(f"Error fetching reminders: {e}", exc_info=True)
@@ -626,6 +585,7 @@ def get_reminders() -> tuple[Any, int]:
 
 @raids_bp.route('/reminders/config', methods=['PUT'])
 @require_discord_session
+@require_same_origin
 def update_reminder_config() -> tuple[Any, int]:
     try:
         uid, auth_error = _parse_session_user_id()
@@ -634,40 +594,184 @@ def update_reminder_config() -> tuple[Any, int]:
 
         mongo_db = get_sync_db()
         if mongo_db is None:
-            return _error_response(
-                'Database unavailable',
-                'MongoDB is not configured.',
-                'DB_UNAVAILABLE',
-                503,
-            )
+            return _db_unavailable()
 
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         offsets = _sanitize_reminder_offsets(data.get('beigeAlertConfig'))
         if offsets is None:
             return _error_response(
                 'Validation error',
-                f'beigeAlertConfig must be a list of 1-{MAX_REMINDER_OFFSETS} positive integers (minutes).',
+                (
+                    f'beigeAlertConfig must be a list of 1-{MAX_REMINDER_OFFSETS} whole numbers '
+                    f'between 1 and {MAX_REMINDER_OFFSET_MINUTES} (minutes).'
+                ),
                 'VALIDATION_ERROR',
                 400,
             )
 
-        _get_or_init_reminder_profile(mongo_db, uid)
-        mongo_db.global_users.update_one(
-            {'user': uid},
-            {'$set': {'beige_alerts_config': offsets}},
-        )
-        profile = _get_or_init_reminder_profile(mongo_db, uid)
+        reminder_db.set_offsets_sync(mongo_db, uid, offsets, reminder_rules.utcnow())
+        profile = reminder_db.get_profile_sync(mongo_db, uid) or {}
         return jsonify({
             'success': True,
             'message': 'Reminder timing updated successfully.',
-            'beigeAlertConfig': profile.get('beige_alerts_config', DEFAULT_REMINDER_MINUTES),
-            'beigeAlerts': profile.get('beige_alerts', []),
+            'beigeAlertConfig': reminder_rules.effective_offsets(profile.get('beige_alerts_config')),
+            'beigeAlerts': reminder_db.watched_nation_ids(profile),
         }), 200
     except Exception as e:
         logger.error(f"Error updating reminder config: {e}", exc_info=True)
         return _error_response(
             'Internal server error',
             'Failed to update reminder timing.',
+            'INTERNAL_ERROR',
+            500,
+        )
+
+
+@raids_bp.route('/reminders/channels', methods=['PUT'])
+@require_discord_session
+@require_same_origin
+def update_reminder_channels() -> tuple[Any, int]:
+    """Switch Discord DM and browser push delivery on or off. Body: {discordDm, webPush}."""
+    try:
+        uid, auth_error = _parse_session_user_id()
+        if auth_error:
+            return auth_error
+
+        mongo_db = get_sync_db()
+        if mongo_db is None:
+            return _db_unavailable()
+
+        data = request.get_json(silent=True) or {}
+        discord_dm = data.get('discordDm')
+        web_push = data.get('webPush')
+        if not isinstance(discord_dm, bool) or not isinstance(web_push, bool):
+            return _error_response(
+                'Validation error',
+                'discordDm and webPush must be true or false.',
+                'VALIDATION_ERROR',
+                400,
+            )
+
+        error = reminder_service.update_channels_sync(
+            mongo_db,
+            uid,
+            discord_dm=discord_dm,
+            web_push=web_push,
+            push_configured=get_push_sender() is not None,
+        )
+        if error == reminder_rules.CHANNEL_REQUIRED:
+            return _error_response(
+                'Validation error',
+                'Keep at least one delivery channel on.',
+                error,
+                400,
+            )
+        if error == reminder_rules.NO_PUSH_DEVICES:
+            return _error_response(
+                'No devices',
+                'Turn on browser notifications on at least one device first.',
+                error,
+                409,
+            )
+        if error == reminder_rules.PUSH_NOT_CONFIGURED:
+            return _error_response(
+                'Push unavailable',
+                'Browser notifications are not set up on this server.',
+                error,
+                503,
+            )
+
+        profile = reminder_db.get_profile_sync(mongo_db, uid) or {}
+        return jsonify({
+            'success': True,
+            'message': 'Delivery settings updated.',
+            'delivery': delivery_view(mongo_db, uid, profile),
+        }), 200
+    except Exception as e:
+        logger.error(f"Error updating reminder channels: {e}", exc_info=True)
+        return _error_response(
+            'Internal server error',
+            'Failed to update delivery settings.',
+            'INTERNAL_ERROR',
+            500,
+        )
+
+
+@raids_bp.route('/reminders/delivery', methods=['GET'])
+@require_discord_session
+def get_reminder_delivery() -> tuple[Any, int]:
+    """Delivery status only (cheap enough for polling and the sidebar)."""
+    try:
+        uid, auth_error = _parse_session_user_id()
+        if auth_error:
+            return auth_error
+
+        mongo_db = get_sync_db()
+        if mongo_db is None:
+            return _db_unavailable()
+
+        profile = reminder_db.get_profile_sync(mongo_db, uid) or {}
+        return jsonify({
+            'success': True,
+            'delivery': delivery_view(mongo_db, uid, profile),
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching reminder delivery: {e}", exc_info=True)
+        return _error_response(
+            'Internal server error',
+            'Failed to fetch delivery status.',
+            'INTERNAL_ERROR',
+            500,
+        )
+
+
+@raids_bp.route('/reminders/test-dm', methods=['POST'])
+@require_discord_session
+@require_same_origin
+def request_test_dm() -> tuple[Any, int]:
+    """Queue a test DM so the user can check that reminders reach them."""
+    try:
+        uid, auth_error = _parse_session_user_id()
+        if auth_error:
+            return auth_error
+
+        mongo_db = get_sync_db()
+        if mongo_db is None:
+            return _db_unavailable()
+
+        now = reminder_rules.utcnow()
+        latest = reminder_db.latest_test_dm_sync(mongo_db, uid)
+        if latest and latest.get('state') in reminder_rules.TEST_DM_ACTIVE_STATES:
+            test_dm = latest
+        else:
+            retry_after = reminder_service.test_dm_retry_after_sync(mongo_db, uid, now)
+            if retry_after is not None:
+                response = jsonify({
+                    'error': 'Too many requests',
+                    'message': f'You can send another test DM in {retry_after} seconds.',
+                    'code': 'RATE_LIMITED',
+                    'retryAfter': retry_after,
+                })
+                response.status_code = 429
+                response.headers['Retry-After'] = str(retry_after)
+                return response
+            reminder_db.ensure_profile_sync(mongo_db, uid)
+            test_dm, _ = reminder_db.create_test_dm_sync(
+                mongo_db, uid, reminder_service.TEST_DM_SOURCE_WEBSITE, now
+            )
+
+        profile = reminder_db.get_profile_sync(mongo_db, uid) or {}
+        return jsonify({
+            'success': True,
+            'message': 'Test DM on its way. It should arrive within a few seconds.',
+            'testDm': test_dm_view(test_dm),
+            'delivery': delivery_view(mongo_db, uid, profile),
+        }), 202
+    except Exception as e:
+        logger.error(f"Error requesting test DM: {e}", exc_info=True)
+        return _error_response(
+            'Internal server error',
+            'Failed to send a test DM.',
             'INTERNAL_ERROR',
             500,
         )

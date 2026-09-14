@@ -18,6 +18,7 @@ Usage:
 import gzip
 import logging
 import os
+import threading
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -34,10 +35,28 @@ from api.routes.auth import auth_bp
 from api.routes.builds import builds_bp
 from api.routes.damage import damage_bp
 from api.routes.nuke_targets import nuke_targets_bp
+from api.routes.push import push_bp
 from api.routes.raids import raids_bp
 from api.routes.stats import stats_bp
 
 logger = logging.getLogger(__name__)
+
+
+def _start_reminder_index_creation() -> None:
+    """Create reminder indexes in the background so a slow MongoDB can't delay startup."""
+
+    def work() -> None:
+        try:
+            from database.mongo import get_sync_db
+            from database.reminders import ensure_indexes_sync
+
+            mongo_db = get_sync_db()
+            if mongo_db is not None:
+                ensure_indexes_sync(mongo_db)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not create reminder indexes: %s", exc)
+
+    threading.Thread(target=work, name="reminder-indexes", daemon=True).start()
 
 
 def create_app(config_object: Optional[object] = None) -> Flask:
@@ -85,6 +104,10 @@ def create_app(config_object: Optional[object] = None) -> Flask:
     app.register_blueprint(builds_bp)
     app.register_blueprint(damage_bp)
     app.register_blueprint(stats_bp)
+    app.register_blueprint(push_bp)
+
+    if not app.config.get('TESTING'):
+        _start_reminder_index_creation()
 
     # Security headers + gzip for large JSON payloads (raids/nuke lists).
     @app.after_request
