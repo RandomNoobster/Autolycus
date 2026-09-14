@@ -13,6 +13,7 @@ from bot.discord_utils.interaction_framework import encode_custom_id
 from bot.discord_utils.modals import SimpleModal
 from database import interaction_sessions
 from database.mongo import get_db
+from services import reminders as reminder_service
 
 # Discord UI components only. No business logic here.
 _RAIDS_PAGER_CACHE: dict[str, dict[str, Any]] = {}
@@ -602,20 +603,15 @@ async def _raids_pager_interaction_handler(
         if cur_beige <= 0:
             ephemeral_text = "They are not in beige!"
         else:
-            db = get_db()
-            user = await db.global_users.find_one({"user": interaction.user.id})
-            if user is None:
-                ephemeral_text = "I didn't find you in the database! Make sure to `/verify`!"
+            result = await reminder_service.add_reminder(get_db(), interaction.user.id, cur_target)
+            if not result.added:
+                ephemeral_text = "You already have a beige reminder for this nation!"
             else:
-                alerts = [str(x) for x in user.get("beige_alerts", [])]
-                if cur_target in alerts:
-                    ephemeral_text = "You already have a beige reminder for this nation!"
-                else:
-                    await db.global_users.find_one_and_update(
-                        {"user": interaction.user.id},
-                        {"$addToSet": {"beige_alerts": cur_target}},
+                ephemeral_text = f"A beige reminder for <https://politicsandwar.com/nation/id={cur_target}> was added!"
+                if result.test_dm is not None:
+                    ephemeral_text += (
+                        " I'm sending you a test DM. Press **Got it** in it so we know reminders reach you."
                     )
-                    ephemeral_text = f"A beige reminder for <https://politicsandwar.com/nation/id={cur_target}> was added!"
 
     # Re-check whether beige should be enabled for current index (state + user reminders)
     beige_enabled = False
