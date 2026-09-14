@@ -94,11 +94,15 @@ class Background(commands.Cog):
         """
         try:
             await ctx.defer()
-            if person is None:
+            self_lookup = person is None
+            if self_lookup:
                 person = ctx.author.id
             nation = await helpers.find_nation_plus(self.bot, person)
             if nation is None:
-                await ctx.respond(content="I did not find that nation!")
+                if self_lookup:
+                    await ctx.respond(content=helpers.NATION_NOT_LINKED_MESSAGE)
+                else:
+                    await ctx.respond(content="I did not find that nation!")
                 return
 
             nation = (await call_api(f"{{nations(first:1 id:{nation['id']}){{data{get_query(queries.WHO)}}}}}"))['data']['nations']['data'][0]
@@ -179,7 +183,10 @@ class Background(commands.Cog):
             target = person or ctx.author.id
             db_nation = await helpers.find_nation_plus(self.bot, target)
             if not db_nation:
-                await ctx.edit(content="I could not find the specified person!", attachments=[])
+                if person:
+                    await ctx.edit(content="I could not find the specified person!", attachments=[])
+                else:
+                    await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, attachments=[])
                 return
 
             infra_level = str_to_int(infra)
@@ -304,14 +311,19 @@ class Background(commands.Cog):
             await ctx.respond('Stay with me...')
             loading = LoadingDisplay(ctx, show_after=0)
             await loading.start("Stay with me...")
-            if person is None:
+            self_lookup = person is None
+            if self_lookup:
                 person = ctx.author.id
             db_nation = await helpers.find_user(self.bot, person)
 
-            if not db_nation:
+            # Reminder-only profiles (created by the website) have no linked nation id.
+            if not helpers.linked_nation_id(db_nation):
                 db_nation = await asyncio.to_thread(db_utils.find_nation, person)
                 if not db_nation:
-                    await ctx.edit(content='I could not find that person!', attachments=[])
+                    if self_lookup:
+                        await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, attachments=[])
+                    else:
+                        await ctx.edit(content='I could not find that person!', attachments=[])
                     return
                 db_nation['nationid'] = db_nation['id']
 

@@ -8,6 +8,30 @@ import { IconBrandDiscord, IconLogout } from '@tabler/icons-react';
 
 import { useDelayedFlag, type SidebarDiscordSession } from '@/hooks';
 import { getDiscordLoginUrl, logoutDiscordSession } from '@/api/auth';
+import { removePushDevice } from '@/api/push';
+import { endpointId, getExistingSubscription } from '@/lib/push';
+
+/** Longest logout waits for notification cleanup before continuing anyway. */
+const PUSH_CLEANUP_TIMEOUT_MS = 3_000;
+
+/**
+ * Best-effort: stop reminder notifications in this browser before logging out, so whoever uses it
+ * next doesn't get them. Never throws.
+ */
+async function releaseThisBrowserPush(): Promise<void> {
+  try {
+    const subscription = await getExistingSubscription();
+    if (!subscription) return;
+    try {
+      await removePushDevice(await endpointId(subscription.endpoint));
+    } catch {
+      // The server also drops devices once their push service reports them gone.
+    }
+    await subscription.unsubscribe().catch(() => false);
+  } catch {
+    // Never block logout.
+  }
+}
 
 interface DiscordSidebarCardProps {
   session: SidebarDiscordSession;
@@ -71,6 +95,10 @@ export function DiscordSidebarCard({ session, compact = false }: DiscordSidebarC
     if (loggingOut) return;
     setLoggingOut(true);
     try {
+      await Promise.race([
+        releaseThisBrowserPush(),
+        new Promise<void>((resolve) => window.setTimeout(resolve, PUSH_CLEANUP_TIMEOUT_MS)),
+      ]);
       await logoutDiscordSession();
     } finally {
       // Force a full refresh so sidebar session state and protected UI update immediately.

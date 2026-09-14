@@ -43,6 +43,7 @@ import { useDelayedFlag, useSidebarDiscordSession } from '@/hooks';
 import { getLinkedNation, unlinkDiscordNation } from '@/api/auth';
 import { VerifyNationModal } from '@/components/common';
 import { DiscordSidebarCard } from '@/components/layout/DiscordSidebarCard';
+import { ReminderDeliveryIndicator } from '@/components/layout/ReminderDeliveryIndicator';
 import { internalNavPath } from '@/lib/internalNavPath';
 
 interface NavItem {
@@ -271,6 +272,7 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
     <Stack gap={6} style={{ flexShrink: 0 }}>
       <SectionDivider label="Discord" />
       <DiscordSidebarCard session={discordSession} compact={isCompactHeight} />
+      <ReminderDeliveryIndicator session={discordSession} onNavigate={onNavigate} />
 
       <SectionDivider label="Linked Nation" />
 

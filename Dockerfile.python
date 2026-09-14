@@ -24,6 +24,7 @@ COPY core /app/core
 COPY database /app/database
 COPY infra /app/infra
 COPY logic /app/logic
+COPY services /app/services
 COPY scanner.py /app/scanner.py
 
 RUN --mount=type=cache,target=/root/.cache/uv \

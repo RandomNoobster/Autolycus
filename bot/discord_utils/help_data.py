@@ -200,9 +200,9 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
     "reminders show": {
         "short": "View all your active beige exit reminders",
         "long": (
-            "Displays a list of every nation you've set a beige exit reminder for, "
-            "with the estimated exit timestamp and a live countdown. Paginates "
-            "automatically if you have more than 20 reminders."
+            "Displays every nation you've set a beige exit reminder for, with its "
+            "exit time, a live countdown and when your next reminder goes out. "
+            "Paginates automatically if you have more than 20 reminders."
         ),
         "parameters": {},
         "examples": ["`/reminders show`"],
@@ -228,9 +228,12 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
         "short": "Get notified when a nation exits beige or VM",
         "long": (
             "Adds a beige exit reminder for the specified nation. When their beige "
-            "or vacation mode is about to expire, you'll receive a DM at the times "
-            "you configured with `/config reminders` (default: 15 minutes before). "
-            "The nation must currently be in beige or vacation mode."
+            "or vacation mode is about to expire, you'll get a reminder at the times "
+            "you configured with `/config reminders` (default: 15 minutes before), "
+            "by Discord DM, browser notification or both. Choose on the Reminders page. "
+            "The nation must currently be in beige or vacation mode.\n\n"
+            "Your first reminder sends you a test DM so you can check that reminders reach you. "
+            "DMs only arrive if you share a server with Autolycus and allow DMs from it."
         ),
         "parameters": {
             "nation": (
@@ -381,15 +384,15 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
         "examples": ["`/config view_current_settings`"],
     },
     "config reminders": {
-        "short": "Customize when you receive beige exit reminder DMs",
+        "short": "Customize when you receive beige exit reminders",
         "long": (
             "Opens an interactive wizard to set up multiple reminder times for beige "
             "exit notifications. For example, you can be notified 30 minutes, "
             "15 minutes, and 5 minutes before a tracked nation exits beige.\n\n"
-            "You can keep your existing reminders and add more, or discard them "
-            "and start fresh. If you finish without adding any, the system default "
-            "of 15 minutes will be used.\n\n"
-            "Requires the **Manage Server** permission."
+            "You can keep your existing times and add more, or start over. You can "
+            "have up to 10 times, each between 1 minute and 7 days. If you finish "
+            "without adding any, the default of 15 minutes is used.\n\n"
+            "This is a personal setting, so it works in any server and in DMs."
         ),
         "parameters": {},
         "examples": ["`/config reminders`"],

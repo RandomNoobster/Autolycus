@@ -12,6 +12,8 @@ export interface ApiError {
   error: string;
   message: string;
   code: string;
+  /** Seconds from the `Retry-After` header, when the server sent one (e.g. 429 RATE_LIMITED). */
+  retryAfterSeconds?: number;
 }
 
 export interface ApiResponse<T> {
@@ -160,6 +162,10 @@ export interface ReminderResponse {
   nationId: number;
   beigeAlerts?: string[];
   beigeAlertConfig?: number[];
+  /** Delivery status after the change (POST and DELETE). */
+  delivery?: ReminderDelivery;
+  /** POST only: non-null when a test DM was queued automatically. */
+  testDm?: TestDmStatus | null;
 }
 
 export interface ReminderNation {
@@ -168,6 +174,10 @@ export interface ReminderNation {
   leaderName: string;
   beigeTurns: number;
   vacationModeTurns: number;
+  /** Expected beige/vacation mode exit (ISO 8601 UTC); null until the scheduler has planned it. */
+  exitAt: string | null;
+  /** Next planned reminder (ISO 8601 UTC); null until the scheduler has planned it. */
+  nextReminderAt: string | null;
 }
 
 export interface RemindersResponse {
@@ -175,6 +185,7 @@ export interface RemindersResponse {
   reminders: ReminderNation[];
   beigeAlerts: string[];
   beigeAlertConfig: number[];
+  delivery: ReminderDelivery;
 }
 
 export interface ReminderConfigRequest {
@@ -186,6 +197,152 @@ export interface ReminderConfigResponse {
   message: string;
   beigeAlerts: string[];
   beigeAlertConfig: number[];
+}
+
+// ============================================================================
+// Reminder delivery (Discord DM + browser push)
+// ============================================================================
+
+export interface ReminderChannels {
+  discordDm: boolean;
+  webPush: boolean;
+}
+
+export type DmDeliveryState = 'unknown' | 'pending' | 'ok' | 'confirmed' | 'failed';
+
+export type DmFailureReason = 'no_mutual_server' | 'dms_closed' | 'unknown_user' | 'other';
+
+export interface DmDeliveryStatus {
+  /** unknown = never tried; pending = test DM queued/sending */
+  state: DmDeliveryState;
+  /** Discord JSON error code of the last failure (50278, 50007, 10013, ...) */
+  code: number | null;
+  /** 50278 → no_mutual_server, 50007 → dms_closed, 10013 → unknown_user */
+  reason: DmFailureReason | null;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  /** When the user clicked "Got it" in a test DM */
+  confirmedAt: string | null;
+}
+
+export type TestDmState = 'queued' | 'sending' | 'sent' | 'failed' | 'confirmed';
+
+export interface TestDmStatus {
+  id: string;
+  state: TestDmState;
+  code: number | null;
+  reason: DmFailureReason | null;
+  requestedAt: string;
+  sentAt: string | null;
+  confirmedAt: string | null;
+}
+
+export type ReminderProblemKind =
+  /** Every enabled channel failed (reminderRemoved tells whether the reminder was removed) */
+  | 'not_delivered'
+  /** Discord refused the DM, push delivered → reminder kept */
+  | 'dm_refused'
+  /** Push failed on every device, DM delivered → reminder kept */
+  | 'push_failed'
+  /** Nation wasn't in beige or vacation mode → reminder removed */
+  | 'not_protected'
+  /** Nation no longer exists → reminder removed */
+  | 'nation_missing';
+
+export interface ReminderProblem {
+  kind: ReminderProblemKind;
+  nationId: string;
+  nationName: string | null;
+  offsetMinutes: number | null;
+  dueAt: string | null;
+  code: number | null;
+  reminderRemoved: boolean;
+  at: string;
+}
+
+export interface ReminderDelivery {
+  channels: ReminderChannels;
+  dm: DmDeliveryStatus;
+  latestTestDm: TestDmStatus | null;
+  /** configured=false → the server has no push keys */
+  push: { configured: boolean; deviceCount: number };
+  /** Newest first, max 10 */
+  recentProblems: ReminderProblem[];
+  supportInviteUrl: string;
+  /** True when an enabled channel is broken (DM on + failed, or push on with 0 devices) */
+  needsAttention: boolean;
+}
+
+export interface PushDevice {
+  /** First 32 hex chars of SHA-256(endpoint) */
+  id: string;
+  label: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+}
+
+export interface ReminderDeliveryResponse {
+  success: boolean;
+  delivery: ReminderDelivery;
+}
+
+export type ReminderChannelsRequest = ReminderChannels;
+
+export interface ReminderChannelsResponse {
+  success: boolean;
+  message: string;
+  delivery: ReminderDelivery;
+}
+
+export interface TestDmResponse {
+  success: boolean;
+  message: string;
+  testDm: TestDmStatus;
+  delivery: ReminderDelivery;
+}
+
+export interface PushVapidKeyResponse {
+  /** base64url-encoded application server key */
+  publicKey: string;
+  keyId: string;
+}
+
+export interface PushDevicesResponse {
+  success: boolean;
+  devices: PushDevice[];
+  configured: boolean;
+  keyId: string | null;
+}
+
+export interface PushDeviceRegisterRequest {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  keyId?: string;
+  label?: string;
+  /** Default true: also switches the webPush channel on */
+  enableChannel?: boolean;
+}
+
+export interface PushDeviceRegisterResponse {
+  success: boolean;
+  device: PushDevice;
+  delivery: ReminderDelivery;
+}
+
+export interface PushDeviceRemoveResponse {
+  success: boolean;
+  removed: boolean;
+  delivery: ReminderDelivery;
+}
+
+export interface PushTestResponse {
+  success: boolean;
+  sent: number;
+  failed: number;
+  removed: number;
 }
 
 export interface VerifyLinkRequest {

@@ -13,6 +13,10 @@ import type {
   RemindersResponse,
   ReminderConfigRequest,
   ReminderConfigResponse,
+  ReminderChannelsRequest,
+  ReminderChannelsResponse,
+  ReminderDeliveryResponse,
+  TestDmResponse,
 } from '@/types';
 
 /** Query params supported by GET /api/raids/ */
@@ -79,6 +83,29 @@ export function updateReminderConfig(
   data: ReminderConfigRequest
 ): Promise<ReminderConfigResponse> {
   return apiPut<ReminderConfigResponse, ReminderConfigRequest>('/api/raids/reminders/config', data);
+}
+
+/** Delivery status only (channels, DM status, push devices, recent problems). Light enough to poll. */
+export function fetchReminderDelivery(): Promise<ReminderDeliveryResponse> {
+  return apiGet<ReminderDeliveryResponse>('/api/raids/reminders/delivery');
+}
+
+/**
+ * Queue a test DM (202). Returns the in-flight test if one is already queued.
+ * 429 RATE_LIMITED (1 per minute, 10 per day) with a Retry-After header.
+ */
+export function requestTestDm(): Promise<TestDmResponse> {
+  return apiPost<TestDmResponse, Record<string, never>>('/api/raids/reminders/test-dm', {});
+}
+
+/**
+ * Switch delivery channels. 400 CHANNEL_REQUIRED (both off), 409 NO_PUSH_DEVICES,
+ * 503 PUSH_NOT_CONFIGURED.
+ */
+export function updateReminderChannels(
+  channels: ReminderChannelsRequest
+): Promise<ReminderChannelsResponse> {
+  return apiPut<ReminderChannelsResponse, ReminderChannelsRequest>('/api/raids/reminders/channels', channels);
 }
 
 export interface AllianceSearchResult {

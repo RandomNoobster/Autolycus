@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .mongo import get_db
+from .reminders import delete_user_reminder_data
 
 async def is_verified(user_id: int) -> bool:
     db = get_db().global_users
@@ -26,8 +27,12 @@ async def set_verification(user_id: int, nation_id: str) -> None:
     )
 
 async def delete_verification(user_id: int) -> Optional[dict]:
+    """Delete a user's profile along with their scheduled reminders and push devices."""
     db = get_db().global_users
-    return await db.find_one_and_delete({"user": user_id})
+    deleted = await db.find_one_and_delete({"user": user_id})
+    if deleted is not None:
+        await delete_user_reminder_data(get_db(), user_id)
+    return deleted
 
 
 def _global_users_sync():

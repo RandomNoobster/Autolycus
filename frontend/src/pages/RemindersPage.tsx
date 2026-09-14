@@ -35,18 +35,51 @@ import {
 import { addReminder, fetchReminders, removeReminder, updateReminderConfig } from '@/api';
 import { isBackendUnreachableError, toApiError } from '@/api/errors';
 import { getDiscordLoginUrl } from '@/api/auth';
-import type { ApiError, ReminderNation } from '@/types';
+import { ReminderDeliveryCard } from '@/components/reminders';
+import { useNow, usePushSubscription, useReminderDelivery } from '@/hooks';
+import {
+  REMINDER_DELIVERY_QUERY_KEY,
+  formatLocalDateTime,
+  formatRelativeTime,
+} from '@/lib/reminderDelivery';
+import type { ApiError, ReminderDelivery, ReminderNation } from '@/types';
 
 const REMINDER_ROW_ENTER_MS = 280;
+/** Right after adding a reminder, re-check this often (for this long) until the scheduler has planned it. */
+const SCHEDULING_POLL_MS = 5_000;
+const SCHEDULING_POLL_WINDOW_MS = 30_000;
+/** Limits enforced by PUT /api/raids/reminders/config. */
+const MAX_REMINDER_OFFSETS = 10;
+const MAX_REMINDER_OFFSET_MINUTES = 10_080;
+
+function ScheduleCell({ iso, now }: { iso: string | null; now: number }) {
+  if (!iso) {
+    return (
+      <Text size="sm" c="dimmed">
+        Scheduling…
+      </Text>
+    );
+  }
+  return (
+    <Stack gap={0}>
+      <Text size="sm">{formatLocalDateTime(iso) || iso}</Text>
+      <Text size="xs" c="dimmed">
+        {formatRelativeTime(iso, now)}
+      </Text>
+    </Stack>
+  );
+}
 
 function ReminderTableRow({
   reminder,
+  now,
   animateEnter,
   removePending,
   onRemove,
   onEnterAnimationEnd,
 }: {
   reminder: ReminderNation;
+  now: number;
   animateEnter: boolean;
   removePending: boolean;
   onRemove: () => void;
@@ -79,6 +112,12 @@ function ReminderTableRow({
             </a>
           </Table.Td>
           <Table.Td>{reminder.leaderName}</Table.Td>
+          <Table.Td>
+            <ScheduleCell iso={reminder.nextReminderAt} now={now} />
+          </Table.Td>
+          <Table.Td>
+            <ScheduleCell iso={reminder.exitAt} now={now} />
+          </Table.Td>
           <Table.Td>{reminder.beigeTurns}</Table.Td>
           <Table.Td>{reminder.vacationModeTurns}</Table.Td>
           <Table.Td>
@@ -114,8 +153,10 @@ function parseOffsetList(raw: string): number[] | null {
     .filter(Boolean);
   if (!tokens.length) return null;
   const values = tokens.map((token) => Number(token));
-  if (values.some((v) => !Number.isInteger(v) || v <= 0)) return null;
-  return sortReminderOffsets(Array.from(new Set(values)));
+  if (values.some((v) => !Number.isInteger(v) || v <= 0 || v > MAX_REMINDER_OFFSET_MINUTES)) return null;
+  const unique = Array.from(new Set(values));
+  if (unique.length > MAX_REMINDER_OFFSETS) return null;
+  return sortReminderOffsets(unique);
 }
 
 function minutePhrase(n: number): string {
@@ -217,8 +258,8 @@ function RemindersSignInPromo() {
                   </div>
                 </Group>
                 <Text size="md" c="dimmed" maw={480}>
-                  Get Discord DMs before nations leave beige or vacation mode. Pick your lead times, manage targets from
-                  here or the raids table — same settings as the bot.
+                  Get a Discord DM or browser notification before nations leave beige or vacation mode. Pick your lead
+                  times, manage targets from here or the raids table — same settings as the bot.
                 </Text>
               </Stack>
             </Group>
@@ -281,12 +322,24 @@ export function RemindersPage() {
   const [nationIdInput, setNationIdInput] = useState<number | ''>('');
   const [offsetInput, setOffsetInput] = useState('');
   const [lastAddedNationId, setLastAddedNationId] = useState<number | null>(null);
+  const [lastAddedAt, setLastAddedAt] = useState<number | null>(null);
+  const now = useNow();
 
   const remindersQuery = useQuery({
     queryKey: ['reminders'],
     queryFn: fetchReminders,
     retry: false,
+    // Briefly after an add, re-check until the scheduler has planned the new reminder.
+    refetchInterval: (query) => {
+      if (lastAddedAt === null || Date.now() - lastAddedAt > SCHEDULING_POLL_WINDOW_MS) return false;
+      return query.state.data?.reminders.some((reminder) => !reminder.nextReminderAt) ? SCHEDULING_POLL_MS : false;
+    },
   });
+
+  // Called before the early returns below; they only call the API once reminders loaded (signed in).
+  const signedIn = remindersQuery.isSuccess;
+  const deliveryQuery = useReminderDelivery({ enabled: signedIn });
+  const push = usePushSubscription({ enabled: signedIn });
 
   const syncRaidsAndReminders = async () => {
     await Promise.all([
@@ -295,12 +348,25 @@ export function RemindersPage() {
     ]);
   };
 
+  const applyDelivery = (delivery: ReminderDelivery | undefined) => {
+    if (delivery) queryClient.setQueryData<ReminderDelivery>(REMINDER_DELIVERY_QUERY_KEY, delivery);
+  };
+
   const addMutation = useMutation({
     mutationFn: (nationId: number) => addReminder({ nationId }),
-    onSuccess: async (_data, nationId) => {
+    onSuccess: async (data, nationId) => {
       notifications.show({ title: 'Reminder added', message: 'Target was added to beige reminders.', color: 'green' });
+      if (data.testDm) {
+        notifications.show({
+          title: 'Sending you a test DM to check delivery',
+          message: 'Click Got it in the DM from Autolycus when it arrives.',
+          color: 'blue',
+        });
+      }
+      applyDelivery(data.delivery);
       setNationIdInput('');
       setLastAddedNationId(nationId);
+      setLastAddedAt(Date.now());
       await syncRaidsAndReminders();
     },
     onError: (error: ApiError) => {
@@ -310,8 +376,9 @@ export function RemindersPage() {
 
   const removeMutation = useMutation({
     mutationFn: (nationId: number) => removeReminder(nationId),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       notifications.show({ title: 'Reminder removed', message: 'Target was removed from beige reminders.', color: 'blue' });
+      applyDelivery(data.delivery);
       await syncRaidsAndReminders();
     },
     onError: (error: ApiError) => {
@@ -404,6 +471,7 @@ export function RemindersPage() {
   }
 
   const reminders = remindersQuery.data?.reminders ?? [];
+  const delivery = deliveryQuery.data ?? remindersQuery.data?.delivery;
 
   return (
     <Container size="xl" py="xl">
@@ -412,8 +480,8 @@ export function RemindersPage() {
           <div>
             <Title order={1}>Beige Reminders</Title>
             <Text c="dimmed" mt="xs" maw={720}>
-              Discord DMs before targets leave beige or vacation mode. Set lead times below; manage nations here or from
-              the raid targets table.
+              Get a Discord DM or browser notification before targets leave beige or vacation mode. Choose how reminders
+              reach you and set lead times below; manage nations here or from the raid targets table.
             </Text>
           </div>
           <Badge variant="light" size="lg">
@@ -421,12 +489,21 @@ export function RemindersPage() {
           </Badge>
         </Group>
 
+        <ReminderDeliveryCard
+          delivery={delivery}
+          loading={deliveryQuery.isLoading}
+          error={deliveryQuery.error ?? null}
+          onRetry={() => void deliveryQuery.refetch()}
+          push={push}
+        />
+
         <Paper p="lg" withBorder radius="md">
           <Stack gap="lg">
             <div>
               <Title order={3}>Timing</Title>
               <Text size="sm" c="dimmed" mt="xs">
-                For each nation on your active reminders list, you get Discord DMs at the times you set below.
+                For each nation on your active reminders list, you get a reminder at the times you set below, by Discord
+                DM, browser notification, or both (see Delivery above).
               </Text>
             </div>
             <Stack gap="xs">
@@ -439,11 +516,11 @@ export function RemindersPage() {
                 <Text component="span" fw={600} c="var(--mantine-color-text)">
                   before a nation is expected to leave beige or vacation mode
                 </Text>{' '}
-                you want a DM to be sent. Example{' '}
+                you want a reminder. Example{' '}
                 <Text component="span" ff="monospace" size="sm">
                   60, 30, 15
                 </Text>{' '}
-                → means you get three DMs: one hour, 30 minutes, and 15 minutes before exit.{' '}
+                → means you get three reminders: one hour, 30 minutes, and 15 minutes before exit.{' '}
                 <Text component="span" fw={600} c="var(--mantine-color-text)">
                   One number is enough,
                 </Text>{' '}
@@ -451,12 +528,12 @@ export function RemindersPage() {
                 <Text component="span" ff="monospace" size="sm">
                   15
                 </Text>{' '}
-                for a single 15-minute warning. 
+                for a single 15-minute warning.
               </Text>
             </Stack>
             <TextInput
               label="Reminder lead times"
-              description="Positive integers only. Spaces around commas are fine."
+              description="Up to 10 values, each from 1 to 10080 minutes (7 days). Spaces around commas are fine."
               placeholder={configDisplay}
               value={offsetInput}
               onChange={(e) => setOffsetInput(e.currentTarget.value)}
@@ -470,7 +547,7 @@ export function RemindersPage() {
                   if (!parsed) {
                     notifications.show({
                       title: 'Invalid timing',
-                      message: 'Use positive integer minutes separated by commas.',
+                      message: 'Enter up to 10 whole numbers of minutes, each from 1 to 10080, separated by commas.',
                       color: 'red',
                     });
                     return;
@@ -528,6 +605,8 @@ export function RemindersPage() {
                     <Table.Tr>
                       <Table.Th>Nation</Table.Th>
                       <Table.Th>Leader</Table.Th>
+                      <Table.Th>Next reminder</Table.Th>
+                      <Table.Th>Leaves beige/VM</Table.Th>
                       <Table.Th>Beige turns</Table.Th>
                       <Table.Th>VM turns</Table.Th>
                       <Table.Th />
@@ -538,6 +617,7 @@ export function RemindersPage() {
                       <ReminderTableRow
                         key={reminder.nationId}
                         reminder={reminder}
+                        now={now}
                         animateEnter={reminder.nationId === lastAddedNationId}
                         removePending={removeMutation.isPending}
                         onRemove={() => removeMutation.mutate(reminder.nationId)}

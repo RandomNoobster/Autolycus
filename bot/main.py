@@ -14,6 +14,8 @@ from discord.ext import commands
 from bot.discord_utils import errors as err_embeds
 from bot.discord_utils import views as discord_views
 from bot.discord_utils.interaction_framework import InteractionRegistry
+from bot.reminders import notices as reminder_notices
+from bot.reminders.interactions import DM_TEST_ACK_HANDLER, handle_test_dm_ack
 from core.logging_config import setup_logging
 from database import interaction_sessions
 from database.mongo import record_slash_command
@@ -38,6 +40,7 @@ bot = commands.Bot(intents=intents, command_prefix="!")
 bot.pnw_kit = kit
 bot.interaction_registry = InteractionRegistry()
 discord_views.register_interaction_handlers(bot.interaction_registry)
+bot.interaction_registry.register_stateless(DM_TEST_ACK_HANDLER, handle_test_dm_ack)
 
 # cogs
 cogs_dir = pathlib.Path(__file__).resolve().parent / "cogs"
@@ -97,6 +100,12 @@ async def on_application_command(ctx: discord.ApplicationContext):
             "guild": guild,
         }
     )
+
+
+@bot.event
+async def on_application_command_completion(ctx: discord.ApplicationContext):
+    # Tell users once, privately, when a reminder DM couldn't reach them.
+    await reminder_notices.maybe_notify(ctx)
 
 
 def _user_safe_permission_text(root: Exception) -> bool:

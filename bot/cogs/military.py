@@ -5,7 +5,7 @@ import math
 import os
 import pathlib
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +39,9 @@ from logic.raids import compute_beige_loot_or_zero
 from core.config import (
     AUTOLYCUS_WEB_BASE_URL as WEB_BASE_URL,
 )
+from database import reminders as reminder_db
+from logic import reminders as reminder_rules
+from services import reminders as reminder_service
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +137,7 @@ class TargetFinding(commands.Cog):
                 title="Beige reminder removed",
                 description=(
                     "That nation is no longer on your beige reminder list. "
-                    "You will not get DM notifications when they exit beige or vacation mode.\n\n"
+                    "You won't get reminders when they leave beige or vacation mode.\n\n"
                     f"**Nation:** [{nation_name}]({nation_url}) (`{nation_id}`)\n"
                     f"**Leader:** {leader_name}\n"
                     f"**Alliance:** {alliance_name}\n\n"
@@ -879,14 +882,11 @@ class TargetFinding(commands.Cog):
     async def reminders(self, ctx: discord.ApplicationContext):
         try:
             await ctx.defer()
-            person = await db.global_users.find_one({"user": ctx.author.id})
+            profile = await reminder_db.get_profile(db, ctx.author.id) or {}
+            nation_ids = reminder_db.watched_nation_ids(profile)
+            reminders_url = f"{WEB_BASE_URL}/reminders"
 
-            if person == None:
-                await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
-                return
-
-            if person['beige_alerts'] == []:
-                reminders_url = f"{WEB_BASE_URL}/reminders"
+            if not nation_ids:
                 embed = discord.Embed(
                     title="No beige reminders",
                     description=(
@@ -900,29 +900,60 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(embed=embed)
                 return
 
-            alert_ids = [str(x) for x in person['beige_alerts']]
-            res = (await api_client.call(f"{{nations(id:[{','.join(alert_ids)}]){{data{get_query(queries.REMINDERS)}}}}}", api_key))['data']['nations']['data']
+            schedule: dict[str, tuple[datetime, datetime]] = {}
+            for job in await reminder_db.active_jobs_for_user(db, ctx.author.id):
+                job_nation = str(job.get("nation_id"))
+                due_at = reminder_rules.ensure_utc(job["due_at"])
+                if job_nation not in schedule or due_at < schedule[job_nation][0]:
+                    schedule[job_nation] = (due_at, reminder_rules.ensure_utc(job["exit_at"]))
 
-            reminders = []
-            for alert in person['beige_alerts']:
-                for nation in res:
-                    if str(alert) == str(nation['id']):
-                        beige_turns = int(nation['beige_turns'])
-                        vacation_mode_turns = int(nation['vacation_mode_turns'])
-                        turns = sorted([beige_turns, vacation_mode_turns])[1]
-                        time = datetime.utcnow()
-                        if time.hour % 2 == 0:
-                            time += timedelta(hours=turns*2)
-                        else:
-                            time += timedelta(hours=turns*2-1)
-                        time = datetime(time.year, time.month, time.day, time.hour)
-                        reminders.append(f"\n<t:{round(time.timestamp())}> <t:{round(time.timestamp())}:R> - [{nation['nation_name']}](https://politicsandwar.com/nation/id={alert})")
+            scheduler = getattr(self.bot, "reminder_scheduler", None)
+            far_future = datetime.max.replace(tzinfo=timezone.utc)
+            rows: list[tuple[datetime, str]] = []
+            for nation_id in nation_ids:
+                cached = await asyncio.to_thread(sqlite_find_nation, nation_id)
+                name = (cached or {}).get("nation_name") or f"Nation {nation_id}"
+                link = f"[{name}](https://politicsandwar.com/nation/id={nation_id})"
+                due_at, exit_at = schedule.get(nation_id, (None, None))
+                if exit_at is None and scheduler is not None:
+                    tracked = scheduler.tracked_status(nation_id)
+                    if tracked is not None and tracked.estimate.exit_at is not None:
+                        exit_at = tracked.estimate.exit_at
+                if exit_at is None:
+                    rows.append((far_future, f"\nScheduling... - {link}"))
+                    continue
+                stamp = reminder_rules.to_epoch(exit_at)
+                line = f"\n<t:{stamp}:f> <t:{stamp}:R> - {link}"
+                if due_at is not None:
+                    line += f" · next reminder <t:{reminder_rules.to_epoch(due_at)}:R>"
+                rows.append((exit_at, line))
+            rows.sort(key=lambda row: row[0])
+            lines = [line for _, line in rows]
 
-            reminders = sorted(reminders)
+            channels = reminder_rules.ChannelSettings.from_doc(profile.get("reminder_channels"))
+            delivery = " and ".join(
+                label
+                for label, enabled in (
+                    ("Discord DM", channels.discord_dm),
+                    ("browser notifications", channels.web_push),
+                )
+                if enabled
+            )
+            dm_failing = (
+                channels.discord_dm
+                and (profile.get("dm_delivery") or {}).get("state") == reminder_rules.DM_STATE_FAILED
+            )
+
             embeds = []
-
-            for n in range(0, len(reminders), 20):
-                embed = discord.Embed(title="Beige reminders", description="".join(reminders[n:n+20]), color=0xff5100)
+            for n in range(0, len(lines), 20):
+                embed = discord.Embed(title="Beige reminders", description="".join(lines[n:n+20]), color=0xff5100)
+                if dm_failing:
+                    embed.add_field(
+                        name="Reminder DMs aren't reaching you",
+                        value=f"Open the [Reminders page]({reminders_url}) for the steps to fix it.",
+                        inline=False,
+                    )
+                embed.set_footer(text=with_support_footer(f"Delivered by {delivery}"))
                 embeds.append(embed)
 
             if len(embeds) > 1:
@@ -931,13 +962,13 @@ class TargetFinding(commands.Cog):
                 view = None
 
             await ctx.respond(embed=embeds[0])
-            if view != None:
+            if view is not None:
                 await ctx.edit(view=view)
 
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="reminders show")
             return
-        
+
     @reminder_group.command(
         name="delete",
         description="Remove a beige reminder for a specific nation",
@@ -949,36 +980,18 @@ class TargetFinding(commands.Cog):
     ):
         try:
             await ctx.defer()
-            person = await db.global_users.find_one({"user": ctx.author.id})
-            if person == None:
-                await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
-                return
             parsed_nation = await asyncio.to_thread(sqlite_find_nation, nation)
-            if parsed_nation == None:
+            if parsed_nation is None:
                 await ctx.respond("I could not find that nation!")
                 return
-            else:
-                id = str(parsed_nation['id'])
+            nation_id = str(parsed_nation["id"])
 
-            found = False
-            for alert in list(person["beige_alerts"]):
-                if str(alert) == id:
-                    person["beige_alerts"].remove(alert)
-                    found = True
-                    break
-
-            if not found:
+            removed = await reminder_service.remove_reminder(db, ctx.author.id, nation_id)
+            if not removed:
                 await ctx.respond(content="I did not find a reminder for that nation!")
                 return
 
-            pull_vals: list[Any] = [id]
-            if id.isdigit():
-                pull_vals.append(int(id))
-            await db.global_users.find_one_and_update(
-                {"user": ctx.author.id},
-                {"$pull": {"beige_alerts": {"$in": pull_vals}}},
-            )
-            nation_for_embed = await self._fetch_reminder_embed_nation(id, minimal=True)
+            nation_for_embed = await self._fetch_reminder_embed_nation(nation_id, minimal=True)
             embed = self._build_beige_reminder_action_embed(
                 nation_for_embed or parsed_nation,
                 action="deleted",
@@ -1002,7 +1015,7 @@ class TargetFinding(commands.Cog):
             await ctx.defer()
             nation = await asyncio.to_thread(sqlite_find_nation, nation)
 
-            if nation == None:
+            if nation is None:
                 await ctx.respond(content='I could not find that nation!')
                 return
 
@@ -1015,20 +1028,18 @@ class TargetFinding(commands.Cog):
                 await ctx.respond(content="They are not in beige or vacation mode!")
                 return
 
-            reminder = str(nation['id'])
-            user = await db.global_users.find_one({"user": ctx.author.id})
-
-            if user == None:
-                await ctx.respond(content=f"I didn't find you in the database! Make sure that you have verified your nation!")
+            result = await reminder_service.add_reminder(db, ctx.author.id, str(nation['id']))
+            if not result.added:
+                await ctx.respond(content="You already have a beige reminder for this nation!")
                 return
 
-            for entry in user["beige_alerts"]:
-                if reminder == str(entry):
-                    await ctx.respond(content=f"You already have a beige reminder for this nation!")
-                    return
-
-            await db.global_users.find_one_and_update({"user": ctx.author.id}, {"$addToSet": {"beige_alerts": reminder}})
             embed = self._build_beige_reminder_action_embed(res, action="added")
+            if result.test_dm is not None:
+                embed.add_field(
+                    name="Checking that reminders reach you",
+                    value="I'm sending you a test DM. Press **Got it** in it so we know you can see reminders.",
+                    inline=False,
+                )
             await ctx.respond(embed=embed)
 
         except Exception as e:
@@ -1163,11 +1174,10 @@ class TargetFinding(commands.Cog):
                 nation_id = ctx.channel.name[ctx.channel.name.rfind("(")+1:-1]
                 int(nation_id) # throw an error if not a number
             else:
-                try:
-                    person = await helpers.find_user(self.bot, ctx.author.id)
-                    nation_id = person['id']
-                except Exception:
-                    await ctx.respond("I do not know who to find the war status of.")
+                person = await helpers.find_user(self.bot, ctx.author.id)
+                nation_id = helpers.linked_nation_id(person)
+                if nation_id is None:
+                    await ctx.respond(helpers.NATION_NOT_LINKED_MESSAGE)
                     return
         else:
             person = await helpers.find_nation_plus(self.bot, nation)

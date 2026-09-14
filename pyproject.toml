@@ -26,6 +26,7 @@ dependencies = [
   "py-cord==2.7.1",
   "watchfiles==1.1.1",
   "xkcdpass==1.30.0",
+  "pywebpush==2.5.0",
 ]
 
 [project.optional-dependencies]

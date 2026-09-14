@@ -186,7 +186,7 @@ function HomeRemindersGuestCard() {
             </Group>
           </Group>
           <Text size="sm" c="dimmed" mt="xs">
-            Get DM alerts before nations leave beige or vacation mode.
+            Get a Discord DM or browser notification before nations leave beige or vacation mode.
           </Text>
         </Box>
 

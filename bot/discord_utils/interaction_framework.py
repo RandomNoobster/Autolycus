@@ -12,6 +12,9 @@ from database import interaction_sessions
 logger = logging.getLogger(__name__)
 
 CUSTOM_ID_PREFIX = "ix"
+# Buttons whose custom ID carries all their state, so they keep working after
+# sessions expire or the bot restarts.
+STATELESS_PREFIX = "ixp"
 DELIMITER = ":"
 
 
@@ -38,6 +41,12 @@ def parse_custom_id(custom_id: str) -> Optional[ParsedCustomId]:
 
 
 SessionHandler = Callable[[discord.Interaction, dict, str], Awaitable[None]]
+StatelessHandler = Callable[[discord.Interaction, list[str]], Awaitable[None]]
+
+
+def encode_stateless_custom_id(handler_key: str, *parts: str) -> str:
+    """Custom ID for a stateless handler; ``parts`` must not contain the delimiter."""
+    return DELIMITER.join([STATELESS_PREFIX, handler_key, *parts])
 
 
 class InteractionRegistry:
@@ -45,9 +54,14 @@ class InteractionRegistry:
 
     def __init__(self) -> None:
         self._handlers: dict[str, SessionHandler] = {}
+        self._stateless_handlers: dict[str, StatelessHandler] = {}
 
     def register(self, handler_key: str, handler: SessionHandler) -> None:
         self._handlers[handler_key] = handler
+
+    def register_stateless(self, handler_key: str, handler: StatelessHandler) -> None:
+        """Register a handler for ``ixp:<handler_key>:...`` custom IDs."""
+        self._stateless_handlers[handler_key] = handler
 
     def get(self, handler_key: str) -> Optional[SessionHandler]:
         return self._handlers.get(handler_key)
@@ -59,6 +73,9 @@ class InteractionRegistry:
         custom_id = data.get("custom_id")
         if not isinstance(custom_id, str):
             return False
+
+        if custom_id.startswith(STATELESS_PREFIX + DELIMITER):
+            return await self._dispatch_stateless(interaction, custom_id)
 
         parsed = parse_custom_id(custom_id)
         if parsed is None:
@@ -115,6 +132,29 @@ class InteractionRegistry:
             await _safe_ephemeral(
                 interaction,
                 f"Something went wrong handling this interaction. Please try the command again. (Reference: {ref})",
+            )
+        return True
+
+    async def _dispatch_stateless(self, interaction: discord.Interaction, custom_id: str) -> bool:
+        parts = custom_id.split(DELIMITER)
+        handler_key = parts[1] if len(parts) > 1 else ""
+        handler = self._stateless_handlers.get(handler_key)
+        if handler is None:
+            await _safe_ephemeral(interaction, "This button is no longer available.")
+            return True
+        try:
+            await handler(interaction, parts[2:])
+        except Exception as exc:
+            ref = await err_util.report_bot_exception(
+                interaction.client,
+                exc,
+                logger,
+                title="Interaction dispatch failed",
+                details=f"handler=`{handler_key}` user=`{interaction.user.id if interaction.user else None}`",
+            )
+            await _safe_ephemeral(
+                interaction,
+                f"Something went wrong handling this button. Please try again. (Reference: {ref})",
             )
         return True
 

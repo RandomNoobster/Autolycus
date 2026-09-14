@@ -12,6 +12,8 @@ from database import mongo as db_mongo
 from bot.discord_utils import errors as err_util
 from bot.discord_utils import views
 from logic import common
+from database import reminders as reminder_db
+from logic import reminders as reminder_rules
 
 logger = logging.getLogger(__name__)
 
@@ -129,88 +131,67 @@ class Config(commands.Cog):
         
     @config_group.command(
         name="reminders",
-        description="Customize when you receive beige exit reminder DMs",
+        description="Customize when you receive beige exit reminders",
     )
-    @commands.has_permissions(manage_guild=True)
     async def config_beige_reminders(
         self,
         ctx: discord.ApplicationContext,
     ) -> None:
-        """Configure beige exit reminders for the user.
-        
-        Allows users to set up multiple reminders before their nations exit
-        beige mode. Uses an interactive modal/button interface.
-        
+        """Configure how long before an exit beige reminders arrive.
+
+        A personal setting, so it works in any server and in DMs. Uses the same
+        limits as the website: 1-10 times, each from 1 minute to 7 days.
+
         Args:
             ctx: The Discord application context.
-            
-        Raises:
-            Exception: Re-raised after logging for error tracking.
         """
         try:
             await ctx.defer()
             db = db_mongo.get_db()
-            user = await db.global_users.find_one({"user": ctx.user.id})
-            
-            if not user:
-                verify_cmd = ctx.bot.get_application_command("verify")
-                await ctx.edit(
-                    f"I could not find you in my database! Please use {verify_cmd.mention} first."
+            profile = await reminder_db.get_profile(db, ctx.user.id) or {}
+            offsets = reminder_rules.sanitize_offsets(profile.get("beige_alerts_config")) or []
+
+            def describe(minutes: list[int]) -> str:
+                return common.comma_and_list(
+                    [reminder_rules.describe_offset(m) for m in sorted(minutes, reverse=True)]
                 )
-                return
-            
-            # Initialize config fields if they don't exist
-            user.setdefault("beige_alerts", [])
-            user.setdefault("beige_alerts_config", [])
+
+            if offsets:
+                embed = discord.Embed(
+                    title="Configuration of beige reminders",
+                    description=(
+                        f"You currently get reminders {describe(offsets)} before a nation exits beige. "
+                        "Do you want to keep these times (and have the option to add more) or start over?"
+                    ),
+                    color=common.EMBED_COLOR,
+                )
+                view, session_id = await views.create_persistent_yesno_prompt(
+                    command="config_reminders",
+                    ctx=ctx,
+                    positive="Keep",
+                    negative="Start over",
+                    disable_on_submit=False,
+                )
+                msg = await ctx.edit(embed=embed, view=view)
+                if msg and getattr(msg, "id", None):
+                    await views.bind_persistent_prompt_message(session_id, msg.id)
+                result = await views.wait_for_persistent_yesno_result(session_id)
+                if result is None:
+                    return
+                if not result:
+                    offsets = []
 
             while True:
-                # Check if user already has reminders configured
-                if user["beige_alerts_config"]:
-                    reminders_text = common.comma_and_list(
-                        [f"{minutes} minutes" for minutes in user["beige_alerts_config"]]
-                    )
+                if offsets:
                     description = (
-                        f"Your current configuration is to recieve reminders {reminders_text} "
-                        "before a nation exits beige. Do you want to keep this configuration "
-                        "(and have the option to add more reminders) or do you want to discard it?"
-                    )
-                    embed = discord.Embed(
-                        title="Configuration of beige reminders",
-                        description=description,
-                        color=common.EMBED_COLOR,
-                    )
-                    view, session_id = await views.create_persistent_yesno_prompt(
-                        command="config_reminders",
-                        ctx=ctx,
-                        positive="Keep",
-                        negative="Discard",
-                        disable_on_submit=False,
-                    )
-                    msg = await ctx.edit(embed=embed, view=view)
-                    if msg and getattr(msg, "id", None):
-                        await views.bind_persistent_prompt_message(session_id, msg.id)
-                    result = await views.wait_for_persistent_yesno_result(session_id)
-                    if result is None:
-                        return
-
-                    if not result:
-                        user["beige_alerts_config"] = []
-
-                # Prompt for adding more reminders
-                if user["beige_alerts_config"]:
-                    reminders_text = common.comma_and_list(
-                        [f"{minutes} minutes" for minutes in user["beige_alerts_config"]]
-                    )
-                    description = (
-                        f"Your current configuration is to recieve reminders {reminders_text} "
-                        "before a nation exits beige. Do you want to get another reminder at some other time?"
+                        f"You'll get reminders {describe(offsets)} before a nation exits beige. "
+                        "Do you want another reminder at some other time?"
                     )
                 else:
                     description = (
-                        "You currently have no reminders configured. Do you want to add a reminder "
-                        "for when a nation exits beige?"
+                        "You have no reminder times configured. Add one, or finish to use "
+                        "the default of 15 minutes."
                     )
-
                 embed = discord.Embed(
                     title="Configuration of beige reminders",
                     description=description,
@@ -219,15 +200,15 @@ class Config(commands.Cog):
                 modal = views.SimpleModal(
                     title="Configuration of beige reminders",
                     label="Minutes before exiting beige",
-                    placeholder="Enter an integer, e.g. 5",
+                    placeholder="A whole number from 1 to 10080, e.g. 15",
                 )
+                choices = [("finish", "Finish configuration", discord.ButtonStyle.blurple)]
+                if len(offsets) < reminder_rules.MAX_REMINDER_OFFSETS:
+                    choices.insert(0, ("add", "Add more", discord.ButtonStyle.blurple))
                 view, session_id = await views.create_persistent_choice_prompt(
                     command="config_reminders",
                     ctx=ctx,
-                    choices=[
-                        ("add", "Add more", discord.ButtonStyle.blurple),
-                        ("finish", "Finish configuration", discord.ButtonStyle.blurple),
-                    ],
+                    choices=choices,
                     disable_on_submit=False,
                 )
                 msg = await ctx.edit(embed=embed, view=view)
@@ -239,21 +220,13 @@ class Config(commands.Cog):
                     return
 
                 if result == "finish":
-                    # User chose to finish configuration
-                    if user["beige_alerts_config"]:
-                        reminders_text = common.comma_and_list(
-                            [f"{minutes} minutes" for minutes in user["beige_alerts_config"]]
-                        )
-                        description = f"You will be reminded {reminders_text} before a nation exits beige."
-                    else:
-                        description = (
-                            "You finished the configuration without adding any reminders. "
-                            "The system default of 15 minutes will be used."
-                        )
-                    
+                    final = offsets or list(reminder_rules.DEFAULT_REMINDER_OFFSETS)
+                    await reminder_db.set_offsets(
+                        db, ctx.user.id, sorted(final, reverse=True), reminder_rules.utcnow()
+                    )
                     embed = discord.Embed(
                         title="Configuration of beige reminders",
-                        description=description,
+                        description=f"You'll be reminded {describe(final)} before a nation exits beige.",
                         color=common.EMBED_COLOR,
                     )
                     await ctx.edit(embed=embed, view=None)
@@ -265,23 +238,19 @@ class Config(commands.Cog):
                 if not submitted:
                     return
 
-                reminder_str = modal.text
-                if reminder_str.isdigit():
-                    reminder = int(reminder_str)
-                    if reminder not in user["beige_alerts_config"]:
-                        user["beige_alerts_config"].append(reminder)
-                        user["beige_alerts_config"].sort()
-                    
-                    await db.global_users.find_one_and_update(
-                        {"user": ctx.user.id},
-                        {"$set": {"beige_alerts_config": user["beige_alerts_config"]}},
-                        upsert=True,
-                    )
-                else:
+                minutes = reminder_rules.parse_offset_minutes(modal.text)
+                if minutes is None:
                     await ctx.edit(
-                        content="The input must be a positive integer!", embed=None, view=None
+                        content="Enter a whole number of minutes from 1 to 10080 (7 days).",
+                        embed=None,
+                        view=None,
                     )
                     return
+                if minutes not in offsets:
+                    offsets.append(minutes)
+                await reminder_db.set_offsets(
+                    db, ctx.user.id, sorted(offsets, reverse=True), reminder_rules.utcnow()
+                )
 
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="config reminders")
