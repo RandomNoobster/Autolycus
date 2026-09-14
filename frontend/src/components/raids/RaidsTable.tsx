@@ -491,12 +491,46 @@ export function RaidsTable({
       if (!discordLinked) return Promise.reject(new Error('Login with Discord to use reminders'));
       return addReminder({ nationId });
     },
-    onSuccess: (_, nationId) => {
+    onSuccess: (data, nationId) => {
       notifications.show({ title: 'Reminder Set', message: `Nation ${nationId}`, color: 'green' });
       queryClient.setQueriesData<{ targets: RaidTarget[] }>({ queryKey: ['raids'] }, (old) => {
         if (!old) return old;
         return { ...old, targets: old.targets.map((t) => t.id === nationId ? { ...t, hasReminderActive: true } : t) };
       });
+      void queryClient.invalidateQueries({ queryKey: ['reminders'] });
+
+      if (data.delivery?.needsAttention) {
+        // Fixed id: adding several targets in a row shows this warning once.
+        const attentionToastId = 'reminder-delivery-needs-attention';
+        notifications.show({
+          id: attentionToastId,
+          title: 'Reminder added, but it may not reach you',
+          message: (
+            <>
+              One of your delivery methods isn't working.{' '}
+              <Anchor
+                href="/reminders"
+                size="sm"
+                onClick={(event) => {
+                  event.preventDefault();
+                  notifications.hide(attentionToastId);
+                  navigate('/reminders');
+                }}
+              >
+                Fix it on the Reminders page
+              </Anchor>
+            </>
+          ),
+          color: 'yellow',
+          autoClose: 12_000,
+        });
+      } else if (data.testDm) {
+        notifications.show({
+          title: 'Checking your Discord DMs',
+          message: 'Autolycus is sending you a test DM. Click Got it in the DM so you know reminders reach you.',
+          color: 'blue',
+        });
+      }
     },
     onError: (error: Error) => notifications.show({ title: 'Error', message: error.message, color: 'red' }),
   });

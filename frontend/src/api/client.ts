@@ -24,6 +24,16 @@ function throwBackendUnavailable(detail?: string): never {
   throw err;
 }
 
+/** Parse a `Retry-After` header (delay in seconds, or an HTTP date) into whole seconds. */
+function parseRetryAfter(value: string | null): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const retryAtMs = Date.parse(trimmed);
+  if (Number.isNaN(retryAtMs)) return undefined;
+  return Math.max(0, Math.ceil((retryAtMs - Date.now()) / 1000));
+}
+
 interface RequestOptions extends RequestInit {
   token?: string;
 }
@@ -85,6 +95,7 @@ export async function apiRequest<T>(
       throwBackendUnavailable(`HTTP ${status}`);
     }
 
+    const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
     const error: ApiError = {
       error: data?.error || (gateway ? 'Service unavailable' : 'Request failed'),
       message:
@@ -95,6 +106,7 @@ export async function apiRequest<T>(
             ? data
             : 'An unexpected error occurred'),
       code: data?.code || (gateway ? BACKEND_UNAVAILABLE_CODE : 'UNKNOWN_ERROR'),
+      ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
     };
     throw error;
   }

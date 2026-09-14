@@ -30,6 +30,7 @@ export function toApiError(error: unknown): ApiError {
         error: typeof e.error === 'string' ? e.error : 'Error',
         message: e.message,
         code: e.code,
+        ...(typeof e.retryAfterSeconds === 'number' ? { retryAfterSeconds: e.retryAfterSeconds } : {}),
       };
     }
   }
