@@ -27,6 +27,19 @@ AUTOLYCUS_API_BASE_URL: str = (
     (os.getenv("AUTOLYCUS_API_BASE_URL") or "http://localhost:5000").rstrip("/")
 )
 
+# Discord server users join so the bot shares a server with them and can DM reminders.
+AUTOLYCUS_DISCORD_INVITE_URL: str = (
+    os.getenv("AUTOLYCUS_DISCORD_INVITE_URL") or "https://discord.gg/N79yN5DS4q"
+).strip()
+
+# Browser push (Web Push / VAPID). Push stays off until both are set.
+VAPID_PRIVATE_KEY: str = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+VAPID_SUBJECT: str = (os.getenv("VAPID_SUBJECT") or "").strip()
+
+# Reminder delivery. Discord allows ~50 requests/s per bot; stay well below it.
+REMINDER_DM_RATE_PER_SECOND: int = _int_env("REMINDER_DM_RATE_PER_SECOND", 25, min_v=1, max_v=45)
+REMINDER_STATUS_POLL_SECONDS: int = _int_env("REMINDER_STATUS_POLL_SECONDS", 100, min_v=30, max_v=600)
+
 
 class Config:
     """Base configuration class."""
@@ -55,6 +68,7 @@ class Config:
     DISCORD_CLIENT_SECRET: str = os.getenv("DISCORD_CLIENT_SECRET", "")
     DISCORD_REDIRECT_URI: str = os.getenv("DISCORD_REDIRECT_URI", "")
     AUTOLYCUS_WEB_BASE_URL: str = AUTOLYCUS_WEB_BASE_URL
+    AUTOLYCUS_DISCORD_INVITE_URL: str = AUTOLYCUS_DISCORD_INVITE_URL
 
     # CORS settings
     CORS_ORIGINS: list[str] = [
