@@ -45,6 +45,12 @@ async def get_cached_game_context(
         
     Note: Cache TTL is 10 minutes. This data changes slowly so caching
     significantly reduces P&W API load across multiple requests.
+
+    All three arguments are injected dependencies (callables/modules) and are
+    ignored by the cache key (``infra.cache.build_key_ignoring_callables``), so
+    every caller shares one entry no matter which ``call_func`` it passes
+    (a fresh lambda, ``functools.partial`` with an API key, ...). Don't add
+    result-changing parameters as callables.
     """
     logger.debug("Fetching fresh game context from P&W API (cache miss or expired)")
     
