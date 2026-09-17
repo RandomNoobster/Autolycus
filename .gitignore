@@ -141,3 +141,4 @@ cities*.csv
 /scripts/**/*.db
 /scripts/**/*.jsonl
 /logs/
+.claude/
