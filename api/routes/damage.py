@@ -4,7 +4,6 @@ Damage API Routes
 This module provides API endpoints for the damage calculator feature,
 returning detailed attack damage analysis for war planning.
 """
-import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -15,6 +14,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from api.security import optional_discord_session
 from database.mongo import get_sync_db
+from infra.async_bridge import run_sync
 from logic import queries
 from api.calculations.damage_calc import calculate_damage
 from database.sqlite_cache import get_all_nations
@@ -109,16 +109,7 @@ def get_damage() -> tuple[Any, int]:
                 'code': 'INVALID_PARAMETER'
             }), 400
 
-        # Run async calculation in event loop
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            results = loop.run_until_complete(
-                calculate_damage(str(nation1_id), str(nation2_id))
-            )
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+        results = run_sync(calculate_damage(str(nation1_id), str(nation2_id)))
 
         chart_data = _generate_chart_data(results)
         inputs = _build_prefill_inputs(results, nation1_id, nation2_id)
@@ -155,13 +146,7 @@ def calculate_damage_custom() -> tuple[Any, int]:
                 'code': 'MISSING_NATIONS'
             }), 400
 
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            nation_map = loop.run_until_complete(_fetch_battle_nations([nation1_id, nation2_id]))
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+        nation_map = run_sync(_fetch_battle_nations([nation1_id, nation2_id]))
 
         if nation1_id not in nation_map or nation2_id not in nation_map:
             return jsonify({
@@ -177,19 +162,13 @@ def calculate_damage_custom() -> tuple[Any, int]:
         _apply_nation_overrides(nation2, payload.get("nation2", {}))
         _apply_war_override(nation1, nation1_id, nation2_id, payload.get("war", {}))
 
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            results = loop.run_until_complete(
-                calculate_damage_logic(
-                    call_pnw=_call_pnw,
-                    nation1=nation1,
-                    nation2=nation2,
-                )
+        results = run_sync(
+            calculate_damage_logic(
+                call_pnw=_call_pnw,
+                nation1=nation1,
+                nation2=nation2,
             )
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+        )
 
         chart_data = _generate_chart_data(results)
         inputs = _build_prefill_inputs(results, nation1_id, nation2_id)
@@ -266,12 +245,8 @@ def get_linked_active_wars() -> tuple[Any, int]:
             "code": "CONFIG_ERROR",
         }), 503
 
-    loop = asyncio.new_event_loop()
     try:
-        asyncio.set_event_loop(loop)
-        raw_wars = loop.run_until_complete(
-            _fetch_linked_nation_active_wars_raw(linked_id)
-        )
+        raw_wars = run_sync(_fetch_linked_nation_active_wars_raw(linked_id))
     except RuntimeError as exc:
         logger.error("linked-active-wars PnW failure: %s", exc, exc_info=True)
         return jsonify({
@@ -286,9 +261,6 @@ def get_linked_active_wars() -> tuple[Any, int]:
             "message": "An unexpected error occurred while loading active wars.",
             "code": "INTERNAL_ERROR",
         }), 500
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
 
     seen: set = set()
     wars_out: list[dict[str, Any]] = []

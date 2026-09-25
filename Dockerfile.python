@@ -5,6 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_NO_DEV=1 \
     UV_LINK_MODE=copy
 
+# Threaded servers (waitress) otherwise get a glibc malloc arena per thread; big
+# per-request allocations fragment them and resident memory never shrinks back.
+ENV MALLOC_ARENA_MAX=2
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app

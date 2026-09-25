@@ -5,7 +5,6 @@ Endpoints for raid target listings (SQLite cache), beige/VM reminders (Mongo),
 and alliance search. Table-style filters (alliance, beige, wars, etc.) are handled
 on the web client; GET / only applies score bounds and vacation-mode exclusion.
 """
-import asyncio
 import logging
 import time
 from datetime import datetime, timezone
@@ -19,6 +18,7 @@ from api.security import optional_discord_session, require_discord_session, requ
 from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
                                    get_nation_by_id)
+from infra.async_bridge import run_sync
 from logic import api_client
 from logic.common import normalize_alliance_position
 from logic.military import calculate_win_chance_raw
@@ -833,13 +833,7 @@ def get_live_nation_score(nation_id: int) -> tuple[Any, int]:
                 "{data{id nation_name leader_name score}}"
                 "}"
             )
-            loop = asyncio.new_event_loop()
-            try:
-                asyncio.set_event_loop(loop)
-                response = loop.run_until_complete(api_client.call(query, api_key))
-            finally:
-                loop.close()
-                asyncio.set_event_loop(None)
+            response = run_sync(api_client.call(query, api_key))
 
             nations = (
                 (response or {}).get('data', {}).get('nations', {}).get('data', [])

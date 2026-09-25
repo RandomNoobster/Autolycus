@@ -4,7 +4,6 @@ Builds API Routes
 This module provides API endpoints for the city builds feature,
 returning build templates and resource production data.
 """
-import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -14,6 +13,7 @@ from flask import Blueprint, jsonify, request
 
 from api.calculations.builds_calc import calculate_builds
 from api.constants import DOMESTIC_POLICIES, PROJECTS
+from infra.async_bridge import run_sync
 from logic.api_client import call as call_api
 
 logger = logging.getLogger(__name__)
@@ -89,15 +89,8 @@ def get_nation_profile(nation_id: int) -> tuple[Any, int]:
         - generatedAt: ISO timestamp
     """
     try:
-        # Run async fetch in event loop
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            nation_data = loop.run_until_complete(_fetch_nation_profile(str(nation_id)))
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
-        
+        nation_data = run_sync(_fetch_nation_profile(str(nation_id)))
+
         return jsonify(nation_data), 200
         
     except ValueError as e:
@@ -255,29 +248,22 @@ def get_builds() -> tuple[Any, int]:
                 }), 400
             continent_override = continent.lower()
         
-        # Run async calculation in event loop
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            results = loop.run_until_complete(
-                calculate_builds(
-                    nation_id=str(nation_id) if nation_id is not None else None,
-                    infra=infra_level,
-                    land=land_amount,
-                    mmr=mmr,
-                    continent_override=continent_override,
-                    use_live_prices=use_live_prices,
-                    include_military_upkeep=include_military_upkeep,
-                    projects_override=project_overrides,
-                    domestic_policy_override=domestic_policy_override,
-                    military_upkeep_mode=military_upkeep_mode,
-                    disable_population_income=disable_population_income,
-                )
+        results = run_sync(
+            calculate_builds(
+                nation_id=str(nation_id) if nation_id is not None else None,
+                infra=infra_level,
+                land=land_amount,
+                mmr=mmr,
+                continent_override=continent_override,
+                use_live_prices=use_live_prices,
+                include_military_upkeep=include_military_upkeep,
+                projects_override=project_overrides,
+                domestic_policy_override=domestic_policy_override,
+                military_upkeep_mode=military_upkeep_mode,
+                disable_population_income=disable_population_income,
             )
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
-        
+        )
+
         # Transform builds to API shape expected by frontend
         raw_builds = results.get('builds', {})
         transformed_builds = {k: _transform_build(v) for k, v in raw_builds.items()}

@@ -260,17 +260,14 @@ T = TypeVar("T")
 
 
 def run_cached_async(coro: Callable[..., T]) -> Callable[..., T]:
-    """Wrapper to run async cached functions from sync Flask routes."""
-    import asyncio
+    """Wrapper to run async cached functions from sync Flask routes.
+
+    Uses the shared bridge loop: the Redis pool is bound to one event loop.
+    """
+    from infra.async_bridge import run_sync
 
     @wraps(coro)
     def wrapper(*args: Any, **kwargs: Any) -> T:
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(coro(*args, **kwargs))
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+        return run_sync(coro(*args, **kwargs))
 
     return wrapper
