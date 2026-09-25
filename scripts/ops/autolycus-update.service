@@ -7,3 +7,5 @@ Requires=docker.service
 Type=oneshot
 WorkingDirectory=/opt/autolycus
 ExecStart=/bin/bash /opt/autolycus/scripts/ops/update.sh
+# A normal run takes a few minutes; never let a stuck build block the timer.
+TimeoutStartSec=45min

@@ -135,6 +135,7 @@ dmypy.json
 cities*.csv
 /data/nations.db
 /data/alliances.db
+/data/.last-build-commit
 *.db-shm
 *.db-wal
 *.db-journal

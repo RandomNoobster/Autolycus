@@ -294,6 +294,13 @@ This sets up:
 
 - `autolycus.service` to start the Docker stack on boot.
 - `autolycus-update.timer` to run a periodic update (git pull, rebuild, restart).
+  Images are only rebuilt when the pulled commit changes; set `FORCE_BUILD=1` to
+  rebuild anyway (e.g. after changing `VITE_*` build args in `.env`).
+- `autolycus-heal.timer` to recreate any container Docker reports as unhealthy
+  (checked every 2 minutes).
+
+After pulling changes to `scripts/ops/*.service` or `*.timer`, re-run
+`sudo scripts/ops/bootstrap.sh` to install them.
 
 ```
 chmod +x scripts/ops/*.sh
@@ -359,6 +366,7 @@ Manual update (equivalent to the timer):
 
 ```
 scripts/ops/update.sh
+FORCE_BUILD=1 scripts/ops/update.sh   # rebuild images even if the commit is unchanged
 ```
 
 ### MongoDB note

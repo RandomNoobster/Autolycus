@@ -1,0 +1,10 @@
+[Unit]
+Description=Autolycus watchdog (recreate unhealthy containers)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/autolycus
+ExecStart=/bin/bash /opt/autolycus/scripts/ops/heal.sh
+TimeoutStartSec=10min
