@@ -1,7 +1,14 @@
 # Shared helpers for the ops scripts. Source after cd-ing into the repo.
 
+# COMPOSE_PROFILES in .env picks the edge service (e.g. "tunnel"); without it,
+# Caddy ("prod"). A --profile flag replaces COMPOSE_PROFILES rather than adding
+# to it, so it is only passed as the fallback.
 compose() {
-  docker compose --profile prod "$@"
+  if grep -q '^COMPOSE_PROFILES=' .env 2>/dev/null; then
+    docker compose "$@"
+  else
+    docker compose --profile prod "$@"
+  fi
 }
 
 # Serialise update.sh and heal.sh so the watchdog never recreates containers in
