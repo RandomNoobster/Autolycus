@@ -137,6 +137,16 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # Alternative to Caddy for hosts that can't take inbound traffic: an outbound
+  # Cloudflare Tunnel, so no ports are opened. Enable with COMPOSE_PROFILES=tunnel.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN-}
+
 volumes:
   caddy_data: {}
   caddy_config: {}

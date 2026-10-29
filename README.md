@@ -140,6 +140,39 @@ AUTOLYCUS_WEB_BASE_URL=https://autolycus.your-domain.com
 AUTOLYCUS_API_BASE_URL=http://api:5000
 ```
 
+### Alternative: Cloudflare Tunnel (no open ports)
+
+If the host can't take inbound traffic (a home PC, a network you don't control),
+run `cloudflared` instead of Caddy. It opens an outbound connection to Cloudflare,
+so no ports are opened or forwarded, and Cloudflare terminates HTTPS. The domain
+must use Cloudflare DNS.
+
+1. In the Cloudflare dashboard, go to **Networking > Tunnels**, create a tunnel and
+   copy its token (the long `eyJ...` string in the install command).
+2. Add to `.env`:
+
+   ```
+   COMPOSE_PROFILES=tunnel
+   CLOUDFLARE_TUNNEL_TOKEN=eyJ...
+   ```
+
+3. Start the stack with `docker compose up -d`. Compose reads the profile from
+   `.env`; don't also pass `--profile`, which replaces `COMPOSE_PROFILES`.
+4. On the tunnel's **Routes** tab, add two published application routes for your
+   hostname, in this order:
+
+   | Path     | Service URL          |
+   | -------- | -------------------- |
+   | `^/api/` | `http://api:5000`    |
+   | (empty)  | `http://frontend:80` |
+
+   An existing A, AAAA or CNAME record for the hostname blocks the route, so delete
+   it first.
+
+Like the Caddyfile, this sends `/api` straight to the API, so it sees real client
+IPs for rate limiting. The path is a regex matched anywhere in the URL path, so keep
+the `^`. The firewall step below isn't needed: nothing listens publicly.
+
 ### 1) Prerequisites (Oracle Linux)
 
 Install Docker Engine and the Compose plugin. Example for Oracle Linux 8/9:
@@ -262,6 +295,10 @@ VITE_AUTH_TOKEN_API_KEY=
 # Optional: Caddy TLS (used when running Docker with `--profile prod`)
 # SITE_DOMAIN=autolycus.your-domain.com
 # ACME_EMAIL=you@your-domain.com
+
+# Optional: Cloudflare Tunnel instead of Caddy (see "Alternative: Cloudflare Tunnel")
+# COMPOSE_PROFILES=tunnel
+# CLOUDFLARE_TUNNEL_TOKEN=
 ```
 
 Notes:
@@ -284,6 +321,12 @@ With HTTPS via Caddy (recommended for production):
 docker compose --profile prod up -d --build
 ```
 
+With Cloudflare Tunnel (`COMPOSE_PROFILES=tunnel` in `.env`):
+
+```
+docker compose up -d --build
+```
+
 In production (Docker `--profile prod`), Caddy serves the app publicly on `80/443` with TLS. In dev (default profile), frontend is served on `8080`.
 The API is accessible only through the
 frontend reverse proxy at `/api` (not exposed directly on the host).
@@ -298,6 +341,9 @@ This sets up:
   rebuild anyway (e.g. after changing `VITE_*` build args in `.env`).
 - `autolycus-heal.timer` to recreate any container Docker reports as unhealthy
   (checked every 2 minutes).
+
+The scripts use `COMPOSE_PROFILES` from `.env` when it is set, and `--profile prod`
+(Caddy) otherwise.
 
 After pulling changes to `scripts/ops/*.service` or `*.timer`, re-run
 `sudo scripts/ops/bootstrap.sh` to install them.
@@ -360,6 +406,7 @@ docker compose logs -f bot
 docker compose logs -f scanner
 docker compose logs -f frontend
 docker compose --profile prod logs -f caddy
+docker compose logs -f cloudflared   # with COMPOSE_PROFILES=tunnel
 ```
 
 Manual update (equivalent to the timer):

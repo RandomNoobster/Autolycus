@@ -7,8 +7,9 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/autolycus
-ExecStart=/usr/bin/docker compose --profile prod up -d --remove-orphans
-ExecStop=/usr/bin/docker compose --profile prod down
+# Through common.sh so the compose profile follows .env (see compose()).
+ExecStart=/bin/bash -c '. /opt/autolycus/scripts/ops/common.sh && compose up -d --remove-orphans'
+ExecStop=/bin/bash -c '. /opt/autolycus/scripts/ops/common.sh && compose down'
 TimeoutStartSec=0
 
 [Install]
