@@ -97,7 +97,7 @@ services:
   # Vite dev server (HMR). Enable with --profile dev; omit nginx frontend to avoid two UIs, e.g. --scale frontend=0
   frontend-dev:
     profiles: ["dev"]
-    image: node:20-alpine
+    image: node:24-alpine
     working_dir: /app
     command: >
       sh -c "if [ ! -x node_modules/.bin/vite ]; then npm ci; fi && npm run dev -- --host 0.0.0.0 --port 5173"
@@ -117,7 +117,7 @@ services:
         condition: service_healthy
 
   caddy:
-    image: caddy:2.8-alpine
+    image: caddy:2.11-alpine
     profiles: ["prod"]
     restart: unless-stopped
     depends_on:
@@ -140,7 +140,7 @@ services:
   # Alternative to Caddy for hosts that can't take inbound traffic: an outbound
   # Cloudflare Tunnel, so no ports are opened. Enable with COMPOSE_PROFILES=tunnel.
   cloudflared:
-    image: cloudflare/cloudflared:2026.9.3
+    image: cloudflare/cloudflared:2026.10.7
     profiles: ["tunnel"]
     restart: unless-stopped
     command: tunnel --no-autoupdate run
