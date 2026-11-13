@@ -145,8 +145,16 @@ class FakeStore:
     async def insert_jobs(self, jobs, now):
         created = 0
         for job in jobs:
-            if job.job_id not in self.jobs:
+            existing = self.jobs.get(job.job_id)
+            if existing is None:
                 self.jobs[job.job_id] = {"_id": job.job_id, **reminder_db._job_insert_doc(job, now)}
+                created += 1
+            elif existing["status"] == rules.JOB_CANCELLED:
+                # Same rule as database.reminders.insert_jobs: a cancelled job comes back.
+                update = reminder_db._revive_update(job, now)
+                existing.update(update["$set"])
+                for name in update.get("$unset", {}):
+                    existing.pop(name, None)
                 created += 1
         return created
 
@@ -556,6 +564,265 @@ def test_test_dms_record_delivery_and_refusals():
         assert (store.tests["t2"]["state"], store.tests["t2"]["code"]) == (rules.TEST_DM_FAILED, 50278)
         assert store.users[7]["dm_delivery"]["reason"] == "no_mutual_server"
         assert notices == [7]
+
+    asyncio.run(scenario())
+
+
+class BigRenderer:
+    """Embeds the size of real reminders (~900 counted characters)."""
+
+    async def render(self, job, status, now):
+        nation_id = str(job["nation_id"])
+        return RenderedReminder(
+            embed={"title": f"Nation {nation_id}", "description": "x" * 890},
+            push_payload={"notification": {"title": nation_id}},
+            nation_name=f"Nation {nation_id}",
+        )
+
+
+def test_many_reminders_in_one_wave_fit_discords_message_size_limit():
+    async def scenario():
+        clock = FakeClock(at(13, 30))
+        store = FakeStore()
+        nations = tuple(str(100 + i) for i in range(8))
+        store.users[7] = make_user(nations=nations)
+        discord = FakeDiscord(clock)
+        scheduler = build(store, clock, FakeFetcher({n: (1, 0) for n in nations}), discord)
+        scheduler.renderer = BigRenderer()
+        await scheduler.refresh_all()
+
+        clock.set(at(13, 45))
+        await scheduler.dispatch_due()
+        sizes = [sum(rules.embed_text_length(e) for e in sent["embeds"]) for sent in discord.sent]
+        assert sum(len(sent["embeds"]) for sent in discord.sent) == 8
+        assert len(discord.sent) == 2 and max(sizes) <= rules.MAX_EMBED_CHARS_PER_MESSAGE
+        assert {job["status"] for job in store.jobs.values()} == {rules.JOB_SENT}
+
+    asyncio.run(scenario())
+
+
+def test_removed_and_re_added_nation_is_still_reminded():
+    async def scenario():
+        clock = FakeClock(at(13, 0))
+        store = FakeStore()
+        store.users[7] = make_user(added=at(12))
+        discord = FakeDiscord(clock)
+        scheduler = build(store, clock, FakeFetcher({"100": (1, 0)}), discord)
+        scheduler._changes_since = at(12)
+        await scheduler.refresh_all()
+
+        # services.reminders.remove_reminder, then add_reminder a minute later.
+        clock.set(at(13, 5))
+        await store.remove_subscription(7, "100", clock.now())
+        store.users[7]["beige_alerts_updated_at"] = at(13, 5)
+        await scheduler.refresh_changed()
+        assert only_job(store)["status"] == rules.JOB_CANCELLED
+
+        clock.set(at(13, 6))
+        store.users[7]["beige_alerts"] = ["100"]
+        store.users[7]["beige_alert_added_at"] = {"100": at(13, 6)}
+        store.users[7]["beige_alerts_updated_at"] = at(13, 6)
+        await scheduler.refresh_changed()
+        assert only_job(store)["status"] == rules.JOB_PENDING
+
+        clock.set(at(13, 45))
+        await scheduler.dispatch_due()
+        assert len(discord.sent) == 1 and only_job(store)["status"] == rules.JOB_SENT
+
+    asyncio.run(scenario())
+
+
+class EditDuringFetch(FakeFetcher):
+    """The user saves new timings on the website while the status fetch is running."""
+
+    def __init__(self, statuses, store):
+        super().__init__(statuses)
+        self.store = store
+
+    async def fetch(self, nation_ids):
+        self.store.users[7]["beige_alerts_config"] = [30]
+        return await super().fetch(nation_ids)
+
+
+def test_status_refresh_plans_the_timings_saved_during_its_fetch():
+    async def scenario():
+        clock = FakeClock(at(13, 0))
+        store = FakeStore()
+        store.users[7] = make_user(offsets=(15,))
+        scheduler = build(store, clock, EditDuringFetch({"100": (1, 0)}, store), FakeDiscord(clock))
+        await scheduler.refresh_all()
+        assert [job["offset_min"] for job in store.jobs.values()] == [30]
+
+    asyncio.run(scenario())
+
+
+def test_after_downtime_only_the_latest_missed_timing_is_sent():
+    async def scenario():
+        clock = FakeClock(at(12, 30))
+        store = FakeStore()
+        store.users[7] = make_user(offsets=(60, 15), added=at(11))
+        discord = FakeDiscord(clock)
+        scheduler = build(store, clock, FakeFetcher({"100": (1, 0)}), discord)
+        await scheduler.refresh_all()
+
+        clock.set(at(13, 50))  # The bot was down from before 13:00.
+        await scheduler.dispatch_due()
+        assert len(discord.sent) == 1
+        statuses = {job["offset_min"]: (job["status"], job.get("reason")) for job in store.jobs.values()}
+        assert statuses == {60: (rules.JOB_SKIPPED, "superseded"), 15: (rules.JOB_SENT, None)}
+
+    asyncio.run(scenario())
+
+
+class FailingRenderer:
+    async def render(self, job, status, now):
+        raise RuntimeError("render broke")
+
+
+def test_reminders_that_keep_failing_to_render_stop_after_max_attempts():
+    async def scenario():
+        clock = FakeClock(at(15, 30))
+        store = FakeStore()
+        store.users[7] = make_user()
+        scheduler = build(store, clock, FakeFetcher({"100": (1, 0)}), FakeDiscord(clock), retry_delay_seconds=20)
+        scheduler.renderer = FailingRenderer()
+        await scheduler.refresh_all()
+        job = only_job(store)
+
+        for _ in range(5):
+            clock.set(job["due_at"] + timedelta(seconds=1))
+            await scheduler.dispatch_due()
+        assert (job["status"], job["attempts"]) == (rules.JOB_FAILED, 3)
+
+    asyncio.run(scenario())
+
+
+def test_push_only_user_gets_a_dm_when_this_bot_has_no_push_sender():
+    async def scenario():
+        clock = FakeClock(at(13, 30))
+        store = FakeStore()
+        store.users[7] = make_user(channels={"discord_dm": False, "web_push": True})
+        store.push["dev1"] = {"_id": "dev1", "user_id": 7, "endpoint": "https://fcm.googleapis.com/x", "keys": {}}
+        discord = FakeDiscord(clock)
+        scheduler = build(store, clock, FakeFetcher({"100": (1, 0)}), discord, push=None)
+        await scheduler.refresh_all()
+        clock.set(at(13, 45))
+        await scheduler.dispatch_due()
+
+        assert len(discord.sent) == 1
+        assert only_job(store)["status"] == rules.JOB_SENT
+        assert store.users[7]["beige_alerts"] == ["100"]
+
+    asyncio.run(scenario())
+
+
+def test_expired_last_push_device_is_retried_by_dm():
+    async def scenario():
+        clock = FakeClock(at(13, 30))
+        store = FakeStore()
+        store.users[7] = make_user(channels={"discord_dm": False, "web_push": True})
+        store.push["dev1"] = {"_id": "dev1", "user_id": 7, "endpoint": "https://fcm.googleapis.com/x", "keys": {}}
+        discord = FakeDiscord(clock)
+        push = FakePush(PushResult(PushOutcome.GONE, 410))
+        scheduler = build(store, clock, FakeFetcher({"100": (1, 0)}), discord, push=push, retry_delay_seconds=20)
+        await scheduler.refresh_all()
+        clock.set(at(13, 45))
+        await scheduler.dispatch_due()
+
+        job = only_job(store)
+        assert job["status"] == rules.JOB_PENDING and store.push == {}
+        assert store.users[7]["reminder_channels"] == {"discord_dm": True, "web_push": False}
+
+        clock.set(job["due_at"] + timedelta(seconds=1))
+        await scheduler.dispatch_due()
+        assert job["status"] == rules.JOB_SENT and len(discord.sent) == 1
+        assert store.users[7]["beige_alerts"] == ["100"]
+
+    asyncio.run(scenario())
+
+
+def test_status_write_failing_after_delivery_does_not_resend():
+    async def scenario():
+        clock = FakeClock(at(13, 30))
+        store = FakeStore()
+        store.users[7] = make_user()
+        discord = FakeDiscord(clock)
+        scheduler = build(store, clock, FakeFetcher({"100": (1, 0)}), discord)
+        await scheduler.refresh_all()
+
+        async def broken(*args, **kwargs):
+            raise RuntimeError("mongo blip")
+
+        store.record_dm_success = broken
+        clock.set(at(13, 45))
+        await scheduler.dispatch_due()
+        clock.advance(30)
+        await scheduler.dispatch_due()
+        assert len(discord.sent) == 1 and only_job(store)["status"] == rules.JOB_SENT
+
+    asyncio.run(scenario())
+
+
+def test_test_dm_does_not_stay_sending_when_processing_fails():
+    async def scenario():
+        clock = FakeClock(at(13))
+        store = FakeStore()
+        store.users[7] = make_user(nations=())
+        scheduler = build(store, clock, FakeFetcher({}), FakeDiscord(clock))
+
+        async def broken(user_ids):
+            raise RuntimeError("mongo blip")
+
+        store.load_profiles = broken
+        store.tests["t1"] = {"_id": "t1", "user_id": 7, "source": "website", "state": "queued", "requested_at": at(12)}
+        assert await scheduler.process_test_dms() == 1
+        assert store.tests["t1"]["state"] == rules.TEST_DM_FAILED
+
+    asyncio.run(scenario())
+
+
+def test_loop_that_keeps_failing_is_reported():
+    async def scenario():
+        clock = FakeClock(at(13))
+        reports = []
+
+        async def on_crash(name, exc):
+            reports.append((name, str(exc)))
+
+        scheduler = ReminderScheduler(
+            store=FakeStore(), fetcher=FakeFetcher({}), discord=FakeDiscord(clock), renderer=FakeRenderer(),
+            clock=clock, on_crash=on_crash,
+        )
+        for _ in range(2):
+            await scheduler._loop_failed("status", RuntimeError("boom"))
+        assert reports == []
+        await scheduler._loop_failed("status", RuntimeError("boom"))
+        assert reports == [("status", "boom")]
+        scheduler._loop_ok("status")
+        await scheduler._loop_failed("status", RuntimeError("again"))
+        assert len(reports) == 1
+
+    asyncio.run(scenario())
+
+
+def test_changes_committed_out_of_order_are_still_picked_up():
+    async def scenario():
+        clock = FakeClock(at(13, 6))
+        store = FakeStore()
+        fetcher = FakeFetcher({"100": (1, 0), "200": (1, 0)})
+        scheduler = build(store, clock, fetcher, FakeDiscord(clock))
+        scheduler._changes_since = at(13)
+
+        store.users[8] = make_user(uid=8, nations=("200",), added=at(13, 5))
+        store.users[8]["beige_alerts_updated_at"] = at(13, 5, ms=200)
+        assert await scheduler.refresh_changed() == 1
+
+        # Stamped before user 8's edit but committed after the poll that saw it.
+        store.users[7] = make_user(added=at(13, 5))
+        store.users[7]["beige_alerts_updated_at"] = at(13, 5, ms=100)
+        assert await scheduler.refresh_changed() == 1
+        assert {job["user_id"] for job in store.jobs.values()} == {7, 8}
+        assert await scheduler.refresh_changed() == 0
 
     asyncio.run(scenario())
 

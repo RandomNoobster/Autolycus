@@ -62,8 +62,19 @@ async def maybe_notify(ctx: discord.ApplicationContext) -> None:
     _pending.discard(author.id)
     try:
         doc = await reminder_db.take_dm_notice(get_db(), author.id)
-        if not doc:
-            return
-        await ctx.followup.send(embed=notice_embed(doc.get("dm_delivery") or {}), ephemeral=True)
     except Exception:  # noqa: BLE001 - a notice must never break a command
+        logger.debug("Could not read the reminder delivery notice for %s", author.id, exc_info=True)
+        _pending.add(author.id)
+        return
+    if not doc:
+        return
+    try:
+        await ctx.followup.send(embed=notice_embed(doc.get("dm_delivery") or {}), ephemeral=True)
+    except Exception:  # noqa: BLE001
+        # Keep the notice for the next command instead of losing it.
         logger.debug("Could not send a reminder delivery notice to %s", author.id, exc_info=True)
+        _pending.add(author.id)
+        try:
+            await reminder_db.restore_dm_notice(get_db(), author.id)
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not keep the reminder delivery notice for %s", author.id, exc_info=True)

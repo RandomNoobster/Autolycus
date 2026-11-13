@@ -37,7 +37,13 @@ MIN_USEFUL_LEAD = timedelta(seconds=30)
 PLANNING_GRACE = timedelta(seconds=5)
 
 MAX_EMBEDS_PER_MESSAGE = 10
+# Discord's limit on the combined title, description, field, footer and author text
+# of every embed in one message.
+MAX_EMBED_CHARS_PER_MESSAGE = 6000
 DISCORD_NONCE_MAX_LENGTH = 25
+# Nation IDs are GraphQL ``Int`` (32-bit) in the Politics & War API; a larger ID
+# makes the API reject the whole batched status query.
+MAX_NATION_ID = 2_147_483_647
 MAX_RECENT_PROBLEMS = 10
 MAX_PUSH_DEVICES_PER_USER = 10
 
@@ -71,6 +77,11 @@ TEST_DM_SENT = "sent"
 TEST_DM_FAILED = "failed"
 TEST_DM_CONFIRMED = "confirmed"
 TEST_DM_ACTIVE_STATES: tuple[str, ...] = (TEST_DM_QUEUED, TEST_DM_SENDING)
+
+# Where a test DM was requested; Discord users hear about a refusal on their next command.
+TEST_DM_SOURCE_WEBSITE = "website"
+TEST_DM_SOURCE_BOT = "bot"
+TEST_DM_SOURCE_AUTOMATIC = "automatic"
 
 CHANNEL_REQUIRED = "CHANNEL_REQUIRED"
 NO_PUSH_DEVICES = "NO_PUSH_DEVICES"
@@ -180,6 +191,10 @@ def estimate_exit(current: NationStatus, previous: Optional[TrackedNation] = Non
         The exit estimate for ``current``.
     """
     naive = naive_exit_at(current)
+    if current.turns <= 0:
+        # A stale count still shows the protection the nation had, so zero is always
+        # current: the nation can be attacked now.
+        return ExitEstimate(None, True)
     if not in_provisional_window(current.observed_at):
         return ExitEstimate(naive, True)
     if previous is None or not previous.estimate.definitive:
@@ -188,9 +203,14 @@ def estimate_exit(current: NationStatus, previous: Optional[TrackedNation] = Non
     changed_at = turn_start(current.observed_at)
     turns = current.turns
     prev_turns = previous.status.turns
+    previous_at = ensure_utc(previous.status.observed_at)
 
-    if ensure_utc(previous.status.observed_at) < changed_at:
-        if turns > 0 and turns == prev_turns:
+    if previous_at < changed_at:
+        if previous_at < changed_at - TURN:
+            # Readings stopped for more than a turn, so a one-turn drop can't tell a
+            # stale count from a fresh one.
+            return ExitEstimate(naive, False)
+        if turns == prev_turns:
             # Still the pre-change count, so the earlier reading's exit stands.
             return ExitEstimate(previous.estimate.exit_at, True)
         if turns == prev_turns - 1:
@@ -330,7 +350,9 @@ def plan_subscription(
         elif job.offset_min not in offsets:
             plan.cancel.append((job.job_id, "timing_removed"))
 
-    existing_ids = {j.job_id for j in jobs}
+    # A cancelled job (nation unwatched, timing removed, exit moved) is planned again
+    # when it is wanted again; insert_jobs revives it under the same ID.
+    existing_ids = {j.job_id for j in jobs if j.status != JOB_CANCELLED}
     late_job: Optional[PlannedJob] = None
     for offset in offsets:
         job_id = lead_job_id(sub.user_id, sub.nation_id, exit_at, offset)
@@ -382,18 +404,17 @@ def _plan_unprotected(
     now: datetime,
 ) -> SubscriptionPlan:
     plan = SubscriptionPlan()
-    expected_exits = [
-        ensure_utc(j.exit_at) for j in jobs if j.kind == JOB_KIND_LEAD and j.status != JOB_CANCELLED
-    ]
-    latest_expected = max(expected_exits, default=None)
-    early_jobs = [j for j in jobs if j.kind == JOB_KIND_EARLY_EXIT]
+    # Jobs for exits before the nation was (re-)added belong to an earlier reminder.
+    current = [j for j in jobs if sub.added_at is None or ensure_utc(j.exit_at) > ensure_utc(sub.added_at)]
+    latest_expected = _expected_exit(current)
+    early_jobs = [j for j in current if j.kind == JOB_KIND_EARLY_EXIT]
 
     if latest_expected is not None and latest_expected > turn_start(now):
         # Protection ended before the turn change we planned for.
         for job in pending_leads:
             plan.cancel.append((job.job_id, "exited_early"))
         early_id = early_exit_job_id(sub.user_id, sub.nation_id, latest_expected)
-        if not any(j.job_id == early_id for j in early_jobs):
+        if not any(j.job_id == early_id and j.status != JOB_CANCELLED for j in early_jobs):
             plan.create.append(
                 PlannedJob(
                     early_id, sub.user_id, sub.nation_id, JOB_KIND_EARLY_EXIT, None,
@@ -411,6 +432,21 @@ def _plan_unprotected(
     if latest_expected is None and not early_jobs:
         plan.problem = PROBLEM_NOT_PROTECTED
     return plan
+
+
+def _expected_exit(jobs: Sequence[JobSnapshot]) -> Optional[datetime]:
+    """The exit the latest plan expected, from its timed reminders.
+
+    Pending reminders follow the current plan. Once they have all gone out, the one
+    due last does, so an exit that a stale reading briefly moved later doesn't count.
+    """
+    leads = [j for j in jobs if j.kind == JOB_KIND_LEAD and j.status != JOB_CANCELLED]
+    pending = [j for j in leads if j.status in JOB_ACTIVE_STATUSES]
+    if pending:
+        return max(ensure_utc(j.exit_at) for j in pending)
+    if not leads:
+        return None
+    return ensure_utc(max(leads, key=lambda j: ensure_utc(j.due_at)).exit_at)
 
 
 def select_sendable(
@@ -482,7 +518,48 @@ def chunked(items: Sequence[Any], size: int) -> list[list[Any]]:
     return [list(items[i:i + size]) for i in range(0, len(items), size)]
 
 
+def embed_text_length(embed: Mapping[str, Any]) -> int:
+    """Characters of an embed dict that count toward Discord's per-message limit."""
+
+    def text(value: Any) -> int:
+        return len(str(value)) if value else 0
+
+    total = text(embed.get("title")) + text(embed.get("description"))
+    total += text((embed.get("footer") or {}).get("text")) + text((embed.get("author") or {}).get("name"))
+    for item in embed.get("fields") or []:
+        total += text(item.get("name")) + text(item.get("value"))
+    return total
+
+
+def pack_by_size(
+    items: Sequence[Any], sizes: Sequence[int], *, max_count: int, max_size: int
+) -> list[list[Any]]:
+    """Split ``items`` in order into groups of at most ``max_count`` whose sizes sum to at most ``max_size``.
+
+    An item larger than ``max_size`` on its own still gets a group of its own.
+    """
+    groups: list[list[Any]] = []
+    current: list[Any] = []
+    used = 0
+    for item, size in zip(items, sizes):
+        if current and (len(current) >= max_count or used + size > max_size):
+            groups.append(current)
+            current, used = [], 0
+        current.append(item)
+        used += size
+    if current:
+        groups.append(current)
+    return groups
+
+
 # --- Validation -------------------------------------------------------------
+
+
+def _ascii_number(text: str, max_digits: int) -> Optional[int]:
+    """Parse plain ASCII digits; ``str.isdigit`` alone also accepts characters like "²"."""
+    if not text or len(text) > max_digits or not (text.isascii() and text.isdigit()):
+        return None
+    return int(text)
 
 
 def normalize_nation_id(value: Any) -> Optional[str]:
@@ -490,10 +567,10 @@ def normalize_nation_id(value: Any) -> Optional[str]:
     if isinstance(value, bool):
         return None
     text = str(value if value is not None else "").strip()
-    if not text.isdigit():
+    number = _ascii_number(text.lstrip("0") or "0", len(str(MAX_NATION_ID)))
+    if number is None or not 0 < number <= MAX_NATION_ID:
         return None
-    number = int(text)
-    return str(number) if number > 0 else None
+    return str(number)
 
 
 def sanitize_offsets(raw: Any) -> Optional[list[int]]:
@@ -521,17 +598,31 @@ def sanitize_offsets(raw: Any) -> Optional[list[int]]:
 
 
 def effective_offsets(raw: Any) -> list[int]:
-    """Stored timings, falling back to the default when missing or invalid."""
-    return sanitize_offsets(raw) or list(DEFAULT_REMINDER_OFFSETS)
+    """Stored timings, falling back to the default when missing or invalid.
+
+    Lists saved by older versions may hold values that are no longer allowed (0, more
+    than a week, more than 10 entries); the valid ones are kept, closest to the exit
+    first when there are too many.
+    """
+    exact = sanitize_offsets(raw)
+    if exact:
+        return exact
+    if isinstance(raw, (list, tuple)):
+        valid: set[int] = set()
+        for value in raw:
+            if isinstance(value, str):
+                value = _ascii_number(value.strip(), 6)
+            if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= MAX_REMINDER_OFFSET_MINUTES:
+                valid.add(value)
+        if valid:
+            return sorted(valid, reverse=True)[-MAX_REMINDER_OFFSETS:]
+    return list(DEFAULT_REMINDER_OFFSETS)
 
 
 def parse_offset_minutes(text: str) -> Optional[int]:
     """Parse one timing typed by a user; None unless it's 1-10 080 whole minutes."""
-    cleaned = str(text or "").strip()
-    if not cleaned.isdigit():
-        return None
-    value = int(cleaned)
-    if not 1 <= value <= MAX_REMINDER_OFFSET_MINUTES:
+    value = _ascii_number(str(text or "").strip(), 6)
+    if value is None or not 1 <= value <= MAX_REMINDER_OFFSET_MINUTES:
         return None
     return value
 
@@ -666,14 +757,6 @@ def classify_discord_error(
             return DeliveryOutcome.RETRY, None
         return DeliveryOutcome.REFUSED, DmFailureReason.OTHER
     return DeliveryOutcome.FAILED, None
-
-
-def failure_reason_for_code(code: Optional[int]) -> Optional[str]:
-    """Reason string stored alongside a DM failure code."""
-    if code is None:
-        return None
-    reason = _REFUSED_CODES.get(int(code))
-    return (reason or DmFailureReason.OTHER).value
 
 
 # --- Browser push -----------------------------------------------------------

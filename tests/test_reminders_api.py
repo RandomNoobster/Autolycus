@@ -189,6 +189,23 @@ def test_test_dm_is_rate_limited(client, monkeypatch):
     assert 1 <= int(response.headers["Retry-After"]) <= 60
 
 
+def test_daily_test_dm_limit_waits_until_the_oldest_counted_one_expires(client, monkeypatch):
+    now = datetime.now(UTC)
+    monkeypatch.setattr(
+        reminder_db,
+        "latest_test_dm_sync",
+        lambda db, uid: {"_id": "t0", "state": "sent", "requested_at": now - timedelta(hours=1)},
+    )
+    monkeypatch.setattr(reminder_db, "count_test_dms_since_sync", lambda db, uid, since: 10)
+    # The 10th most recent was 22 hours ago, so the window frees up in about 2 hours.
+    monkeypatch.setattr(
+        reminder_db, "nth_latest_test_dm_at_sync", lambda db, uid, since, n: now - timedelta(hours=22)
+    )
+    response = client.post("/api/raids/reminders/test-dm", json={}, headers=SAME_ORIGIN)
+    assert response.status_code == 429
+    assert 7190 <= int(response.headers["Retry-After"]) <= 7200
+
+
 def test_test_dm_returns_the_one_already_on_its_way(client, monkeypatch):
     requested = datetime(2026, 9, 14, 12, tzinfo=UTC)
     monkeypatch.setattr(

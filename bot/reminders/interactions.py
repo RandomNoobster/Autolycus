@@ -40,8 +40,13 @@ async def handle_test_dm_ack(interaction: discord.Interaction, parts: list[str])
     if interaction.user is None or interaction.user.id != user_id:
         await _ephemeral(interaction, "This button belongs to someone else.")
         return
+    view = TestDmView(user_id, test_id, confirmed=True)
     try:
-        await interaction.response.edit_message(view=TestDmView(user_id, test_id, confirmed=True))
+        await interaction.response.edit_message(view=view)
     except discord.HTTPException:
         logger.debug("Could not update the test DM after a click", exc_info=True)
+    finally:
+        # The confirmed button is disabled and clicks go through the stateless handler,
+        # so py-cord needn't keep this view in its store.
+        view.stop()
     await reminder_db.confirm_test_dm(get_db(), test_id, user_id, rules.utcnow())

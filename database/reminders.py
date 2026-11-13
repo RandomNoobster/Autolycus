@@ -55,6 +55,8 @@ _INDEXES: dict[str, list[tuple[list[tuple[str, int]], dict[str, Any]]]] = {
     JOBS: [
         ([("status", ASCENDING), ("due_at", ASCENDING)], {"name": "status_due"}),
         ([("user_id", ASCENDING), ("nation_id", ASCENDING)], {"name": "user_nation"}),
+        # Planning and the schedule view read a user's jobs for exits after a time.
+        ([("user_id", ASCENDING), ("exit_at", ASCENDING)], {"name": "user_exit"}),
         ([("expire_at", ASCENDING)], {"name": "expire_at_ttl", "expireAfterSeconds": 0}),
     ],
     TEST_DMS: [
@@ -254,19 +256,27 @@ def set_channels_sync(db: Any, user_id: int, channels: rules.ChannelSettings) ->
 # --- Discord DM delivery status --------------------------------------------
 
 
+# A test DM doesn't hide that DMs already worked (or were confirmed with "Got it").
+_KNOWN_GOOD_DM_STATES = [rules.DM_STATE_OK, rules.DM_STATE_CONFIRMED]
+
+
 def mark_dm_pending_sync(db: Any, user_id: int, now: datetime) -> None:
     """A test DM is on its way."""
-    db[USERS].update_one(
-        {"user": user_id},
-        {"$set": {"dm_delivery.state": rules.DM_STATE_PENDING, "dm_delivery.last_attempt_at": now}},
+    users = db[USERS]
+    users.update_one({"user": user_id}, {"$set": {"dm_delivery.last_attempt_at": now}})
+    users.update_one(
+        {"user": user_id, "dm_delivery.state": {"$nin": _KNOWN_GOOD_DM_STATES}},
+        {"$set": {"dm_delivery.state": rules.DM_STATE_PENDING}},
     )
 
 
 async def mark_dm_pending(db: Any, user_id: int, now: datetime) -> None:
     """Async variant of :func:`mark_dm_pending_sync`."""
-    await db[USERS].update_one(
-        {"user": user_id},
-        {"$set": {"dm_delivery.state": rules.DM_STATE_PENDING, "dm_delivery.last_attempt_at": now}},
+    users = db[USERS]
+    await users.update_one({"user": user_id}, {"$set": {"dm_delivery.last_attempt_at": now}})
+    await users.update_one(
+        {"user": user_id, "dm_delivery.state": {"$nin": _KNOWN_GOOD_DM_STATES}},
+        {"$set": {"dm_delivery.state": rules.DM_STATE_PENDING}},
     )
 
 
@@ -342,8 +352,13 @@ async def take_dm_notice(db: Any, user_id: int) -> Optional[dict[str, Any]]:
     return await db[USERS].find_one_and_update(
         {"user": user_id, "dm_notice_pending": True},
         {"$set": {"dm_notice_pending": False}},
-        projection={"_id": 0, "dm_delivery": 1, "reminder_problems": {"$slice": 1}},
+        projection={"_id": 0, "dm_delivery": 1},
     )
+
+
+async def restore_dm_notice(db: Any, user_id: int) -> None:
+    """Put a claimed notice back when it couldn't be shown."""
+    await db[USERS].update_one({"user": user_id}, {"$set": {"dm_notice_pending": True}})
 
 
 async def users_with_pending_notice(db: Any) -> set[int]:
@@ -480,20 +495,39 @@ def _job_insert_doc(job: rules.PlannedJob, now: datetime) -> dict[str, Any]:
     return doc
 
 
+# Fields a cancelled job may carry from an earlier attempt; cleared when it is planned again.
+_RUN_FIELDS = ("finished_at", "expire_at", "claim_id", "claimed_at", "sent_at", "lateness_ms", "channels")
+
+
+def _revive_update(job: rules.PlannedJob, now: datetime) -> dict[str, Any]:
+    doc = _job_insert_doc(job, now)
+    doc.pop("created_at")
+    update: dict[str, Any] = {"$set": doc}
+    cleared = {name: "" for name in _RUN_FIELDS if name not in doc}
+    if cleared:
+        update["$unset"] = cleared
+    return update
+
+
 async def insert_jobs(db: Any, jobs: Sequence[rules.PlannedJob], now: datetime) -> int:
-    """Store planned jobs; jobs that already exist are left untouched.
+    """Store planned jobs.
+
+    Jobs that already exist are left untouched, except cancelled ones: the planner only
+    asks for a cancelled job again when it is wanted again (the nation was re-added, a
+    timing came back, the exit estimate moved back), so it is revived under its ID.
 
     Returns:
-        How many jobs were newly created.
+        How many jobs were created or revived.
     """
     if not jobs:
         return 0
-    ops = [
-        UpdateOne({"_id": job.job_id}, {"$setOnInsert": _job_insert_doc(job, now)}, upsert=True)
-        for job in jobs
-    ]
+    ops: list[UpdateOne] = []
+    for job in jobs:
+        ops.append(UpdateOne({"_id": job.job_id}, {"$setOnInsert": _job_insert_doc(job, now)}, upsert=True))
+        # Either op may run first: each matches only when the other doesn't apply.
+        ops.append(UpdateOne({"_id": job.job_id, "status": rules.JOB_CANCELLED}, _revive_update(job, now)))
     result = await db[JOBS].bulk_write(ops, ordered=False)
-    return int(result.upserted_count)
+    return int(result.upserted_count) + int(result.modified_count)
 
 
 async def cancel_jobs(db: Any, cancels: Sequence[tuple[str, str]], now: datetime) -> int:
@@ -501,18 +535,7 @@ async def cancel_jobs(db: Any, cancels: Sequence[tuple[str, str]], now: datetime
     if not cancels:
         return 0
     ops = [
-        UpdateOne(
-            {"_id": job_id, "status": rules.JOB_PENDING},
-            {
-                "$set": {
-                    "status": rules.JOB_CANCELLED,
-                    "reason": reason,
-                    "finished_at": now,
-                    "updated_at": now,
-                    "expire_at": now + JOB_RETENTION,
-                }
-            },
-        )
+        UpdateOne({"_id": job_id, "status": rules.JOB_PENDING}, _cancel_pending_for_update(reason, now))
         for job_id, reason in cancels
     ]
     result = await db[JOBS].bulk_write(ops, ordered=False)
@@ -576,17 +599,8 @@ def upcoming_jobs_for_user_sync(db: Any, user_id: int, now: datetime) -> list[di
     return list(cursor)
 
 
-def active_jobs_for_user_sync(db: Any, user_id: int) -> list[dict[str, Any]]:
-    """Pending or in-flight jobs for a user, earliest first (for display)."""
-    cursor = db[JOBS].find(
-        {"user_id": user_id, "status": {"$in": list(rules.JOB_ACTIVE_STATUSES)}},
-        {"nation_id": 1, "kind": 1, "offset_min": 1, "exit_at": 1, "due_at": 1, "status": 1},
-    ).sort("due_at", ASCENDING)
-    return list(cursor)
-
-
 async def active_jobs_for_user(db: Any, user_id: int) -> list[dict[str, Any]]:
-    """Async variant of :func:`active_jobs_for_user_sync`."""
+    """Pending or in-flight jobs for a user, earliest first (for display)."""
     cursor = db[JOBS].find(
         {"user_id": user_id, "status": {"$in": list(rules.JOB_ACTIVE_STATUSES)}},
         {"nation_id": 1, "kind": 1, "offset_min": 1, "exit_at": 1, "due_at": 1, "status": 1},
@@ -747,6 +761,22 @@ def count_test_dms_since_sync(db: Any, user_id: int, since: datetime) -> int:
     return int(db[TEST_DMS].count_documents({"user_id": user_id, "requested_at": {"$gte": since}}))
 
 
+def _nth_latest_test_dm_cursor(db: Any, user_id: int, since: datetime, n: int) -> Any:
+    return (
+        db[TEST_DMS]
+        .find({"user_id": user_id, "requested_at": {"$gte": since}}, {"requested_at": 1})
+        .sort("requested_at", DESCENDING)
+        .skip(max(0, n - 1))
+        .limit(1)
+    )
+
+
+def nth_latest_test_dm_at_sync(db: Any, user_id: int, since: datetime, n: int) -> Optional[datetime]:
+    """When the ``n``-th most recent test DM after ``since`` was requested."""
+    docs = list(_nth_latest_test_dm_cursor(db, user_id, since, n))
+    return _as_utc(docs[0].get("requested_at")) if docs else None
+
+
 async def latest_test_dm(db: Any, user_id: int) -> Optional[dict[str, Any]]:
     """Async variant of :func:`latest_test_dm_sync`."""
     return await db[TEST_DMS].find_one({"user_id": user_id}, sort=[("requested_at", DESCENDING)])
@@ -755,6 +785,12 @@ async def latest_test_dm(db: Any, user_id: int) -> Optional[dict[str, Any]]:
 async def count_test_dms_since(db: Any, user_id: int, since: datetime) -> int:
     """Async variant of :func:`count_test_dms_since_sync`."""
     return int(await db[TEST_DMS].count_documents({"user_id": user_id, "requested_at": {"$gte": since}}))
+
+
+async def nth_latest_test_dm_at(db: Any, user_id: int, since: datetime, n: int) -> Optional[datetime]:
+    """Async variant of :func:`nth_latest_test_dm_at_sync`."""
+    docs = await _nth_latest_test_dm_cursor(db, user_id, since, n).to_list(length=1)
+    return _as_utc(docs[0].get("requested_at")) if docs else None
 
 
 async def clear_dm_pending(db: Any, user_id: int) -> None:

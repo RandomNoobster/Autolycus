@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,7 +23,7 @@ import aiohttp
 import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from py_vapid import Vapid
+from py_vapid import Vapid, VapidException
 from pywebpush import WebPushException, WebPusher
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,23 @@ def classify_push_status(status: int) -> PushOutcome:
     if status == 429 or status >= 500:
         return PushOutcome.RETRY
     return PushOutcome.FAILED
+
+
+def _exception_result(exc: Exception) -> PushResult:
+    """Outcome for an error raised while building or sending a message.
+
+    Only a problem with the stored subscription (missing keys, keys that don't decode
+    or aren't a valid point) means it can never work and should be deleted. Signing
+    trouble, unreadable responses and programming errors are failures, so the device
+    is kept.
+    """
+    if isinstance(exc, WebPushException) or (isinstance(exc, ValueError) and not isinstance(exc, UnicodeError)):
+        return PushResult(PushOutcome.GONE, None, type(exc).__name__)
+    return PushResult(PushOutcome.FAILED, None, type(exc).__name__)
+
+
+# Errors handled per message; anything else is left to the caller.
+_MESSAGE_ERRORS = (WebPushException, ValueError, VapidException, TypeError, KeyError)
 
 
 def _b64url(raw: bytes) -> str:
@@ -132,7 +150,8 @@ class WebPushSender:
 
         Raises:
             ValueError: If the subject isn't a mailto:/https: URI.
-            Exception: If the key can't be parsed.
+            Exception: If the key can't be parsed or py_vapid rejects the subject
+                (for example a trailing slash or path after the https host).
         """
         if not subject.startswith(("mailto:", "https://")):
             raise ValueError("VAPID_SUBJECT must be a mailto: or https:// URI")
@@ -141,6 +160,10 @@ class WebPushSender:
         self.public_key = public_key_for(self._vapid)
         self.key_id = key_id_for(self.public_key)
         self._auth_cache: dict[str, tuple[float, dict[str, str]]] = {}
+        # Sign once now: py_vapid checks the subject only when signing, and a subject it
+        # rejects would otherwise fail every send while push looks configured.
+        self.auth_headers("https://fcm.googleapis.com/")
+        self._auth_cache.clear()
 
     def auth_headers(self, endpoint: str) -> dict[str, str]:
         """VAPID headers for a push service origin, cached for an hour."""
@@ -200,11 +223,10 @@ class WebPushSender:
                 ttl=max(1, int(ttl)),
                 timeout=aiohttp.ClientTimeout(total=timeout_seconds),
             )
-        except (WebPushException, ValueError, TypeError, KeyError) as exc:
-            # Unusable stored keys; the subscription can never work.
-            return PushResult(PushOutcome.GONE, None, type(exc).__name__)
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             return PushResult(PushOutcome.RETRY, None, type(exc).__name__)
+        except _MESSAGE_ERRORS as exc:
+            return _exception_result(exc)
         status = int(response.status)
         return PushResult(classify_push_status(status), status)
 
@@ -230,16 +252,17 @@ class WebPushSender:
                 ttl=max(1, int(ttl)),
                 timeout=timeout_seconds,
             )
-        except (WebPushException, ValueError, TypeError, KeyError) as exc:
-            return PushResult(PushOutcome.GONE, None, type(exc).__name__)
         except requests.RequestException as exc:
             return PushResult(PushOutcome.RETRY, None, type(exc).__name__)
+        except _MESSAGE_ERRORS as exc:
+            return _exception_result(exc)
         status = int(response.status_code)
         return PushResult(classify_push_status(status), status)
 
 
 _sender: Optional[WebPushSender] = None
 _sender_loaded = False
+_sender_lock = threading.Lock()
 
 
 def get_push_sender() -> Optional[WebPushSender]:
@@ -247,15 +270,21 @@ def get_push_sender() -> Optional[WebPushSender]:
     global _sender, _sender_loaded
     if _sender_loaded:
         return _sender
+    with _sender_lock:  # API request threads may ask at the same time on startup.
+        if not _sender_loaded:
+            _sender = _build_sender()
+            _sender_loaded = True
+    return _sender
+
+
+def _build_sender() -> Optional[WebPushSender]:
     from core.config import VAPID_PRIVATE_KEY, VAPID_SUBJECT
 
-    _sender_loaded = True
     if not VAPID_PRIVATE_KEY or not VAPID_SUBJECT:
         logger.info("Browser push disabled: VAPID_PRIVATE_KEY or VAPID_SUBJECT is not set")
         return None
     try:
-        _sender = WebPushSender(VAPID_PRIVATE_KEY, VAPID_SUBJECT)
+        return WebPushSender(VAPID_PRIVATE_KEY, VAPID_SUBJECT)
     except Exception as exc:  # noqa: BLE001 - misconfiguration must not stop the app
         logger.error("Browser push disabled: could not load VAPID settings (%s)", exc)
-        _sender = None
-    return _sender
+        return None

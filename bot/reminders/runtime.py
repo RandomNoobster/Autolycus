@@ -100,17 +100,19 @@ class _Reporter:
         )
 
 
-def build_scheduler(bot: discord.Client) -> tuple[ReminderScheduler, Optional[BrowserPushDelivery]]:
+def build_scheduler(
+    bot: discord.Client, reporter: Optional[_Reporter] = None
+) -> tuple[ReminderScheduler, Optional[BrowserPushDelivery]]:
     """Create the scheduler with Discord, Politics & War, Mongo and push adapters."""
     api_key = os.getenv("API_KEY") or ""
     sender = get_push_sender()
     push = BrowserPushDelivery(sender) if sender is not None else None
-    reporter = _Reporter(bot)
+    reporter = reporter or _Reporter(bot)
     scheduler = ReminderScheduler(
         store=MongoReminderStore(get_db()),
         fetcher=PnwStatusFetcher(api_key),
         discord=DiscordDmDelivery(bot),
-        renderer=ReminderRenderer(api_key),
+        renderer=ReminderRenderer(),
         push=push,
         config=SchedulerConfig(
             status_poll_seconds=float(REMINDER_STATUS_POLL_SECONDS),
@@ -127,21 +129,27 @@ async def run_reminders(bot: discord.Client) -> None:
     """Start reminder delivery once the bot is ready; restarts after startup failures."""
     await bot.wait_until_ready()
     await notices.load_pending()
+    # One reporter for every restart, so its crash-report throttle applies.
+    reporter = _Reporter(bot)
     backoff = 5.0
     while True:
-        scheduler, push = build_scheduler(bot)
-        bot.reminder_scheduler = scheduler  # type: ignore[attr-defined]
-        logger.info(
-            "Reminder scheduler starting (browser push %s)", "enabled" if push is not None else "disabled"
-        )
+        push: Optional[BrowserPushDelivery] = None
         try:
+            scheduler, push = build_scheduler(bot, reporter)
+            bot.reminder_scheduler = scheduler  # type: ignore[attr-defined]
+            logger.info(
+                "Reminder scheduler starting (browser push %s)", "enabled" if push is not None else "disabled"
+            )
             await scheduler.run()
             return
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("Reminder scheduler stopped; restarting in %.0fs", backoff)
-            await _Reporter(bot).on_crash("scheduler", exc)
+            try:
+                await reporter.on_crash("scheduler", exc)
+            except Exception:  # noqa: BLE001 - a failed report must not end reminder delivery
+                logger.exception("Reporting the reminder scheduler crash failed")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 300.0)
         finally:

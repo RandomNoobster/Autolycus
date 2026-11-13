@@ -190,6 +190,11 @@ class SchedulerConfig:
     presend_fetch_timeout_seconds: float = 8.0
     missing_nation_threshold: int = 3
     job_history: timedelta = timedelta(days=1)
+    # The changes loop re-reads this far back: writers stamp edits before committing
+    # them, so a later commit can carry an earlier stamp than one already seen.
+    changes_overlap_seconds: float = 30.0
+    # Consecutive failures of a loop before it is reported to the debug channel.
+    loop_failure_report_threshold: int = 3
 
 
 class RatePacer:
@@ -354,6 +359,8 @@ class ReminderScheduler:
         self._misses: dict[str, int] = {}
         self._prepared: set[str] = set()
         self._changes_since: Optional[datetime] = None
+        self._changes_seen: dict[int, datetime] = {}
+        self._loop_failures: dict[str, int] = {}
         self._wake = asyncio.Event()
         self._planning_lock = asyncio.Lock()
         self._dm_slots = asyncio.Semaphore(self.config.dm_concurrency)
@@ -397,21 +404,37 @@ class ReminderScheduler:
                 raise
             except Exception as exc:  # noqa: BLE001 - a crashed loop must restart
                 logger.exception("Reminder %s loop crashed; restarting in %.0fs", name, backoff)
-                if self._on_crash is not None:
-                    try:
-                        await self._on_crash(name, exc)
-                    except Exception:  # noqa: BLE001
-                        logger.exception("Reporting the reminder %s crash failed", name)
+                await self._report_crash(name, exc)
                 await self.clock.sleep(backoff)
                 backoff = min(backoff * 2, 60.0)
+
+    async def _report_crash(self, name: str, exc: BaseException) -> None:
+        if self._on_crash is None:
+            return
+        try:
+            await self._on_crash(name, exc)
+        except Exception:  # noqa: BLE001
+            logger.exception("Reporting the reminder %s failure failed", name)
+
+    async def _loop_failed(self, name: str, exc: BaseException) -> None:
+        """Log a failed loop pass; a loop that keeps failing is reported like a crash."""
+        logger.exception("Reminder %s pass failed", name, exc_info=exc)
+        count = self._loop_failures.get(name, 0) + 1
+        self._loop_failures[name] = count
+        if count >= self.config.loop_failure_report_threshold:
+            await self._report_crash(name, exc)
+
+    def _loop_ok(self, name: str) -> None:
+        self._loop_failures.pop(name, None)
 
     async def _status_loop(self) -> None:
         while True:
             started = self.clock.monotonic()
             try:
                 await self.refresh_all()
-            except Exception:  # noqa: BLE001
-                logger.exception("Reminder status refresh failed")
+                self._loop_ok("status")
+            except Exception as exc:  # noqa: BLE001
+                await self._loop_failed("status", exc)
             elapsed = self.clock.monotonic() - started
             await self.clock.sleep(max(1.0, self.config.status_poll_seconds - elapsed))
 
@@ -420,8 +443,9 @@ class ReminderScheduler:
             await self.clock.sleep(self.config.changes_poll_seconds)
             try:
                 await self.refresh_changed()
-            except Exception:  # noqa: BLE001
-                logger.exception("Picking up reminder changes failed")
+                self._loop_ok("changes")
+            except Exception as exc:  # noqa: BLE001
+                await self._loop_failed("changes", exc)
 
     async def _dispatch_loop(self) -> None:
         last_recovery = self.clock.monotonic()
@@ -429,16 +453,17 @@ class ReminderScheduler:
             self._wake.clear()
             try:
                 delay = await self.dispatch_due()
-            except Exception:  # noqa: BLE001
-                logger.exception("Reminder dispatch failed")
+                self._loop_ok("dispatch")
+            except Exception as exc:  # noqa: BLE001
+                await self._loop_failed("dispatch", exc)
                 delay = self.config.idle_sleep_seconds
             if self.clock.monotonic() - last_recovery >= self.config.stale_claim_seconds:
                 last_recovery = self.clock.monotonic()
                 now = self.clock.now()
+                older_than = now - timedelta(seconds=self.config.stale_claim_seconds)
                 try:
-                    await self.store.recover_stale_claims(
-                        now - timedelta(seconds=self.config.stale_claim_seconds), now
-                    )
+                    await self.store.recover_stale_claims(older_than, now)
+                    await self.store.recover_stale_test_dms(older_than)
                 except Exception:  # noqa: BLE001
                     logger.exception("Recovering stale reminder claims failed")
             try:
@@ -450,8 +475,9 @@ class ReminderScheduler:
         while True:
             try:
                 await self.process_test_dms()
-            except Exception:  # noqa: BLE001
-                logger.exception("Sending test DMs failed")
+                self._loop_ok("test_dms")
+            except Exception as exc:  # noqa: BLE001
+                await self._loop_failed("test_dms", exc)
             await self.clock.sleep(self.config.test_dm_poll_seconds)
 
     # -- planning --
@@ -466,8 +492,8 @@ class ReminderScheduler:
                 self.fetcher.fetch(nation_ids), self.config.status_fetch_timeout_seconds
             )
             self._record_statuses(nation_ids, statuses, self.clock.now())
-        await self._plan(subs, self.clock.now())
-        watched = set(nation_ids)
+        planned = await self._plan({sub.user_id for sub in subs}, self.clock.now())
+        watched = set(nation_ids) | {sub.nation_id for sub in planned}
         for nation_id in [n for n in self._tracked if n not in watched]:
             self._tracked.pop(nation_id, None)
             self._misses.pop(nation_id, None)
@@ -479,38 +505,35 @@ class ReminderScheduler:
             How many changed profiles were processed.
         """
         since = self._changes_since or self.clock.now()
-        users = await self.store.load_users_changed_since(since)
-        if not users:
+        overlap = timedelta(seconds=self.config.changes_overlap_seconds)
+        users = await self.store.load_users_changed_since(since - overlap)
+        changed: dict[int, tuple[datetime, dict[str, Any]]] = {}
+        for user in users:
+            user_id = _int_or_none(user.get("user"))
+            stamp = user.get("beige_alerts_updated_at")
+            if user_id is None or not isinstance(stamp, datetime):
+                continue
+            stamp = rules.ensure_utc(stamp)
+            self._changes_since = max(self._changes_since or stamp, stamp)
+            if self._changes_seen.get(user_id) != stamp:  # Not planned in an overlapping pass yet.
+                changed[user_id] = (stamp, user)
+        horizon = (self._changes_since or since) - overlap
+        self._changes_seen = {uid: stamp for uid, stamp in self._changes_seen.items() if stamp > horizon}
+        if not changed:
             return 0
-        stamps = [
-            rules.ensure_utc(user["beige_alerts_updated_at"])
-            for user in users
-            if isinstance(user.get("beige_alerts_updated_at"), datetime)
-        ]
-        if stamps:
-            self._changes_since = max(stamps)
 
-        now = self.clock.now()
-        subs = [sub for user in users for sub in reminder_db.subscriptions_for(user)]
-        user_ids = {int(user["user"]) for user in users if _int_or_none(user.get("user")) is not None}
-        watched = {(sub.user_id, sub.nation_id) for sub in subs}
-        jobs = await self.store.load_jobs_for_users(user_ids, exits_after=now - self.config.job_history)
-        orphaned = [
-            (job.job_id, "unsubscribed")
-            for job in jobs
-            if job.status == rules.JOB_PENDING and (job.user_id, job.nation_id) not in watched
-        ]
-        if orphaned:
-            await self.store.cancel_jobs(orphaned, now)
-
+        subs = [sub for _, user in changed.values() for sub in reminder_db.subscriptions_for(user)]
         unknown = sorted({sub.nation_id for sub in subs if sub.nation_id not in self._tracked})
         if unknown:
             statuses = await asyncio.wait_for(
                 self.fetcher.fetch(unknown), self.config.status_fetch_timeout_seconds
             )
             self._record_statuses(unknown, statuses, self.clock.now())
-        await self._plan(subs, self.clock.now())
-        return len(users)
+        await self._plan(set(changed), self.clock.now())
+        # Only now: a failed pass is retried while the edit is inside the overlap.
+        for user_id, (stamp, _) in changed.items():
+            self._changes_seen[user_id] = stamp
+        return len(changed)
 
     def _record_statuses(
         self,
@@ -528,19 +551,33 @@ class ReminderScheduler:
             estimate = rules.estimate_exit(status, self._tracked.get(nation_id))
             self._tracked[nation_id] = rules.TrackedNation(status, estimate)
 
-    async def _plan(self, subs: Sequence[rules.Subscription], now: datetime) -> None:
-        if not subs:
-            return
+    async def _plan(self, user_ids: Iterable[int], now: datetime) -> list[rules.Subscription]:
+        """Bring the given users' jobs in line with their current subscriptions.
+
+        Profiles are read inside the planning lock, next to the jobs, so a plan never
+        works from a watch list or timings older than another plan's.
+
+        Returns:
+            The subscriptions that were planned.
+        """
+        ids = set(user_ids)
+        if not ids:
+            return []
         async with self._planning_lock:
-            jobs = await self.store.load_jobs_for_users(
-                {sub.user_id for sub in subs}, exits_after=now - self.config.job_history
-            )
+            profiles = await self.store.load_profiles(ids)
+            subs = [sub for profile in profiles.values() for sub in reminder_db.subscriptions_for(profile)]
+            jobs = await self.store.load_jobs_for_users(ids, exits_after=now - self.config.job_history)
+            watched = {(sub.user_id, sub.nation_id) for sub in subs}
             by_pair: dict[tuple[int, str], list[rules.JobSnapshot]] = {}
             for job in jobs:
                 by_pair.setdefault((job.user_id, job.nation_id), []).append(job)
 
             creates: list[rules.PlannedJob] = []
-            cancels: list[tuple[str, str]] = []
+            cancels: list[tuple[str, str]] = [
+                (job.job_id, "unsubscribed")
+                for job in jobs
+                if job.status == rules.JOB_PENDING and (job.user_id, job.nation_id) not in watched
+            ]
             removals: list[tuple[rules.Subscription, Optional[str]]] = []
             for sub in subs:
                 if self._misses.get(sub.nation_id, 0) >= self.config.missing_nation_threshold:
@@ -560,7 +597,7 @@ class ReminderScheduler:
             if cancels:
                 await self.store.cancel_jobs(cancels, now)
             if creates and await self.store.insert_jobs(creates, now):
-                self._wake.set()
+                self.wake()
             for sub, problem in removals:
                 await self.store.remove_subscription(sub.user_id, sub.nation_id, now)
                 if problem is not None:
@@ -571,14 +608,7 @@ class ReminderScheduler:
             for sub, problem in removals:
                 if problem == rules.PROBLEM_NATION_MISSING:
                     self._misses.pop(sub.nation_id, None)
-
-    async def _replan_users(self, user_ids: Iterable[int]) -> None:
-        ids = set(user_ids)
-        if not ids:
-            return
-        profiles = await self.store.load_profiles(ids)
-        subs = [sub for profile in profiles.values() for sub in reminder_db.subscriptions_for(profile)]
-        await self._plan(subs, self.clock.now())
+            return subs
 
     # -- dispatch --
 
@@ -598,26 +628,24 @@ class ReminderScheduler:
                 return cfg.idle_sleep_seconds
             return _clamp((next_due - lookahead - now).total_seconds(), 0.05, cfg.idle_sleep_seconds)
 
-        await self._prepare([doc for doc in docs if str(doc["_id"]) not in self._prepared])
-
         waves = []
         for due_at, wave in _group_waves(docs):
             lead = rules.burst_lead_seconds(
                 len(wave), cfg.dm_rate_per_second, cap_seconds=cfg.burst_lead_cap_seconds
             )
             waves.append((due_at - timedelta(seconds=lead), due_at, wave))
-        waves.sort(key=lambda item: item[0])
 
-        next_start: Optional[float] = None
-        for start_at, due_at, wave in waves:
-            now = self.clock.now()
-            if start_at <= now:
-                await self._send_wave(due_at, wave)
-            else:
-                wait = (start_at - now).total_seconds()
-                next_start = wait if next_start is None else min(next_start, wait)
-        if next_start is None:
+        # Every wave whose start has come goes out together, so after downtime only the
+        # latest missed timing per nation is sent; upcoming ones are prepared afterwards.
+        now = self.clock.now()
+        started = [(due_at, wave) for start_at, due_at, wave in waves if start_at <= now]
+        if started:
+            await self._send_wave(min(due_at for due_at, _ in started), [doc for _, wave in started for doc in wave])
             return 0.05
+
+        await self._prepare([doc for doc in docs if str(doc["_id"]) not in self._prepared])
+        now = self.clock.now()
+        next_start = min((start_at - now).total_seconds() for start_at, _, _ in waves)
         return _clamp(next_start, 0.05, cfg.idle_sleep_seconds)
 
     async def _prepare(self, docs: Sequence[Mapping[str, Any]]) -> None:
@@ -625,23 +653,31 @@ class ReminderScheduler:
         if not docs:
             return
         profiles = await self.store.load_profiles({int(doc["user_id"]) for doc in docs})
-        for user_id, profile in profiles.items():
-            channels = rules.ChannelSettings.from_doc(profile.get("reminder_channels"))
-            if not channels.discord_dm or profile.get("dm_channel_id"):
-                continue
+        missing = [
+            user_id
+            for user_id, profile in profiles.items()
+            if rules.ChannelSettings.from_doc(profile.get("reminder_channels")).discord_dm
+            and not profile.get("dm_channel_id")
+        ]
+
+        async def open_channel(user_id: int) -> None:
             async with self._dm_slots:
                 await self._pacer.wait()
                 result = await self.discord.ensure_dm_channel(user_id)
             if result.channel_id is not None:
                 await self.store.set_dm_channel_id(user_id, result.channel_id)
-                profile["dm_channel_id"] = result.channel_id
+
         now = self.clock.now()
-        for doc in docs:
-            try:
-                await self.renderer.render(doc, self._status_for(str(doc["nation_id"])), now)
-            except Exception:  # noqa: BLE001 - rendering is retried at send time
-                logger.exception("Pre-rendering reminder %s failed", doc.get("_id"))
-            self._prepared.add(str(doc["_id"]))
+        outcomes = await asyncio.gather(
+            *(open_channel(user_id) for user_id in missing),
+            *(self.renderer.render(doc, self._status_for(str(doc["nation_id"])), now) for doc in docs),
+            return_exceptions=True,
+        )
+        for outcome in outcomes:
+            if isinstance(outcome, Exception):
+                # Channels are opened and messages rendered again at send time.
+                logger.warning("Preparing reminders failed: %r", outcome)
+        self._prepared.update(str(doc["_id"]) for doc in docs)
 
     def _status_for(self, nation_id: str) -> Optional[rules.NationStatus]:
         tracked = self._tracked.get(nation_id)
@@ -723,14 +759,18 @@ class ReminderScheduler:
         retries: list[str] = []
         if deliverable:
             rendered: dict[str, RenderedReminder] = {}
-            for job in deliverable:
-                try:
-                    rendered[job.job_id] = await self.renderer.render(
-                        docs[job.job_id], self._status_for(job.nation_id), now
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.exception("Rendering reminder %s failed", job.job_id)
+            results = await asyncio.gather(
+                *(self.renderer.render(docs[job.job_id], self._status_for(job.nation_id), now) for job in deliverable),
+                return_exceptions=True,
+            )
+            for job, result in zip(deliverable, results):
+                if isinstance(result, BaseException):
+                    if not isinstance(result, Exception):
+                        raise result
+                    logger.error("Rendering reminder %s failed", job.job_id, exc_info=result)
                     retries.append(job.job_id)
+                else:
+                    rendered[job.job_id] = result
             by_user: dict[int, list[rules.JobSnapshot]] = {}
             for job in deliverable:
                 if job.job_id in rendered:
@@ -759,6 +799,14 @@ class ReminderScheduler:
                 retries.extend(outcome.retries)
                 summary.add(outcome)
 
+        # Retries after unexpected errors get the same attempt limit as delivery retries,
+        # so a job that keeps failing (an early-exit notice never becomes too late) ends.
+        exhausted = {job_id for job_id in retries if int(docs[job_id].get("attempts") or 1) >= cfg.max_attempts}
+        if exhausted:
+            updates.extend((job_id, {"status": rules.JOB_FAILED, "reason": "not_delivered"}) for job_id in exhausted)
+            summary.failed += len(exhausted)
+            retries = [job_id for job_id in retries if job_id not in exhausted]
+
         finished_at = self.clock.now()
         await self.store.finish_jobs(claim_id, updates, finished_at)
         if retries:
@@ -770,7 +818,7 @@ class ReminderScheduler:
             )
             summary.retried += len(retries)
         if replan:
-            await self._replan_users(replan)
+            await self._plan(replan, self.clock.now())
         await self._report_wave(summary)
         return summary
 
@@ -813,22 +861,32 @@ class ReminderScheduler:
         out = _UserOutcome()
         channels = rules.ChannelSettings.from_doc(profile.get("reminder_channels"))
         ordered = sorted(jobs, key=lambda job: (job.due_at, job.nation_id))
+        # Without a push sender in this process a push-only user would get nothing, so
+        # Discord stands in rather than the reminder being dropped.
+        use_dm = channels.discord_dm or (channels.web_push and self.push is None)
+        use_push = channels.web_push and self.push is not None and bool(subscriptions)
 
-        dm_results: dict[str, DmSendResult] = {}
-        if channels.discord_dm:
-            dm_results = await self._send_dms(user_id, profile, ordered, rendered)
-        push_results: dict[str, _PushTally] = {}
-        if channels.web_push and self.push is not None and subscriptions:
-            push_results = await self._send_pushes(user_id, ordered, rendered, subscriptions, out)
+        async def no_results() -> dict[str, Any]:
+            return {}
+
+        # The channels are independent, so pushes don't wait behind the Discord queue.
+        dm_results, push_results = await asyncio.gather(
+            self._send_dms(user_id, profile, ordered, rendered) if use_dm else no_results(),
+            self._send_pushes(user_id, ordered, rendered, subscriptions, out) if use_push else no_results(),
+        )
 
         now = self.clock.now()
         dm_outcomes = list(dm_results.values())
+        # Messages have gone out, so bookkeeping failures below must not trigger a resend.
         if any(result.outcome is Outcome.DELIVERED for result in dm_outcomes):
-            await self.store.record_dm_success(user_id, now)
+            await self._bookkeep("recording a delivered DM", self.store.record_dm_success(user_id, now))
         refusal = next((r for r in dm_outcomes if r.outcome is Outcome.REFUSED), None)
         if refusal is not None:
-            await self.store.record_dm_failure(
-                user_id, now, code=refusal.code, reason=_reason_value(refusal), notify=True
+            await self._bookkeep(
+                "recording a refused DM",
+                self.store.record_dm_failure(
+                    user_id, now, code=refusal.code, reason=_reason_value(refusal), notify=True
+                ),
             )
             if self._on_notice is not None:
                 self._on_notice(user_id)
@@ -862,11 +920,17 @@ class ReminderScheduler:
                 elif push is not None and not push_ok and dm_ok:
                     await self._add_problem(user_id, job, rendered, rules.PROBLEM_PUSH_FAILED, None, False, now)
                 if job.kind == rules.JOB_KIND_EARLY_EXIT:
-                    await self.store.remove_subscription(user_id, job.nation_id, now)
+                    await self._bookkeep(
+                        "ending a reminder", self.store.remove_subscription(user_id, job.nation_id, now)
+                    )
                 continue
 
-            retryable = (dm is not None and dm.outcome in (Outcome.RETRY, Outcome.CHANNEL_GONE)) or (
-                push is not None and push.retry > 0
+            retryable = (
+                (dm is not None and dm.outcome in (Outcome.RETRY, Outcome.CHANNEL_GONE))
+                or (push is not None and push.retry > 0)
+                # The last push device just expired, which switches the user to Discord
+                # DMs; the retry goes out that way.
+                or (dm is None and push is not None and push.gone > 0)
             )
             attempts = int(docs[job.job_id].get("attempts") or 1)
             enough_time = job.kind == rules.JOB_KIND_EARLY_EXIT or (
@@ -883,11 +947,20 @@ class ReminderScheduler:
             out.failed += 1
             out.updates.append((job.job_id, {"status": rules.JOB_FAILED, "reason": "not_delivered", "channels": report}))
             if remove:
-                await self.store.remove_subscription(user_id, job.nation_id, now)
+                await self._bookkeep(
+                    "removing an undeliverable reminder", self.store.remove_subscription(user_id, job.nation_id, now)
+                )
             await self._add_problem(
                 user_id, job, rendered, rules.PROBLEM_NOT_DELIVERED, dm.code if dm else None, remove, now
             )
         return out
+
+    async def _bookkeep(self, what: str, operation: Awaitable[Any]) -> None:
+        """Run a status write that follows a delivery; a failure is logged, not retried."""
+        try:
+            await operation
+        except Exception:  # noqa: BLE001
+            logger.exception("Reminder bookkeeping failed while %s", what)
 
     async def _add_problem(
         self,
@@ -900,17 +973,20 @@ class ReminderScheduler:
         now: datetime,
     ) -> None:
         message = rendered.get(job.job_id)
-        await self.store.add_problem(
-            user_id,
-            reminder_db.problem_doc(
-                kind,
-                job.nation_id,
-                now=now,
-                reminder_removed=removed,
-                nation_name=message.nation_name if message else None,
-                offset_min=job.offset_min,
-                due_at=job.due_at,
-                code=code,
+        await self._bookkeep(
+            "recording a reminder problem",
+            self.store.add_problem(
+                user_id,
+                reminder_db.problem_doc(
+                    kind,
+                    job.nation_id,
+                    now=now,
+                    reminder_removed=removed,
+                    nation_name=message.nation_name if message else None,
+                    offset_min=job.offset_min,
+                    due_at=job.due_at,
+                    code=code,
+                ),
             ),
         )
 
@@ -924,7 +1000,14 @@ class ReminderScheduler:
         results: dict[str, DmSendResult] = {}
         channel_id = _int_or_none(profile.get("dm_channel_id"))
         refusal: Optional[DmSendResult] = None
-        for chunk in rules.chunked(list(jobs), rules.MAX_EMBEDS_PER_MESSAGE):
+        # Discord caps a message at 10 embeds and 6000 characters across them.
+        messages = rules.pack_by_size(
+            list(jobs),
+            [rules.embed_text_length(rendered[job.job_id].embed) for job in jobs],
+            max_count=rules.MAX_EMBEDS_PER_MESSAGE,
+            max_size=rules.MAX_EMBED_CHARS_PER_MESSAGE,
+        )
+        for chunk in messages:
             embeds = [rendered[job.job_id].embed for job in chunk]
             nonce = rules.message_nonce(job.job_id for job in chunk)
             async with self._dm_slots:
@@ -934,7 +1017,7 @@ class ReminderScheduler:
                 self._pacer.slow_down()
             if result.channel_id is not None and result.channel_id != channel_id:
                 channel_id = result.channel_id
-                await self.store.set_dm_channel_id(user_id, channel_id)
+                await self._bookkeep("storing a DM channel", self.store.set_dm_channel_id(user_id, channel_id))
             for job in chunk:
                 results[job.job_id] = result
             if result.outcome is Outcome.REFUSED:
@@ -996,11 +1079,16 @@ class ReminderScheduler:
                 out.push_failed += 1
                 logger.warning("Push service rejected a reminder for user %s (HTTP %s)", user_id, result.status)
         out.push_removed += len(gone)
-        await self.store.record_push_results(
-            delivered=delivered - gone, failed=failed - gone - delivered, gone=gone, now=self.clock.now()
+        await self._bookkeep(
+            "recording push results",
+            self.store.record_push_results(
+                delivered=delivered - gone, failed=failed - gone - delivered, gone=gone, now=self.clock.now()
+            ),
         )
         if gone:
-            await self.store.turn_off_push_channel_if_no_devices(user_id)
+            await self._bookkeep(
+                "updating push settings", self.store.turn_off_push_channel_if_no_devices(user_id)
+            )
         return tallies
 
     # -- test DMs --
@@ -1017,43 +1105,61 @@ class ReminderScheduler:
             if doc is None:
                 return processed
             processed += 1
-            user_id = int(doc["user_id"])
-            test_id = str(doc["_id"])
-            profile = (await self.store.load_profiles([user_id])).get(user_id) or {}
-            channel_id = _int_or_none(profile.get("dm_channel_id"))
             try:
-                async with self._dm_slots:
-                    await self._pacer.wait()
-                    result = await self.discord.send_test_dm(user_id, channel_id, test_id)
-            except Exception:  # noqa: BLE001
-                logger.exception("Sending test DM %s failed unexpectedly", test_id)
-                result = DmSendResult(Outcome.RETRY)
-            now = self.clock.now()
-            if result.channel_id is not None and result.channel_id != channel_id:
-                await self.store.set_dm_channel_id(user_id, result.channel_id)
-            if result.outcome is Outcome.DELIVERED:
-                await self.store.finish_test_dm(test_id, state=rules.TEST_DM_SENT, now=now, message_id=result.message_id)
-                await self.store.record_dm_success(user_id, now)
-            elif result.outcome is Outcome.REFUSED:
-                reason = _reason_value(result)
-                await self.store.finish_test_dm(
-                    test_id, state=rules.TEST_DM_FAILED, now=now, code=result.code, reason=reason
+                await self._send_test_dm(doc)
+            except Exception:  # noqa: BLE001 - a claimed test DM must not stay "sending"
+                logger.exception("Processing test DM %s failed", doc.get("_id"))
+                await self._bookkeep(
+                    "closing a failed test DM",
+                    self.store.finish_test_dm(
+                        str(doc["_id"]),
+                        state=rules.TEST_DM_FAILED,
+                        now=self.clock.now(),
+                        reason=rules.DmFailureReason.OTHER.value,
+                    ),
                 )
-                # People who asked from Discord hear about it on their next command;
-                # the website shows the result straight away.
-                notify = doc.get("source") == "bot"
-                await self.store.record_dm_failure(user_id, now, code=result.code, reason=reason, notify=notify)
-                if notify and self._on_notice is not None:
-                    self._on_notice(user_id)
-            else:
-                await self.store.finish_test_dm(
-                    test_id,
-                    state=rules.TEST_DM_FAILED,
-                    now=now,
-                    code=result.code,
-                    reason=rules.DmFailureReason.OTHER.value,
-                )
-                await self.store.clear_dm_pending(user_id)
+                await self._bookkeep("clearing a pending DM check", self.store.clear_dm_pending(int(doc["user_id"])))
+
+    async def _send_test_dm(self, doc: Mapping[str, Any]) -> None:
+        user_id = int(doc["user_id"])
+        test_id = str(doc["_id"])
+        profile = (await self.store.load_profiles([user_id])).get(user_id) or {}
+        channel_id = _int_or_none(profile.get("dm_channel_id"))
+        try:
+            async with self._dm_slots:
+                await self._pacer.wait()
+                result = await self.discord.send_test_dm(user_id, channel_id, test_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Sending test DM %s failed unexpectedly", test_id)
+            result = DmSendResult(Outcome.RETRY)
+        if result.status == 429:
+            self._pacer.slow_down()
+        now = self.clock.now()
+        if result.channel_id is not None and result.channel_id != channel_id:
+            await self.store.set_dm_channel_id(user_id, result.channel_id)
+        if result.outcome is Outcome.DELIVERED:
+            await self.store.finish_test_dm(test_id, state=rules.TEST_DM_SENT, now=now, message_id=result.message_id)
+            await self.store.record_dm_success(user_id, now)
+        elif result.outcome is Outcome.REFUSED:
+            reason = _reason_value(result)
+            await self.store.finish_test_dm(
+                test_id, state=rules.TEST_DM_FAILED, now=now, code=result.code, reason=reason
+            )
+            # People who asked from Discord hear about it on their next command;
+            # the website shows the result straight away.
+            notify = doc.get("source") == rules.TEST_DM_SOURCE_BOT
+            await self.store.record_dm_failure(user_id, now, code=result.code, reason=reason, notify=notify)
+            if notify and self._on_notice is not None:
+                self._on_notice(user_id)
+        else:
+            await self.store.finish_test_dm(
+                test_id,
+                state=rules.TEST_DM_FAILED,
+                now=now,
+                code=result.code,
+                reason=rules.DmFailureReason.OTHER.value,
+            )
+            await self.store.clear_dm_pending(user_id)
 
 
 class MongoReminderStore:

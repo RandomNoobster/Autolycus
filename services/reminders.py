@@ -16,13 +16,14 @@ from logic import reminders as rules
 
 TEST_DM_MIN_INTERVAL = timedelta(minutes=1)
 TEST_DM_DAILY_LIMIT = 10
+TEST_DM_LIMIT_WINDOW = timedelta(days=1)
 
 INVALID_SUBSCRIPTION = "INVALID_SUBSCRIPTION"
 DEVICE_LIMIT = "DEVICE_LIMIT"
 
-TEST_DM_SOURCE_WEBSITE = "website"
-TEST_DM_SOURCE_BOT = "bot"
-TEST_DM_SOURCE_AUTOMATIC = "automatic"
+TEST_DM_SOURCE_WEBSITE = rules.TEST_DM_SOURCE_WEBSITE
+TEST_DM_SOURCE_BOT = rules.TEST_DM_SOURCE_BOT
+TEST_DM_SOURCE_AUTOMATIC = rules.TEST_DM_SOURCE_AUTOMATIC
 
 
 @dataclass(frozen=True)
@@ -42,31 +43,46 @@ def _should_auto_test(profile: Optional[Mapping[str, Any]]) -> bool:
     return channels.discord_dm and state in (rules.DM_STATE_UNKNOWN, rules.DM_STATE_FAILED)
 
 
-def _retry_after(
-    latest: Optional[Mapping[str, Any]], recent_count: int, now: datetime
-) -> Optional[int]:
+def _seconds_until(moment: datetime, now: datetime) -> int:
+    return max(1, math.ceil((moment - now).total_seconds()))
+
+
+def _interval_wait(latest: Optional[Mapping[str, Any]], now: datetime) -> Optional[int]:
     requested_at = (latest or {}).get("requested_at")
     if isinstance(requested_at, datetime):
         elapsed = now - rules.ensure_utc(requested_at)
         if elapsed < TEST_DM_MIN_INTERVAL:
-            return max(1, math.ceil((TEST_DM_MIN_INTERVAL - elapsed).total_seconds()))
-    if recent_count >= TEST_DM_DAILY_LIMIT:
-        return 60 * 60
+            return _seconds_until(now + (TEST_DM_MIN_INTERVAL - elapsed), now)
     return None
+
+
+def _daily_wait(limit_reached_by: Optional[datetime], now: datetime) -> int:
+    """Wait until the request that filled the daily limit leaves the window."""
+    if limit_reached_by is None:
+        return 60 * 60
+    return _seconds_until(rules.ensure_utc(limit_reached_by) + TEST_DM_LIMIT_WINDOW, now)
 
 
 def test_dm_retry_after_sync(db: Any, user_id: int, now: datetime) -> Optional[int]:
     """Seconds until another test DM is allowed, or None when one can be sent now."""
-    latest = reminder_db.latest_test_dm_sync(db, user_id)
-    recent = reminder_db.count_test_dms_since_sync(db, user_id, now - timedelta(days=1))
-    return _retry_after(latest, recent, now)
+    wait = _interval_wait(reminder_db.latest_test_dm_sync(db, user_id), now)
+    if wait is not None:
+        return wait
+    since = now - TEST_DM_LIMIT_WINDOW
+    if reminder_db.count_test_dms_since_sync(db, user_id, since) < TEST_DM_DAILY_LIMIT:
+        return None
+    return _daily_wait(reminder_db.nth_latest_test_dm_at_sync(db, user_id, since, TEST_DM_DAILY_LIMIT), now)
 
 
 async def test_dm_retry_after(db: Any, user_id: int, now: datetime) -> Optional[int]:
     """Async variant of :func:`test_dm_retry_after_sync`."""
-    latest = await reminder_db.latest_test_dm(db, user_id)
-    recent = await reminder_db.count_test_dms_since(db, user_id, now - timedelta(days=1))
-    return _retry_after(latest, recent, now)
+    wait = _interval_wait(await reminder_db.latest_test_dm(db, user_id), now)
+    if wait is not None:
+        return wait
+    since = now - TEST_DM_LIMIT_WINDOW
+    if await reminder_db.count_test_dms_since(db, user_id, since) < TEST_DM_DAILY_LIMIT:
+        return None
+    return _daily_wait(await reminder_db.nth_latest_test_dm_at(db, user_id, since, TEST_DM_DAILY_LIMIT), now)
 
 
 def add_reminder_sync(
