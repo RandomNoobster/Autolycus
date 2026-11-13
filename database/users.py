@@ -1,14 +1,27 @@
 from __future__ import annotations
 
-from typing import Optional
+from collections.abc import Mapping
+from typing import Any, Optional
 
 from .mongo import get_db
-from .reminders import delete_user_reminder_data
+from .reminders import _profile_seed, delete_user_reminder_data
 
-async def is_verified(user_id: int) -> bool:
-    db = get_db().global_users
-    doc = await db.find_one({"user": user_id})
-    return doc is not None
+
+def linked_nation_id(user_doc: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """Return the nation id linked to a ``global_users`` document, or ``None``.
+
+    Profiles created by the website for beige reminders only store ``user`` and the
+    alert settings (no ``id``), so they are not linked to a nation. Use this instead
+    of ``user_doc['id']`` whenever a nation is required.
+    """
+    if not user_doc:
+        return None
+    raw_id = user_doc.get("id")
+    if raw_id is None or isinstance(raw_id, bool):
+        return None
+    nation_id = str(raw_id).strip()
+    return nation_id if nation_id.isdigit() else None
+
 
 async def get_verification(user_id: int) -> Optional[dict]:
     db = get_db().global_users
@@ -22,7 +35,8 @@ async def set_verification(user_id: int, nation_id: str) -> None:
     db = get_db().global_users
     await db.update_one(
         {"user": user_id},
-        {"$set": {"id": str(nation_id)}, "$setOnInsert": {"beige_alerts": []}},
+        # Same seed as profiles the reminder features create, so every profile has defaults.
+        {"$set": {"id": str(nation_id)}, "$setOnInsert": _profile_seed()},
         upsert=True,
     )
 
@@ -55,6 +69,6 @@ def get_verification_by_nation_id_sync(nation_id: str) -> Optional[dict]:
 def set_verification_sync(user_id: int, nation_id: str) -> None:
     _global_users_sync().update_one(
         {"user": user_id},
-        {"$set": {"id": str(nation_id)}, "$setOnInsert": {"beige_alerts": []}},
+        {"$set": {"id": str(nation_id)}, "$setOnInsert": _profile_seed()},
         upsert=True,
     )

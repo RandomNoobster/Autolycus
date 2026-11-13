@@ -16,7 +16,6 @@ from bot.discord_utils.interaction_framework import InteractionRegistry
 from bot.reminders import notices as reminder_notices
 from bot.reminders.interactions import DM_TEST_ACK_HANDLER, handle_test_dm_ack
 from core.logging_config import setup_logging
-from database import interaction_sessions
 from database.mongo import record_slash_command
 
 intents = discord.Intents.default()
@@ -47,7 +46,6 @@ for path in sorted(cogs_dir.glob("*.py")):
 
 @bot.event
 async def on_ready():
-    await interaction_sessions.ensure_indexes()
     guilds = sorted(bot.guilds, key=lambda x: x.member_count, reverse=True)
     n = len(guilds)
     logger.info(f"I am in {n} servers:")

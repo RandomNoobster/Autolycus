@@ -137,9 +137,6 @@ Production URL values:
 ```
 # Public URL users click in Discord
 AUTOLYCUS_WEB_BASE_URL=https://autolycus.your-domain.com
-
-# Internal Docker URL for bot -> API calls
-AUTOLYCUS_API_BASE_URL=http://api:5000
 ```
 
 ### Alternative: Cloudflare Tunnel (no open ports)
@@ -289,10 +286,8 @@ VITE_AUTH_TOKEN_API_KEY=
 # Docker Compose already sets REDIS_URL=redis://redis:6379/0 for api and bot.
 # REDIS_URL=redis://localhost:6379/0
 
-# Optional: Discord bot links and bot -> API HTTP (defaults: localhost:5173 + :5000)
-# Production: same host as your site, origin only — no /api suffix (bot appends /api/...).
+# Optional: public site URL for links in Discord messages (default: localhost:5173)
 # AUTOLYCUS_WEB_BASE_URL=https://your-host
-# AUTOLYCUS_API_BASE_URL=http://api:5000
 
 # Optional: Caddy TLS (used when running Docker with `--profile prod`)
 # SITE_DOMAIN=autolycus.your-domain.com

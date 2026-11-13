@@ -42,11 +42,6 @@ async def _store_session(cache, session: dict[str, Any]) -> None:
     await cache.set(_session_key(session["session_id"]), session, ttl=ttl)
 
 
-async def ensure_indexes() -> None:
-    """Redis-backed sessions require no index setup."""
-    return None
-
-
 async def create_session(
     *,
     command: str,

@@ -16,7 +16,7 @@ sys.path.insert(0, ROOT)
 from aiocache import Cache
 
 import infra.cache as cache_mod
-from infra.cache import build_key_from_all_args, build_key_ignoring_callables
+from infra.cache import build_key_ignoring_callables
 
 SECRET = "SECRET123"
 
@@ -62,7 +62,7 @@ def test_key_contains_module_and_function_name():
     assert cached_target.__name__ in key
 
 
-@pytest.mark.parametrize("builder", [build_key_ignoring_callables, build_key_from_all_args])
+@pytest.mark.parametrize("builder", [build_key_ignoring_callables])
 def test_different_callables_share_one_key(builder):
     keys = {
         builder(cached_target, lambda q: q, lambda q: q, types),
@@ -138,8 +138,6 @@ def test_key_is_stable_across_processes():
         cache_mod.cache_prices,
         cache_mod.cache_game_context,
         cache_mod.cache_historical_prices,
-        cache_mod.cache_builds,
-        cache_mod.cache_revenue_context,
     ],
 )
 def test_cache_factories_use_callable_ignoring_key_builder(factory):

@@ -11,20 +11,63 @@ import urllib.request
 import urllib.error
 import secrets
 import time
+from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, current_app, jsonify, redirect, request, session
+from pymongo.errors import PyMongoError
 
 from api.request_utils import get_json_object
 from api.security import generate_token
-from api.security import require_discord_session
+from api.security import require_discord_session, require_same_origin
 from database.mongo import get_sync_db
+from database.sqlite_cache import get_nation_by_id
+from database.users import linked_nation_id
 from logic.api_client import query_sync
 from logic.verification import verify_discord_nation_link_sync
 
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+DEFAULT_LOGIN_REDIRECT = "/raids"
+# Discord's default access-token lifetime, used when the token response omits expires_in.
+DEFAULT_DISCORD_TOKEN_LIFETIME_SECONDS = 7 * 24 * 3600
+# Without a usable access token, the username saved at login is trusted for verification
+# only this long; after that the user may have renamed or released the handle.
+VERIFY_SESSION_USERNAME_MAX_AGE_SECONDS = 3600
+# Session keys written at login (cleared on logout).
+_DISCORD_SESSION_KEYS = (
+    "discord_user_id",
+    "discord_username",
+    "discord_global_name",
+    "discord_avatar",
+    "discord_avatar_url",
+    "discord_authenticated_at",
+    "discord_access_token",
+    "discord_access_token_expires_at",
+)
+
+
+class DiscordUnavailableError(RuntimeError):
+    """Discord could not be reached to confirm the signed-in user."""
+
+
+def _safe_redirect_target(value: Any) -> str:
+    """Return ``value`` if it is a same-site path, else the default landing page.
+
+    ``//host`` and ``/\\host`` are protocol-relative URLs that browsers send
+    off-site, so a leading ``/`` alone is not enough.
+    """
+    target = str(value or "")
+    if (
+        not target.startswith("/")
+        or target.startswith("//")
+        or target.startswith("/\\")
+        or any(ch in target for ch in "\r\n\t")
+    ):
+        return DEFAULT_LOGIN_REDIRECT
+    return target
 
 
 def _resolve_discord_redirect_uri() -> str:
@@ -84,6 +127,54 @@ def _oauth_fetch_user(access_token: str) -> dict[str, Any]:
     )
     with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _store_discord_profile(user: dict[str, Any]) -> None:
+    session["discord_username"] = user.get("username")
+    session["discord_global_name"] = user.get("global_name")
+    session["discord_avatar"] = user.get("avatar")
+    session["discord_avatar_url"] = _build_discord_avatar_url(user)
+
+
+def _current_discord_username(user_id: int) -> str | None:
+    """The signed-in user's Discord username as it is now, or None if a new login is needed.
+
+    Nation ownership is proven by the P&W Discord field matching this name, so a
+    stale copy from login must not be used: after a rename the user would be told
+    to set their old handle, and a released handle could still pass the check.
+    The access token from login (``identify`` scope, kept in the HttpOnly session)
+    is used to ask Discord for the current name.
+
+    Raises:
+        DiscordUnavailableError: Discord could not be reached and the login is
+            too old to trust the saved name.
+    """
+    now = time.time()
+    token = session.get("discord_access_token")
+    expires_at = session.get("discord_access_token_expires_at") or 0
+    discord_unreachable = False
+    if token and now < float(expires_at):
+        try:
+            user = _oauth_fetch_user(str(token))
+        except urllib.error.HTTPError as exc:
+            if exc.code != 401:
+                discord_unreachable = True
+            # 401: the token was revoked; fall through to the login-age rule.
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            discord_unreachable = True
+        else:
+            if str(user.get("id") or "") == str(user_id) and user.get("username"):
+                _store_discord_profile(user)
+                return str(user["username"]).strip() or None
+            return None
+
+    authenticated_at = session.get("discord_authenticated_at") or 0
+    if now - float(authenticated_at) <= VERIFY_SESSION_USERNAME_MAX_AGE_SECONDS:
+        username = str(session.get("discord_username") or "").strip()
+        return username or None
+    if discord_unreachable:
+        raise DiscordUnavailableError("Discord could not be reached")
+    return None
 
 
 def _build_discord_avatar_url(user: dict[str, Any]) -> str | None:
@@ -155,10 +246,8 @@ def start_discord_oauth() -> Any:
         }), 503
 
     state = secrets.token_urlsafe(24)
-    redirect_target = request.args.get("redirect", "/raids")
     # Internal paths only.
-    if not redirect_target.startswith("/"):
-        redirect_target = "/raids"
+    redirect_target = _safe_redirect_target(request.args.get("redirect", DEFAULT_LOGIN_REDIRECT))
 
     session["oauth_state"] = state
     session["oauth_redirect"] = redirect_target
@@ -188,7 +277,13 @@ def discord_oauth_callback() -> Any:
     code = request.args.get("code")
     state = request.args.get("state")
     expected_state = session.get("oauth_state")
-    redirect_target = session.get("oauth_redirect", "/raids")
+    redirect_target = _safe_redirect_target(session.get("oauth_redirect", DEFAULT_LOGIN_REDIRECT))
+
+    # The user pressed Cancel on Discord's consent screen: send them back to the app.
+    if request.args.get("error") and state and expected_state and state == expected_state:
+        session.pop("oauth_state", None)
+        session.pop("oauth_redirect", None)
+        return redirect(redirect_target, code=302)
 
     if not code or not state or not expected_state or state != expected_state:
         return jsonify({
@@ -214,16 +309,21 @@ def discord_oauth_callback() -> Any:
                 'message': 'Discord user details were incomplete.',
                 'code': 'OAUTH_USER_INVALID'
             }), 401
+        now = int(time.time())
         session["discord_user_id"] = int(discord_user_id)
-        session["discord_username"] = user.get("username")
-        session["discord_global_name"] = user.get("global_name")
-        session["discord_avatar"] = user.get("avatar")
-        session["discord_avatar_url"] = _build_discord_avatar_url(user)
-        session["discord_authenticated_at"] = int(time.time())
+        _store_discord_profile(user)
+        session["discord_authenticated_at"] = now
+        # Lets /verify confirm the current username later (identify scope only).
+        try:
+            token_lifetime = int(token_data.get("expires_in") or DEFAULT_DISCORD_TOKEN_LIFETIME_SECONDS)
+        except (TypeError, ValueError):
+            token_lifetime = DEFAULT_DISCORD_TOKEN_LIFETIME_SECONDS
+        session["discord_access_token"] = str(access_token)
+        session["discord_access_token_expires_at"] = now + token_lifetime
         session.permanent = True
         session.pop("oauth_state", None)
         session.pop("oauth_redirect", None)
-        return redirect(str(redirect_target), code=302)
+        return redirect(redirect_target, code=302)
     except urllib.error.HTTPError as exc:
         discord_error, reason = _extract_discord_http_error(exc)
         logger.error("Discord OAuth callback HTTP error: %s", reason, exc_info=True)
@@ -235,12 +335,12 @@ def discord_oauth_callback() -> Any:
             'discord_error': discord_error,
         }), 401
     except Exception as exc:
+        # Details stay in the log; the browser only learns that sign-in failed.
         logger.error("Discord OAuth callback failed: %s", exc, exc_info=True)
         return jsonify({
             'error': 'Authentication failed',
             'message': 'Discord sign-in failed. Please try again.',
             'code': 'OAUTH_FAILED',
-            'reason': str(exc),
         }), 401
 
 
@@ -297,12 +397,24 @@ def get_linked_nation() -> tuple[Any, int]:
         }), 400
 
     profile = mongo_db.global_users.find_one({"user": uid}) or {}
-    nation_id = profile.get("id")
-    nation_id_text = str(nation_id).strip() if nation_id is not None else ""
+    # Reminder-only profiles and malformed ids are "not linked" (and never reach the query).
+    nation_id_text = linked_nation_id(profile) or ""
     nation_name: str | None = None
     flag_url: str | None = None
 
     if nation_id_text:
+        # The scanner's cache already has the name and flag; only ask the P&W API (and
+        # spend the server key's quota) for nations it doesn't hold yet.
+        nations_db = Path(current_app.root_path).parent / "data" / "nations.db"
+        if nations_db.exists():
+            try:
+                cached = get_nation_by_id(nations_db, nation_id_text).get("nation") or {}
+                nation_name = str(cached.get("nation_name") or "").strip() or None
+                flag_url = str(cached.get("flag") or "").strip() or None
+            except Exception as exc:  # noqa: BLE001 - cache miss falls back to the API
+                logger.warning("Could not read cached nation %s: %s", nation_id_text, exc)
+
+    if nation_id_text and nation_name is None:
         api_key = str(current_app.config.get("API_KEY") or "").strip()
         if api_key:
             query = f"""
@@ -341,6 +453,7 @@ def get_linked_nation() -> tuple[Any, int]:
 
 @auth_bp.route('/unlink-nation', methods=['POST'])
 @require_discord_session
+@require_same_origin
 def unlink_linked_nation() -> tuple[Any, int]:
     """Remove PnW nation link for the current Discord user (keeps other profile data)."""
     user_id = getattr(request, "session_user_id", None)
@@ -376,14 +489,11 @@ def unlink_linked_nation() -> tuple[Any, int]:
 
 
 @auth_bp.route('/logout', methods=['POST'])
+@require_same_origin
 def logout_discord_session() -> tuple[Any, int]:
     """Clear Discord-authenticated web session."""
-    session.pop("discord_user_id", None)
-    session.pop("discord_username", None)
-    session.pop("discord_global_name", None)
-    session.pop("discord_avatar", None)
-    session.pop("discord_avatar_url", None)
-    session.pop("discord_authenticated_at", None)
+    for key in _DISCORD_SESSION_KEYS:
+        session.pop(key, None)
     session.pop("oauth_state", None)
     session.pop("oauth_redirect", None)
     return jsonify({'success': True, 'message': 'Logged out'}), 200
@@ -391,6 +501,7 @@ def logout_discord_session() -> tuple[Any, int]:
 
 @auth_bp.route('/verify', methods=['POST'])
 @require_discord_session
+@require_same_origin
 def verify_discord_link() -> tuple[Any, int]:
     """Verify/link the current Discord web session to a nation."""
     try:
@@ -428,9 +539,27 @@ def verify_discord_link() -> tuple[Any, int]:
                 "code": "DB_UNAVAILABLE",
             }), 503
 
+        try:
+            current_username = _current_discord_username(int(user_id))
+        except DiscordUnavailableError:
+            return jsonify({
+                "error": "Service unavailable",
+                "message": "Discord could not be reached to confirm your username. Please try again shortly.",
+                "code": "DISCORD_UNAVAILABLE",
+            }), 503
+        if not current_username:
+            return jsonify({
+                "error": "Sign-in required",
+                "message": (
+                    "Please sign out and sign in with Discord again, then verify. "
+                    "This confirms your current Discord username."
+                ),
+                "code": "REAUTH_REQUIRED",
+            }), 401
+
         result = verify_discord_nation_link_sync(
             discord_user_id=int(user_id),
-            discord_username=username,
+            discord_username=current_username,
             nation_input=nation_input,
             api_key=api_key,
         )
@@ -457,6 +586,13 @@ def verify_discord_link() -> tuple[Any, int]:
             "nationId": result["nation_id"],
             "relinked": False,
         }), code_to_status.get(result["code"], 400)
+    except PyMongoError as exc:
+        logger.error("Web verification failed: MongoDB unavailable: %s", exc)
+        return jsonify({
+            "error": "Database unavailable",
+            "message": "The database is temporarily unavailable. Please try again shortly.",
+            "code": "DB_UNAVAILABLE",
+        }), 503
     except Exception as exc:
         logger.error("Web verification failed: %s", exc, exc_info=True)
         return jsonify({
@@ -714,7 +850,8 @@ def exchange_token_code() -> tuple[Any, int]:
     try:
         data = get_json_object()
         code = data.get('code')
-        if not code:
+        # A string only: an object such as {"$ne": null} would act as a Mongo query operator.
+        if not isinstance(code, str) or not code:
             return jsonify({
                 'error': 'Validation error',
                 'message': 'code is required.',
@@ -730,20 +867,25 @@ def exchange_token_code() -> tuple[Any, int]:
             }), 503
 
         now = int(time.time())
-        doc = mongo_db.auth_codes.find_one({'code': code})
+        # Claim the code atomically so two concurrent exchanges can't both succeed.
+        doc = mongo_db.auth_codes.find_one_and_update(
+            {'code': code, 'used': {'$ne': True}, 'expires_at': {'$gte': now}},
+            {'$set': {'used': True, 'used_at': now}},
+        )
         if not doc:
-            return jsonify({
-                'error': 'Invalid code',
-                'message': 'Authorization code is invalid or expired.',
-                'code': 'CODE_INVALID'
-            }), 401
-        if doc.get('used'):
-            return jsonify({
-                'error': 'Code used',
-                'message': 'Authorization code has already been used.',
-                'code': 'CODE_USED'
-            }), 401
-        if now > int(doc.get('expires_at', 0)):
+            existing = mongo_db.auth_codes.find_one({'code': code})
+            if not existing:
+                return jsonify({
+                    'error': 'Invalid code',
+                    'message': 'Authorization code is invalid or expired.',
+                    'code': 'CODE_INVALID'
+                }), 401
+            if existing.get('used'):
+                return jsonify({
+                    'error': 'Code used',
+                    'message': 'Authorization code has already been used.',
+                    'code': 'CODE_USED'
+                }), 401
             return jsonify({
                 'error': 'Code expired',
                 'message': 'Authorization code has expired.',
@@ -759,11 +901,6 @@ def exchange_token_code() -> tuple[Any, int]:
             timestamp=now,
             data_type=data_type,
             expires_in=expires_in,
-        )
-
-        mongo_db.auth_codes.update_one(
-            {'code': code},
-            {'$set': {'used': True, 'used_at': now}}
         )
 
         return jsonify({

@@ -81,8 +81,3 @@ def setup_logging(
     root_logger.addHandler(important_handler)
 
     return logging.getLogger(process_name)
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Thin wrapper for module-level logger retrieval."""
-    return logging.getLogger(name)

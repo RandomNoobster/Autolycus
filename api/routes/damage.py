@@ -18,7 +18,7 @@ from database.mongo import get_sync_db
 from infra.async_bridge import run_sync
 from logic import queries
 from api.calculations.damage_calc import calculate_damage
-from database.sqlite_cache import get_all_nations
+from database.sqlite_cache import get_nation_search_rows
 from logic.api_client import call as call_api
 from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
@@ -321,8 +321,9 @@ def search_nations() -> tuple[Any, int]:
             logger.warning("[nations/search] nations.db not found")
             return jsonify([]), 200
 
-        nations_data = get_all_nations(data_path)
-        nations = nations_data.get('nations', [])
+        # Only the three columns the search reads; loading every nation's JSON blobs
+        # here on each autocomplete keystroke used hundreds of MB per request.
+        nations = get_nation_search_rows(data_path)
         if not nations:
             logger.info("[nations/search] nations.db loaded but empty")
             return jsonify([]), 200

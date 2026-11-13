@@ -11,6 +11,7 @@ import discord
 from database.mongo import get_global_user_by_any
 from database.sqlite_cache import find_nation as db_find_nation
 from database.sqlite_cache import search_alliances_autocomplete
+from database.users import linked_nation_id  # noqa: F401  (re-exported for bot callers)
 
 _ALLIANCE_AC_TTL_SECONDS = 6.0
 _ALLIANCE_AC_MAX = 128
@@ -20,22 +21,6 @@ NATION_NOT_LINKED_MESSAGE = (
     "Your Discord account is not linked to a Politics & War nation yet. "
     "Use `/verify` to link your nation, then try again."
 )
-
-
-def linked_nation_id(user_doc: Optional[Mapping[str, Any]]) -> Optional[str]:
-    """Return the nation id linked to a ``global_users`` document, or ``None``.
-
-    Profiles created by the website for beige reminders only store ``user`` and the
-    alert settings (no ``id``), so they are not linked to a nation. Use this instead
-    of ``user_doc['id']`` whenever a nation is required.
-    """
-    if not user_doc:
-        return None
-    raw_id = user_doc.get("id")
-    if raw_id is None or isinstance(raw_id, bool):
-        return None
-    nation_id = str(raw_id).strip()
-    return nation_id if nation_id.isdigit() else None
 
 
 async def find_nation_plus(bot: discord.Bot, arg: Union[str, int]) -> Optional[dict[str, Any]]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import datetime
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -16,11 +16,20 @@ _JSON_FIELDS: frozenset[str] = frozenset({
 })
 
 
+def _looks_like_json_container(val: str) -> bool:
+    return bool(val) and val[0] in ('{', '[')
+
+
 def _decode_row(row: sqlite3.Row) -> Dict[str, Any]:
-    """Decode a sqlite row into a dict, parsing JSON-like string fields."""
+    """Decode a sqlite row into a dict, parsing the JSON blob fields.
+
+    Only ``_JSON_FIELDS`` and other strings holding a JSON object or array are
+    parsed. Scalar text stays text: IDs such as ``alliance_id`` ("4729") and
+    player-chosen names ("1984", "null", "NaN") must not change type.
+    """
     decoded = dict(row)
     for key, val in decoded.items():
-        if isinstance(val, str):
+        if isinstance(val, str) and (key in _JSON_FIELDS or _looks_like_json_container(val)):
             try:
                 decoded[key] = json.loads(val)
             except (json.JSONDecodeError, TypeError):
@@ -87,7 +96,7 @@ def row_to_db_values(row: Dict[str, Any]) -> Dict[str, Any]:
             out[k] = json.dumps(v, separators=(",", ":"))
         else:
             out[k] = v
-    out.setdefault("_created_at", round(datetime.utcnow().timestamp()))
+    out.setdefault("_created_at", round(time.time()))
     return out
 
 
@@ -170,7 +179,6 @@ def get_all_nations_filtered(
     db_path: Path,
     min_score: Optional[float] = None,
     max_score: Optional[float] = None,
-    nation_ids: Optional[Set[str]] = None,
     columns: Optional[List[str]] = None,
     json_fields: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
@@ -196,10 +204,6 @@ def get_all_nations_filtered(
         if max_score is not None:
             where_clauses.append("score <= ?")
             params.append(max_score)
-        if nation_ids:
-            placeholders = ",".join("?" * len(nation_ids))
-            where_clauses.append(f"id IN ({placeholders})")
-            params.extend([int(nid) for nid in nation_ids if nid.isdigit()])
 
         select_cols = "*"
         if columns:
@@ -236,7 +240,7 @@ def get_all_nations_filtered(
                     for key, val in nation.items():
                         if key in parse_keys:
                             continue
-                        if isinstance(val, str) and val and val[0] in ('{', '['):
+                        if isinstance(val, str) and _looks_like_json_container(val):
                             try:
                                 nation[key] = json.loads(val)
                             except (json.JSONDecodeError, TypeError):
@@ -299,33 +303,84 @@ def get_all_alliances(db_path: Path) -> Dict[str, Any]:
         }
 
 
+_NATION_LINK_ID = re.compile(r"(?:^|[/?&])id=(\d+)", re.IGNORECASE)
+_SQLITE_MAX_INTEGER = 2**63 - 1
+
+
+def _nation_id_from_arg(arg: str | int) -> Optional[int]:
+    """The nation id ``arg`` names: a bare number or a nation link; None otherwise.
+
+    Digits inside names ("Sparta300", "Area 51") are not ids.
+    """
+    if isinstance(arg, bool):
+        return None
+    if isinstance(arg, int):
+        candidate = arg
+    else:
+        text = str(arg).strip()
+        link = _NATION_LINK_ID.search(text)
+        if text.isascii() and text.isdigit():
+            candidate = int(text)
+        elif link:
+            candidate = int(link.group(1))
+        else:
+            return None
+    return candidate if 0 < candidate <= _SQLITE_MAX_INTEGER else None
+
+
 def find_nation(arg: str | int) -> Optional[Dict[str, Any]]:
-    """Find a nation in SQLite by id, nation_name, leader_name, or discord."""
+    """Find a nation in SQLite by id or nation link, then nation_name, leader_name or discord.
+
+    Integer arguments (such as a Discord user id) are only looked up as nation ids:
+    the ``discord`` column is free text any player can set, so it is matched only
+    against non-numeric text and never stands in for a verified link.
+    """
     if isinstance(arg, str):
         arg = arg.strip()
 
-    numeric_arg = re.sub(r"[^0-9]", "", str(arg))
+    nation_id = _nation_id_from_arg(arg)
     db_path = get_nations_db_path()
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
-        if numeric_arg:
-            cur.execute("SELECT * FROM nations WHERE id = ? LIMIT 1", (int(numeric_arg),))
+        if nation_id is not None:
+            cur.execute("SELECT * FROM nations WHERE id = ? LIMIT 1", (nation_id,))
             row = cur.fetchone()
             if row:
                 return _decode_row(row)
 
-        for field in ("nation_name", "leader_name", "discord"):
+        if not isinstance(arg, str) or not arg:
+            return None
+        fields = ["nation_name", "leader_name"]
+        if not arg.isdigit():
+            fields.append("discord")
+        for field in fields:
             cur.execute(
                 f"SELECT * FROM nations WHERE {field} = ? COLLATE NOCASE LIMIT 1",
-                (str(arg),),
+                (arg,),
             )
             row = cur.fetchone()
             if row:
                 return _decode_row(row)
 
     return None
+
+
+def get_nation_search_rows(db_path: Path) -> List[Dict[str, Any]]:
+    """Return ``id``, ``nation_name`` and ``leader_name`` for every cached nation.
+
+    For search/autocomplete: reads only these columns and decodes no JSON blobs,
+    unlike :func:`get_all_nations`, which loads every column of every nation.
+    """
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='nations'")
+        if cur.fetchone() is None:
+            return []
+        cur.execute("SELECT id, nation_name, leader_name FROM nations")
+        return [dict(row) for row in cur.fetchall()]
 
 
 def list_all_alliances() -> List[Dict[str, Any]]:

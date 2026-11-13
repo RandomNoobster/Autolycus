@@ -162,6 +162,82 @@ class TestApiClientSync(unittest.TestCase):
         self.assertEqual(mock_sleep.call_count, 2)
         self.assertIn('data', result)
 
+    def tearDown(self):
+        # Responses that use up the rate-limit window hold back the next request
+        # process-wide; don't let one test's window leak into the next.
+        api_client._rate_limited_until = 0.0
+
+    @patch('logic.api_client.requests.post')
+    def test_query_sync_ignores_error_text_inside_player_data(self, mock_post):
+        """Player-written text such as a nation name is data, not a server error."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {
+            'data': {'nations': {'data': [{'nation_name': 'Internal Server Error'}]}}
+        }
+        mock_post.return_value = mock_response
+
+        result = api_client.query_sync(self.test_query, self.api_key)
+
+        self.assertEqual(result['data']['nations']['data'][0]['nation_name'], 'Internal Server Error')
+
+    @patch('logic.api_client.requests.post')
+    @patch('time.sleep')
+    def test_query_sync_keeps_the_reply_that_used_up_the_window(self, mock_sleep, mock_post):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {'X-Ratelimit-Remaining': '0', 'X-Ratelimit-Reset-After': '30'}
+        mock_response.json.return_value = {'data': {'ok': True}}
+        mock_post.return_value = mock_response
+
+        result = api_client.query_sync(self.test_query, self.api_key)
+
+        self.assertEqual(result, {'data': {'ok': True}})
+        self.assertEqual(mock_post.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    @patch('logic.api_client.requests.post')
+    @patch('time.sleep')
+    def test_query_sync_gives_up_when_rate_limiting_persists(self, mock_sleep, mock_post):
+        mock_response = Mock()
+        mock_response.status_code = 429
+        mock_response.headers = {'Retry-After': '1'}
+        mock_response.json.return_value = {}
+        mock_post.return_value = mock_response
+
+        with self.assertRaises(api_client.PnWServerError):
+            api_client.query_sync(self.test_query, self.api_key)
+
+        self.assertEqual(mock_sleep.call_count, api_client.MAX_RATE_LIMIT_WAITS)
+
+    @patch('logic.api_client.requests.post')
+    def test_query_sync_keeps_the_api_key_out_of_connection_errors(self, mock_post):
+        mock_post.side_effect = requests.exceptions.ConnectionError(
+            f"Max retries exceeded with url: /graphql?api_key={self.api_key}"
+        )
+
+        with self.assertRaises(ConnectionError) as context:
+            api_client.query_sync(self.test_query, self.api_key)
+
+        self.assertNotIn(self.api_key, str(context.exception))
+        # The original exception (which repeats the URL) is not chained into tracebacks.
+        self.assertTrue(context.exception.__suppress_context__)
+
+
+class TestServerErrorDetection(unittest.TestCase):
+    def test_only_the_error_envelope_signals_a_server_error(self):
+        detect = api_client._is_pnw_server_error_response
+        self.assertTrue(detect(500, {}))
+        self.assertTrue(detect(200, {'errors': [{'message': 'Internal server error'}], 'data': None}))
+        self.assertFalse(detect(200, {'data': {'nations': {'data': [{'discord': 'internal server error'}]}}}))
+
+    def test_invalid_key_detection_handles_both_error_shapes(self):
+        detect = api_client._is_invalid_api_key_response
+        self.assertTrue(detect({'error': {'errors': [{'message': 'Invalid api_key'}]}}))
+        self.assertTrue(detect({'error': 'invalid api_key'}))
+        self.assertFalse(detect({'data': {}}))
+
 
 if __name__ == '__main__':
     unittest.main()

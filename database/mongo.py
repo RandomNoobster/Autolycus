@@ -8,9 +8,12 @@ from motor.core import AgnosticDatabase
 from pymongo import MongoClient
 from pymongo.database import Database as SyncDatabase
 
-from core.config import get_config
+from core.config import Config
 
-_config = get_config()
+# Only the Mongo settings are needed here. get_config() would also run the Flask
+# production checks (SECRET_KEY), which the bot and scanner don't use and must not
+# crash on at import time.
+_config = Config
 _client = motor.motor_asyncio.AsyncIOMotorClient(_config.MONGO_URI, serverSelectionTimeoutMS=5000)
 _db: AgnosticDatabase = _client[_config.MONGO_DB]
 _sync_client: Optional[MongoClient] = None
@@ -56,10 +59,6 @@ async def get_global_user_by_any(arg: Union[str, int]) -> Optional[dict[str, Any
             elif x := await db.find_one({"user": int(new_arg)}):
                 return x
     return None
-
-async def get_guild_config(guild_id: int) -> Optional[dict[str, Any]]:
-    return await _db.guild_configs.find_one({"guild_id": guild_id})
-
 
 async def record_slash_command(doc: dict[str, Any]) -> None:
     """Append one slash command invocation document (analytics)."""

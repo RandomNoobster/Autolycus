@@ -14,8 +14,7 @@ import os
 import types
 from collections.abc import Mapping
 from enum import Enum
-from functools import wraps
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Optional
 from urllib.parse import unquote, urlparse
 
 from aiocache import Cache, cached
@@ -28,8 +27,6 @@ logger = logging.getLogger(__name__)
 # TTL values in seconds
 TTL_PRICES = 300          # 5 minutes - trade prices update ~hourly
 TTL_GAME_DATA = 600       # 10 minutes - colors, radiation, treasures
-TTL_REVENUE_CONTEXT = 300 # 5 minutes - shared revenue calculation context
-TTL_BUILDS = 600          # 10 minutes - build optimizer results
 TTL_HISTORICAL_PRICES = 1800  # 30 minutes - historical price averages
 
 def _redis_kwargs_from_url(url: str) -> dict[str, Any]:
@@ -128,18 +125,6 @@ def _hash_args(*args: Any, **kwargs: Any) -> str:
     return hashlib.sha256(_dumps(payload).encode("utf-8")).hexdigest()[:32]
 
 
-def build_key_from_nation_id(
-    func: Callable[..., Any],
-    *args: Any,
-    **kwargs: Any,
-) -> str:
-    """Build cache key using nation_id from kwargs or first positional arg."""
-    nation_id = kwargs.get("nation_id") or kwargs.get("nationid")
-    if nation_id is None and args:
-        nation_id = args[0] if isinstance(args[0], (int, str)) else None
-    return f"{func.__name__}:{nation_id or 'unknown'}"
-
-
 def build_key_ignoring_callables(
     func: Callable[..., Any],
     *args: Any,
@@ -155,18 +140,6 @@ def build_key_ignoring_callables(
     module = getattr(func, "__module__", None) or ""
     name = getattr(func, "__qualname__", None) or getattr(func, "__name__", "unknown")
     return f"{module}.{name}:{_hash_args(*args, **kwargs)}"
-
-
-def build_key_from_all_args(
-    func: Callable[..., Any],
-    *args: Any,
-    **kwargs: Any,
-) -> str:
-    """Build cache key from all arguments; callables and modules are ignored.
-
-    Kept for backwards compatibility; equivalent to build_key_ignoring_callables.
-    """
-    return build_key_ignoring_callables(func, *args, **kwargs)
 
 
 # --- Decorator Factories ---
@@ -198,17 +171,7 @@ def cache_historical_prices(ttl: int = TTL_HISTORICAL_PRICES):
     return _cached("historical_prices", ttl)
 
 
-def cache_builds(ttl: int = TTL_BUILDS):
-    """Cache decorator for build optimizer results."""
-    return _cached("builds", ttl)
-
-
-def cache_revenue_context(ttl: int = TTL_REVENUE_CONTEXT):
-    """Cache decorator for revenue calculation context."""
-    return _cached("revenue_context", ttl)
-
-
-# --- Manual Cache Access (for invalidation or direct use) ---
+# --- Manual Cache Access ---
 
 _cache_instance: Optional[Cache] = None
 
@@ -217,57 +180,6 @@ def get_cache() -> Cache:
     """Get the shared cache instance for manual operations."""
     global _cache_instance
     if _cache_instance is None:
-        if CACHE_BACKEND == Cache.REDIS:
-            _cache_instance = Cache(
-                CACHE_BACKEND,
-                serializer=PickleSerializer(),
-                **REDIS_CONFIG,
-            )
-        else:
-            _cache_instance = Cache(
-                CACHE_BACKEND,
-                serializer=PickleSerializer(),
-            )
+        # REDIS_CONFIG is empty for the in-memory backend.
+        _cache_instance = Cache(CACHE_BACKEND, serializer=PickleSerializer(), **REDIS_CONFIG)
     return _cache_instance
-
-
-async def invalidate_prices() -> None:
-    """Manually invalidate all cached prices (e.g., on turn change)."""
-    cache = get_cache()
-    await cache.clear(namespace="prices")
-    await cache.clear(namespace="historical_prices")
-    logger.info("Invalidated price caches")
-
-
-async def invalidate_game_context() -> None:
-    """Manually invalidate game context cache."""
-    cache = get_cache()
-    await cache.clear(namespace="game_context")
-    await cache.clear(namespace="revenue_context")
-    logger.info("Invalidated game context caches")
-
-
-async def invalidate_all() -> None:
-    """Clear all caches (useful for debugging or major game updates)."""
-    cache = get_cache()
-    await cache.clear()
-    logger.info("Invalidated all caches")
-
-
-# --- Utility for sync Flask context ---
-
-T = TypeVar("T")
-
-
-def run_cached_async(coro: Callable[..., T]) -> Callable[..., T]:
-    """Wrapper to run async cached functions from sync Flask routes.
-
-    Uses the shared bridge loop: the Redis pool is bound to one event loop.
-    """
-    from infra.async_bridge import run_sync
-
-    @wraps(coro)
-    def wrapper(*args: Any, **kwargs: Any) -> T:
-        return run_sync(coro(*args, **kwargs))
-
-    return wrapper

@@ -237,6 +237,105 @@ def test_compute_beige_loot_prefers_most_recent_finished_defensive_war():
     assert compute_beige_loot(nation, SAMPLE_PRICES) == 5_000_000
 
 
+def _lost_raid_war(date, end_date=None, **attack_overrides):
+    war = {
+        "date": date,
+        "defid": "55556",
+        "turnsleft": 0,
+        "war_type": "RAID",
+        "attacker": {"war_policy": "FORTRESS"},
+        "attacks": [_victory_attack(**attack_overrides)],
+    }
+    if end_date:
+        war["end_date"] = end_date
+    return war
+
+
+_NO_RESOURCES = {"coal_looted": 0, "food_looted": 0}
+
+
+def test_compute_beige_loot_uses_a_zero_result_from_the_latest_war():
+    """A $0 latest defeat means the raider can expect nothing; older loot is stale."""
+    nation = {
+        "id": "55556",
+        "wars": [
+            _lost_raid_war("2026-07-01T00:00:00+00:00", money_looted=5_000_000, **_NO_RESOURCES),
+            _lost_raid_war("2026-08-17T00:00:00+00:00", money_looted=0, **_NO_RESOURCES),
+        ],
+    }
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == 0
+
+
+def test_compute_beige_loot_does_not_fall_back_when_the_latest_war_has_no_loot_data():
+    nation = {
+        "id": "55556",
+        "wars": [
+            _lost_raid_war("2026-07-01T00:00:00+00:00", money_looted=5_000_000, **_NO_RESOURCES),
+            {
+                "date": "2026-08-17T00:00:00+00:00",
+                "defid": "55556",
+                "turnsleft": 0,
+                "war_type": "RAID",
+                "winner": "999",
+                "attacker": {"war_policy": "FORTRESS"},
+                "attacks": [],
+            },
+        ],
+    }
+    # The latest defeat is unknown, so the estimate is unknown (the scanner keeps
+    # its stored value) rather than the older $5M.
+    assert compute_beige_loot(nation, SAMPLE_PRICES) is None
+
+
+def test_compute_beige_loot_ranks_wars_by_end_date():
+    nation = {
+        "id": "55556",
+        "wars": [
+            # Declared first but lost last: this defeat set the current holdings.
+            _lost_raid_war(
+                "2026-11-01T00:00:00+00:00",
+                end_date="2026-11-05T00:00:00+00:00",
+                money_looted=300_000,
+                **_NO_RESOURCES,
+            ),
+            _lost_raid_war(
+                "2026-11-02T00:00:00+00:00",
+                end_date="2026-11-03T00:00:00+00:00",
+                money_looted=2_000_000,
+                **_NO_RESOURCES,
+            ),
+        ],
+    }
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == 300_000
+
+
+def test_compute_beige_loot_keeps_the_defenders_own_policy():
+    """Moneybags still cuts the next raid's loot, so the estimate isn't scaled back up."""
+    war = _lost_raid_war("2026-08-17T00:00:00+00:00", money_looted=600_000, **_NO_RESOURCES)
+    war["defender"] = {"war_policy": "MONEYBAGS"}
+    assert compute_beige_loot({"id": "55556", "wars": [war]}, SAMPLE_PRICES) == 600_000
+
+
+def test_compute_beige_loot_ignores_wars_that_were_not_lost():
+    expired = {
+        "date": "2026-09-01T00:00:00+00:00",
+        "defid": "55556",
+        "turnsleft": 0,
+        "war_type": "RAID",
+        "winner": "0",
+        "attacker": {"war_policy": "FORTRESS"},
+        "attacks": [],
+    }
+    nation = {
+        "id": "55556",
+        "wars": [
+            _lost_raid_war("2026-08-17T00:00:00+00:00", money_looted=1_000, **_NO_RESOURCES),
+            expired,
+        ],
+    }
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == 1_000
+
+
 def test_compute_beige_loot_ordinary_war_type_multiplier():
     nation = {
         "id": "1",

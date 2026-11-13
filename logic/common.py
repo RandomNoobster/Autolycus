@@ -26,13 +26,6 @@ BEIGE_LOOT_RESOURCES: tuple[str, ...] = (
 )
 
 
-def cut_string(string: str, length: int = 2000) -> str:
-    if len(string) > length:
-        return string[:length-6] + "...```"
-    else:
-        return string
-
-
 def comma_and_list(listy: list[str]) -> str:
     if not listy:
         return ""
@@ -42,7 +35,8 @@ def comma_and_list(listy: list[str]) -> str:
 
 
 def get_datetime_of_turns(turns: int) -> datetime:
-    now = datetime.utcnow()
+    # Timezone-aware: callers use .timestamp(), which reads naive datetimes as local time.
+    now = datetime.now(timezone.utc)
     if turns == 0:
         return now
     if turns < 0:
@@ -147,11 +141,6 @@ def normalize_attack_type(value: Any) -> str:
 
 def _looted_field_name(resource: str) -> str:
     return 'money_looted' if resource == 'money' else f'{resource}_looted'
-
-
-def attack_has_structured_loot(attack: dict[str, Any]) -> bool:
-    """True when the attack payload includes GraphQL ``*_looted`` fields."""
-    return any(_looted_field_name(rs) in attack for rs in BEIGE_LOOT_RESOURCES)
 
 
 def attack_has_nonzero_structured_loot(attack: dict[str, Any]) -> bool:
@@ -313,23 +302,60 @@ def _normalize_war_policy(value: Any) -> str:
     return text.upper()
 
 
+def _lost_war_loot(
+    war: dict[str, Any],
+    nation_id: str,
+    prices: dict[str, float],
+) -> tuple[bool, Optional[float]]:
+    """``(lost, normalized_loot)`` for one finished war the nation defended.
+
+    ``lost`` is True when the nation was beaten: a beige-loot attack against it,
+    or the opponent recorded as the war's winner. The loot comes from the latest
+    such attack, a genuine $0 included; when no attack carries loot data it is
+    the war's ``att_money_looted`` (bulk scans often omit nested attacks). It is
+    None when the war has no loot data at all.
+    """
+    lost = False
+    for attack in reversed(war.get('attacks') or []):  # latest attack first
+        if not _is_beige_loot_attack(attack, nation_id):
+            continue
+        lost = True
+        loot_value = _attack_beige_loot_market_value(attack, prices)
+        if loot_value is not None:
+            return True, _undo_loot_multipliers(max(float(loot_value), 0.0), war)
+
+    winner = str(war.get('winner') if war.get('winner') is not None else war.get('winner_id') or '')
+    if winner not in ('', '0', nation_id):
+        lost = True
+    if not lost:
+        return False, None
+
+    raw_money = war.get('att_money_looted')
+    try:
+        money_loot = float(raw_money) if raw_money is not None else None
+    except (TypeError, ValueError):
+        money_loot = None
+    if money_loot is None:
+        return True, None
+    return True, _undo_loot_multipliers(max(money_loot, 0.0), war)
+
+
 def compute_beige_loot(
     nation: dict[str, Any],
     prices: Optional[dict[str, float]],
 ) -> Optional[int]:
-    """Compute estimated beige loot value from a nation's finished wars.
+    """Estimate what a raider can expect to loot when this nation is next beiged.
 
-    Scans cached war logs for the most recent war where the nation was the
-    defender and lost, then reverse-engineers the *base* loot value by
-    undoing attacker policy / war-type multipliers.  This gives a rough
-    estimate of how much loot the nation is holding.
+    Uses only the nation's most recent lost defensive war (ranked by end date),
+    including a genuine $0 result; older defeats never stand in for it. The
+    loot is normalized to a baseline raider: the previous attacker's war policy,
+    Advanced Pirate Economy and the war type are undone, giving the value for a
+    raid war by an attacker without loot bonuses. The defender's own war policy
+    (Moneybags, Turtle, Guardian) is kept, since it also applies to the next raid.
 
     Prefers GraphQL structured ``money_looted`` / ``*_looted`` fields because
     ``loot_info`` is deprecated and commonly empty. Falls back to parsing
     legacy ``loot_info`` strings when structured fields are absent.
-
-    The function performs a single linear pass (no sorting) over the wars
-    list to find the most recent qualifying war.
 
     Args:
         nation: Nation dict (must include ``id`` and ``wars`` fields).
@@ -337,8 +363,8 @@ def compute_beige_loot(
             the computation is skipped.
 
     Returns:
-        Estimated loot value in dollars, or *None* when computation cannot
-        be performed (no prices, no wars, no qualifying loot records).
+        Estimated loot value in dollars, or *None* when it cannot be computed
+        (no prices, no lost defensive war, or that war has no loot data).
     """
     if not prices:
         return None
@@ -348,8 +374,8 @@ def compute_beige_loot(
     if not nation_id or not wars:
         return None
 
-    best_loot: Optional[int] = None
-    best_date: Optional[datetime] = None
+    latest_date: Optional[datetime] = None
+    latest_loot: Optional[float] = None
 
     for war in wars:
         try:
@@ -365,54 +391,22 @@ def compute_beige_loot(
             if str(def_id) != nation_id:
                 continue  # only care about wars where this nation was defender
 
-            war_dt = parse_war_date(war.get('date'))
-            attacks = war.get('attacks') or []
-            found_attack_loot = False
-
-            for attack in reversed(attacks):  # reverse to favour latest attack
-                if not _is_beige_loot_attack(attack, nation_id):
-                    continue
-
-                loot_value = _attack_beige_loot_market_value(attack, prices)
-                if loot_value is None or float(loot_value) <= 0:
-                    continue
-
-                loot_value = _undo_loot_multipliers(float(loot_value), war)
-                if loot_value <= 0:
-                    continue
-                found_attack_loot = True
-
-                if best_date is None or war_dt > best_date:
-                    best_date = war_dt
-                    best_loot = int(round(loot_value))
-                    break  # latest attack in this war found; move to next war
-
-            if found_attack_loot:
+            lost, loot = _lost_war_loot(war, nation_id, prices)
+            if not lost:
                 continue
 
-            # Fallback: war-level money looted by the attacker when this nation lost.
-            # Nested attacks are often empty in bulk nation scans; att_money_looted on
-            # the war still reflects end-of-war / battle money loot.
-            winner = str(war.get('winner') if war.get('winner') is not None else war.get('winner_id') or '')
-            if winner in ('', '0', nation_id):
-                continue
-            raw_money = war.get('att_money_looted')
-            if raw_money is None:
-                continue
-            try:
-                money_loot = float(raw_money)
-            except (TypeError, ValueError):
-                continue
-            if money_loot <= 0:
-                continue
-            loot_value = _undo_loot_multipliers(money_loot, war)
-            if best_date is None or war_dt > best_date:
-                best_date = war_dt
-                best_loot = int(round(loot_value))
+            # Rank by when the war ended (the defeat that set current holdings), not when
+            # it was declared: overlapping defensive wars can end in either order.
+            war_dt = parse_war_date(war.get('end_date') or war.get('date'))
+            if latest_date is None or war_dt > latest_date:
+                latest_date = war_dt
+                latest_loot = loot
         except Exception:
             continue
 
-    return best_loot
+    if latest_loot is None:
+        return None
+    return int(round(latest_loot))
 
 
 def weird_division(a: float, b: float) -> float:
@@ -458,22 +452,6 @@ def str_to_id_list(value: str) -> tuple[list[str], str]:
             break
     parts = [segment for segment in value.split(",") if segment]
     return parts, value
-
-
-def str_to_api_key_list(value: str) -> list[str]:
-    """Parse API keys from mixed strings, preserving legacy behaviour."""
-    value = re.sub("[^0-9a-zA-Z]", " ", value)
-    value = value.strip().replace(" ", ",")
-    index = 0
-    while True:
-        try:
-            if value[index] == value[index + 1] and not value[index].isdigit():
-                value = value[:index] + value[index + 1:]
-                index -= 1
-            index += 1
-        except Exception:
-            break
-    return [segment for segment in value.split(",") if segment]
 
 
 # Order matches Politics & War GraphQL ``AlliancePositionEnum`` (``.ctx/pnwSchema.graphql``).

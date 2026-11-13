@@ -18,13 +18,9 @@ def _int_env(name: str, default: int, *, min_v: int = 1, max_v: int = 400) -> in
     except ValueError:
         return default
 
-# Public URLs for Discord bot links and bot -> API HTTP calls.
-# No trailing slash. AUTOLYCUS_API_BASE_URL is origin only (not .../api); callers append /api/...
+# Public site URL for links in Discord messages. No trailing slash.
 AUTOLYCUS_WEB_BASE_URL: str = (
     (os.getenv("AUTOLYCUS_WEB_BASE_URL") or "http://localhost:5173").rstrip("/")
-)
-AUTOLYCUS_API_BASE_URL: str = (
-    (os.getenv("AUTOLYCUS_API_BASE_URL") or "http://localhost:5000").rstrip("/")
 )
 
 # Discord server users join so the bot shares a server with them and can DM reminders.
@@ -77,16 +73,18 @@ class Config:
         "http://127.0.0.1:5173",
     ]
 
-    # MongoDB settings
-    MONGO_URI: Optional[str] = os.getenv("MONGO_URI")
+    # MongoDB settings. A blank MONGO_URI= means "not configured" (pymongo rejects "").
+    MONGO_URI: Optional[str] = (os.getenv("MONGO_URI") or "").strip() or None
     MONGO_DB: str = os.getenv("MONGO_DB", "main")
 
     # Server settings
     HOST: str = "0.0.0.0"
     PORT: int = 5000
-    WAITRESS_THREADS: int = int(os.getenv("WAITRESS_THREADS", 8))
-    WAITRESS_CONNECTION_LIMIT: int = int(os.getenv("WAITRESS_CONNECTION_LIMIT", 200))
-    WAITRESS_CHANNEL_TIMEOUT: int = int(os.getenv("WAITRESS_CHANNEL_TIMEOUT", 30))
+    WAITRESS_THREADS: int = _int_env("WAITRESS_THREADS", 8, min_v=1, max_v=256)
+    WAITRESS_CONNECTION_LIMIT: int = _int_env(
+        "WAITRESS_CONNECTION_LIMIT", 200, min_v=1, max_v=100_000
+    )
+    WAITRESS_CHANNEL_TIMEOUT: int = _int_env("WAITRESS_CHANNEL_TIMEOUT", 30, min_v=1, max_v=3600)
 
     # Request limits (DoS protection)
     MAX_CONTENT_LENGTH: int = 1 * 1024 * 1024  # 1 MB max request body
@@ -119,6 +117,10 @@ class ProductionConfig(Config):
     DEBUG = False
     SECRET_KEY = os.getenv("SECRET_KEY", "")
     SESSION_COOKIE_SECURE = True
+    # The site serves the frontend and /api from one origin, so only the public site may
+    # make credentialed cross-origin calls (and pass require_same_origin's Origin check).
+    # The base class's localhost dev origins must not be trusted in production.
+    CORS_ORIGINS = [AUTOLYCUS_WEB_BASE_URL]
 
     @classmethod
     def validate(cls) -> None:

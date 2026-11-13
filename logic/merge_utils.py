@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import copy
 from typing import Any, Union
 
 # Query merge helpers. Pure Python, no Discord imports.
@@ -25,6 +27,11 @@ def get_query(*queries: Union[dict[str, Any], tuple]) -> str:
 
 
 def merge(*queries: dict[str, Any]) -> dict[str, Any]:
+    """Merge query field trees into a new tree.
+
+    The inputs are never modified: they are often the shared constants in
+    ``logic.queries``, so appending into them would change every later query.
+    """
     paths = []
     for query in queries:
         paths.append(list(query.keys())[0])
@@ -34,7 +41,7 @@ def merge(*queries: dict[str, Any]) -> dict[str, Any]:
     for query in queries:
         for key, line in query.items():
             if key not in composite_query:
-                composite_query[key] = line 
+                composite_query[key] = copy.deepcopy(line)
             else:
                 if isinstance(line, dict):
                     composite_query[key] = merge(composite_query[key], line)
@@ -44,7 +51,7 @@ def merge(*queries: dict[str, Any]) -> dict[str, Any]:
                             if isinstance(item, dict):
                                 similar_item = [(x, y) for y, x in enumerate(composite_query[key]) if isinstance(x, dict) and list(item.keys())[0] in x]
                                 if len(similar_item) == 0:
-                                    composite_query[key].append(item)
+                                    composite_query[key].append(copy.deepcopy(item))
                                 else:
                                     similar_dict = similar_item[0][0]
                                     similar_idx = similar_item[0][1]

@@ -91,7 +91,8 @@ def _skip_backoff_seconds(consecutive_page_failures: int) -> float:
 
 
 def _utc_ts() -> int:
-    return round(datetime.utcnow().timestamp())
+    # time.time() is UTC epoch seconds; naive utcnow().timestamp() is read as local time.
+    return round(time.time())
 
 
 def _normalize_military_research(value: Any) -> dict[str, int] | None:
@@ -393,10 +394,10 @@ async def persist_nation_row(
                 if effective_prices:
                     try:
                         loot = compute_beige_loot(working_row, effective_prices)
-                        # Only persist positive estimates. A 0/None result must not
-                        # overwrite a previously computed nation_loot_value when the
-                        # current wars snapshot is incomplete or null-padded.
-                        if loot is not None and loot > 0:
+                        # The latest lost war decides the value, so a genuine $0 is
+                        # stored too. None means that war has no loot data (an
+                        # incomplete or null-padded snapshot) and keeps the old value.
+                        if loot is not None:
                             working_row["nation_loot_value"] = loot
                             loot_computed = True
                     except Exception as exc:
@@ -547,6 +548,7 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
         more_pages = True
         n = 1
         consecutive_page_failures = 0
+        skipped_pages = 0
         while more_pages:
             iter_start = time.time()
             query = _build_nation_query(n, min_score=min_score, vmode=vmode)
@@ -557,6 +559,7 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
                 await _sleep_remaining_page_delay(fetch_started)
                 logger.error("[nation-scan] page fetch failed page=%s", n, exc_info=True)
                 consecutive_page_failures += 1
+                skipped_pages += 1
                 if consecutive_page_failures >= SCAN_SKIP_MAX_CONSECUTIVE_PAGES:
                     logger.error(
                         "[nation-scan] giving up after consecutive_page_failures=%s (max=%s)",
@@ -615,13 +618,18 @@ async def _run_nation_scan(min_score: int | None, vmode: bool | None, prune: boo
             n += 1
 
         async with _nation_scan_write_lock:
-            if prune and fetched_ids:
+            if prune and skipped_pages:
+                # Nations on skipped pages are missing from fetched_ids but still exist.
+                logger.warning(
+                    "[nation-scan] skipping prune because skipped_pages=%s", skipped_pages
+                )
+            elif prune and fetched_ids:
                 prune_missing_ids(conn, 'nations', fetched_ids)
             elif prune:
                 logger.warning("[nation-scan] skipping prune because no fetched nation ids were collected")
 
             ensure_metadata_table(conn)
-            last_ts = round(datetime.utcnow().timestamp())
+            last_ts = round(time.time())
             set_metadata(conn, metadata_key, last_ts)
         logger.info(
             "[nation-scan] completed pages=%s rows_saved=%s loot_precomputed=%s income_precomputed=%s "
@@ -875,6 +883,7 @@ async def alliance_scanner():
                 rows_written = 0
                 table_ready = False
                 consecutive_page_failures = 0
+                skipped_pages = 0
                 while more_pages:
                     iter_start = time.time()
                     fetch_started = time.monotonic()
@@ -889,6 +898,7 @@ async def alliance_scanner():
                         await _sleep_remaining_page_delay(fetch_started)
                         logger.error("[alliance-scan] page fetch failed page=%s", n, exc_info=True)
                         consecutive_page_failures += 1
+                        skipped_pages += 1
                         if consecutive_page_failures >= SCAN_SKIP_MAX_CONSECUTIVE_PAGES:
                             logger.error(
                                 "[alliance-scan] giving up after consecutive_page_failures=%s (max=%s)",
@@ -934,13 +944,18 @@ async def alliance_scanner():
                     )
                     n += 1
 
-                if fetched_ids:
+                if skipped_pages:
+                    # Alliances on skipped pages are missing from fetched_ids but still exist.
+                    logger.warning(
+                        "[alliance-scan] skipping prune because skipped_pages=%s", skipped_pages
+                    )
+                elif fetched_ids:
                     prune_missing_ids(conn, 'alliances', fetched_ids)
                 else:
                     logger.warning("[alliance-scan] skipping prune because no fetched alliance ids were collected")
 
                 ensure_metadata_table(conn)
-                last_ts = round(datetime.utcnow().timestamp())
+                last_ts = round(time.time())
                 set_metadata(conn, 'last_fetched', last_ts)
                 logger.info(
                     "[alliance-scan] completed pages=%s rows_saved=%s duration_min=%.2f",
