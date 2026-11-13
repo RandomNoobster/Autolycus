@@ -2,12 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.11"
 
-[manifest]
-overrides = [
-    { name = "aiohttp", specifier = "==3.14.5" },
-    { name = "requests", specifier = ">=2.33.0" },
-]
-
 [[package]]
 name = "aiocache"
 version = "0.12.3"
@@ -266,7 +260,6 @@ dependencies = [
     { name = "flask-cors" },
     { name = "itsdangerous" },
     { name = "motor" },
-    { name = "pnwkit-py" },
     { name = "py-cord" },
     { name = "pymongo" },
     { name = "python-dotenv" },
@@ -294,7 +287,6 @@ requires-dist = [
     { name = "flask-cors", specifier = "==6.0.2" },
     { name = "itsdangerous", specifier = "==2.2.0" },
     { name = "motor", specifier = "==3.7.1" },
-    { name = "pnwkit-py", specifier = "==2.6.26" },
     { name = "py-cord", specifier = "==2.7.1" },
     { name = "pymongo", specifier = "==4.18.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
@@ -308,18 +300,6 @@ requires-dist = [
     { name = "xkcdpass", specifier = "==1.30.0" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "beautifulsoup4"
-version = "4.11.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "soupsieve" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/75/f8/de84282681c5a8307f3fff67b64641627b2652752d49d9222b77400d02b8/beautifulsoup4-4.11.2.tar.gz", hash = "sha256:bc4bdda6717de5a2987436fb8d72f45dc90dd856bdfd512a1314ce90349a0106", size = 517627, upload-time = "2023-01-31T17:59:13.9Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c6/ee/16d6f808f5668317d7c23f942091fbc694bcded6aa39678e5167f61b2ba0/beautifulsoup4-4.11.2-py3-none-any.whl", hash = "sha256:0e79446b10b3ecb499c1556f7e228a53e64a2bfcebd455f370d8927cb5b59e39", size = 129388, upload-time = "2023-01-31T17:59:12.498Z" },
-]
 
 [[package]]
 name = "blinker"
@@ -1063,20 +1043,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pnwkit-py"
-version = "2.6.26"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "beautifulsoup4" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/41/ad/bb6a4cb560469257241eef587ce30b745b25ab231fe47e47e7664c3cf93f/pnwkit-py-2.6.26.tar.gz", hash = "sha256:5eba2a58d29f5a031994428306aadb88d5bd668811e105fe9245d4438d31bf6d", size = 60382, upload-time = "2024-02-12T21:16:08.038Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/a3/99db2563a725316155313f98ce4f2d6f041bc826a8e7561339815e202892/pnwkit_py-2.6.26-py3-none-any.whl", hash = "sha256:b212e8c8d4cbf7d9df19245eabbf56ddba235eed6fa06f9e3c1fa7d5d475bf6c", size = 66523, upload-time = "2024-02-12T21:16:05.816Z" },
-]
-
-[[package]]
 name = "propcache"
 version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1345,15 +1311,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed", size = 142856, upload-time = "2026-05-14T19:25:27.735Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075, upload-time = "2026-05-14T19:25:26.443Z" },
-]
-
-[[package]]
-name = "soupsieve"
-version = "2.9.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/69/99/a6ca3beb3ccacb41fb3321d8a60e5566f9e6467601ef8eba6a17e1b89778/soupsieve-2.9.2.tar.gz", hash = "sha256:4a55d8cf158a9c2e587fa4922f1bbb91d68ac829e2d6f25403a85747c71daf74", size = 122445, upload-time = "2026-08-07T00:57:24.801Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/dc/ad025c1ee131eba60c69f4dd5779b18fcf1e6b21a343e2162a84d5d133c7/soupsieve-2.9.2-py3-none-any.whl", hash = "sha256:8089a26fd974ca7a1f30276d3d8492ab266ab15af581642dfe8aa162e0c1c823", size = 37370, upload-time = "2026-08-07T00:57:23.524Z" },
 ]
 
 [[package]]
