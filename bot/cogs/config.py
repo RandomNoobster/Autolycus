@@ -119,7 +119,7 @@ class Config(commands.Cog):
             server = await db.guild_configs.find_one({"guild_id": ctx.guild.id})
             
             if not server:
-                await ctx.edit("No configurable commands have been configured in this server!")
+                await ctx.edit(content="No configurable commands have been configured in this server!")
             else:
                 content = "The configuration for this guild is as follows:\n\n```\n"
                 for key, value in server.items():
