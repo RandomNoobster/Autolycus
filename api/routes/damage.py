@@ -147,6 +147,18 @@ def calculate_damage_custom() -> tuple[Any, int]:
                 'code': 'MISSING_NATIONS'
             }), 400
 
+        try:
+            nation1_updates = _parse_nation_overrides(payload, "nation1")
+            nation2_updates = _parse_nation_overrides(payload, "nation2")
+            war_override = _override_object(payload, "war")
+        except _InvalidOverride as exc:
+            return jsonify({
+                'error': 'Validation error',
+                'message': str(exc),
+                'code': 'VALIDATION_ERROR',
+                'field': exc.field,
+            }), 400
+
         nation_map = run_sync(_fetch_battle_nations([nation1_id, nation2_id]))
 
         if nation1_id not in nation_map or nation2_id not in nation_map:
@@ -159,9 +171,9 @@ def calculate_damage_custom() -> tuple[Any, int]:
         nation1 = nation_map[nation1_id]
         nation2 = nation_map[nation2_id]
 
-        _apply_nation_overrides(nation1, payload.get("nation1", {}))
-        _apply_nation_overrides(nation2, payload.get("nation2", {}))
-        _apply_war_override(nation1, nation1_id, nation2_id, payload.get("war", {}))
+        nation1.update(nation1_updates)
+        nation2.update(nation2_updates)
+        _apply_war_override(nation1, nation1_id, nation2_id, war_override)
 
         results = run_sync(
             calculate_damage_logic(
@@ -406,7 +418,7 @@ def _parse_int(value: Any) -> int | None:
             return None
         parsed = int(value)
         return parsed if parsed > 0 else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -686,42 +698,97 @@ async def _fetch_linked_nation_active_wars_raw(nation_id: int) -> list[dict[str,
     return nations[0].get("wars") or []
 
 
-def _apply_nation_overrides(nation: dict[str, Any], overrides: dict[str, Any]) -> None:
-    if not overrides:
-        return
+# Upper bounds for custom calculator inputs. They sit far above anything a real
+# nation reaches, and keep the damage math finite and fast: infra_cost loops once
+# per 100 infrastructure lost, so an unbounded value can stall a worker.
+_MAX_UNIT_OVERRIDE = 1_000_000_000
+_MAX_CITY_OVERRIDE = 100_000
 
-    for field in ["soldiers", "tanks", "aircraft", "ships", "missiles", "nukes"]:
-        if field in overrides and overrides[field] is not None:
-            nation[field] = max(int(overrides[field]), 0)
+_UNIT_OVERRIDE_FIELDS = ("soldiers", "tanks", "aircraft", "ships", "missiles", "nukes")
+_FLAG_OVERRIDE_FIELDS = (
+    ("vds", "vds"),
+    ("irond", "irond"),
+    ("falloutShelter", "fallout_shelter"),
+    ("guidingSatellite", "guiding_satellite"),
+    ("militarySalvage", "military_salvage"),
+    ("advancedPirateEconomy", "advanced_pirate_economy"),
+    ("soldiersUseMunitions", "soldiers_use_munitions"),
+)
 
-    if "warpolicy" in overrides and overrides["warpolicy"] is not None:
-        nation["warpolicy"] = overrides["warpolicy"]
 
-    for field, key in [
-        ("vds", "vds"),
-        ("irond", "irond"),
-        ("falloutShelter", "fallout_shelter"),
-        ("guidingSatellite", "guiding_satellite"),
-        ("militarySalvage", "military_salvage"),
-        ("advancedPirateEconomy", "advanced_pirate_economy"),
-    ]:
-        if field in overrides and overrides[field] is not None:
-            nation[key] = bool(overrides[field])
+class _InvalidOverride(ValueError):
+    """A nested override in a custom damage calculation is malformed."""
 
-    if "soldiersUseMunitions" in overrides and overrides["soldiersUseMunitions"] is not None:
-        nation["soldiers_use_munitions"] = bool(overrides["soldiersUseMunitions"])
+    def __init__(self, field: str, problem: str) -> None:
+        super().__init__(f"{field} {problem}")
+        self.field = field
+
+
+def _override_object(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    """Return ``payload[key]`` if it is an object; missing or null means no overrides."""
+    value = payload.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise _InvalidOverride(key, "must be an object.")
+    return value
+
+
+def _unit_override(value: Any, field: str) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError, OverflowError):
+        raise _InvalidOverride(field, "must be a number.") from None
+    if count > _MAX_UNIT_OVERRIDE:
+        raise _InvalidOverride(field, f"must be at most {_MAX_UNIT_OVERRIDE:,}.")
+    return max(count, 0)
+
+
+def _city_override(value: Any, field: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise _InvalidOverride(field, "must be a number.") from None
+    if not 0 <= number <= _MAX_CITY_OVERRIDE:  # also rejects NaN
+        raise _InvalidOverride(field, f"must be between 0 and {_MAX_CITY_OVERRIDE:,}.")
+    return number
+
+
+def _parse_nation_overrides(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    """Validate one nation's custom inputs and return the nation fields they set.
+
+    Raises _InvalidOverride naming the offending field (for example
+    ``nation1.soldiers``) when a value cannot be used.
+    """
+    overrides = _override_object(payload, key)
+    updates: dict[str, Any] = {}
+
+    for field in _UNIT_OVERRIDE_FIELDS:
+        if overrides.get(field) is not None:
+            updates[field] = _unit_override(overrides[field], f"{key}.{field}")
+
+    if overrides.get("warpolicy") is not None:
+        updates["warpolicy"] = overrides["warpolicy"]
+
+    for field, nation_key in _FLAG_OVERRIDE_FIELDS:
+        if overrides.get(field) is not None:
+            updates[nation_key] = bool(overrides[field])
 
     city_infra = overrides.get("cityInfrastructure")
     city_land = overrides.get("cityLand")
     if city_infra is not None or city_land is not None:
-        infra_value = float(city_infra) if city_infra is not None else None
-        land_value = float(city_land) if city_land is not None else None
-        nation["cities"] = [
-            {
-                "infrastructure": infra_value if infra_value is not None else 0,
-                "land": land_value if land_value is not None else 0,
-            }
-        ]
+        infra_value = (
+            _city_override(city_infra, f"{key}.cityInfrastructure") if city_infra is not None else 0
+        )
+        # The damage math divides by city land, so a custom city needs land above 0.
+        if city_land is None:
+            raise _InvalidOverride(f"{key}.cityLand", "is required when cityInfrastructure is set.")
+        land_value = _city_override(city_land, f"{key}.cityLand")
+        if land_value <= 0:
+            raise _InvalidOverride(f"{key}.cityLand", "must be greater than 0.")
+        updates["cities"] = [{"infrastructure": infra_value, "land": land_value}]
+
+    return updates
 
 
 def _apply_war_override(
