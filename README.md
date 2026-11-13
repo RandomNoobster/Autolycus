@@ -40,6 +40,8 @@ uv sync
 
 This installs dependencies for API, scanner, and Discord bot in one environment.
 
+The wiki scrapers in `scripts/*_scraper` need extra packages; run them with `uv run --extra scrapers python scripts/pwpedia_scraper/pwpedia_scraper.py` (and likewise for the others).
+
 ### 2) Environment variables
 
 Create a `.env` from `.env.example`:

@@ -33,6 +33,13 @@ dev = [
   "pytest==9.0.3",
   "watchfiles==1.1.1",
 ]
+# For scripts/*_scraper: `uv run --extra scrapers python scripts/<name>/<name>.py`
+scrapers = [
+  "beautifulsoup4==4.15.0",
+  "cloudscraper==1.2.71",
+  "markdownify==1.2.3",
+  "tqdm==4.70.1",
+]
 
 [project.scripts]
 api = "api.app:run_api"
