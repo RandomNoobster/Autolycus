@@ -1,4 +1,5 @@
-FROM node:20-alpine AS build
+# Node 20 reached end of life in April 2026; 24 is LTS until April 2028.
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -18,7 +19,10 @@ ENV VITE_SITE_ORIGIN=${VITE_SITE_ORIGIN}
 
 RUN npm run build
 
-FROM nginx:alpine
+# Stable branch rather than :alpine (mainline); upgrade picks up Alpine security fixes.
+FROM nginx:1.30-alpine
+
+RUN apk upgrade --no-cache
 
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
