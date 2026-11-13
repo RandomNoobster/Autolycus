@@ -134,8 +134,11 @@ const formatRelativeUpdatedAt = (unixSeconds: number): string => {
 };
 
 
+/** The only part of a table row the custom filter fns use (fits both column `filterFn` and table `filterFns`). */
+type FilterableRow = Pick<MRT_Row<RaidTarget>, 'getValue'>;
+
 // Custom filter: min only
-const minOnlyFilter = (row: any, id: string, filterValue: any) => {
+const minOnlyFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
   if (filterValue === undefined || filterValue === null || filterValue === '') return true;
   const cellValue = parseNumericValue(row.getValue(id));
   const minValue = parseNumericValue(filterValue);
@@ -143,7 +146,7 @@ const minOnlyFilter = (row: any, id: string, filterValue: any) => {
 };
 
 // Custom filter: max only
-const maxOnlyFilter = (row: any, id: string, filterValue: any) => {
+const maxOnlyFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
   if (filterValue === undefined || filterValue === null || filterValue === '') return true;
   const cellValue = parseNumericValue(row.getValue(id));
   const maxValue = parseNumericValue(filterValue);
@@ -151,7 +154,11 @@ const maxOnlyFilter = (row: any, id: string, filterValue: any) => {
 };
 
 // Custom filter: range with min/max
-const rangeFilter = (row: any, id: string, filterValue: any) => {
+const rangeFilter = (
+  row: FilterableRow,
+  id: string,
+  filterValue: { min?: unknown; max?: unknown } | null | undefined
+) => {
   if (!filterValue || (!filterValue.min && !filterValue.max)) return true;
   const cellValue = parseNumericValue(row.getValue(id));
   const min = filterValue.min !== undefined ? parseNumericValue(filterValue.min) : -Infinity;
@@ -159,7 +166,7 @@ const rangeFilter = (row: any, id: string, filterValue: any) => {
   return cellValue >= min && cellValue <= max;
 };
 
-const beigeFilter = (row: any, id: string, filterValue: any) => {
+const beigeFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
   if (!filterValue) return true;
   const turns = parseNumericValue(row.getValue(id));
   if (filterValue === 'only') return turns > 0;
@@ -168,7 +175,7 @@ const beigeFilter = (row: any, id: string, filterValue: any) => {
 };
 
 /** Multi-select alliance names: row matches if alliance name equals any selected value (case-insensitive). */
-function allianceNameMultiSelectFilterFn(row: any, id: string, filterValue: unknown) {
+function allianceNameMultiSelectFilterFn(row: FilterableRow, id: string, filterValue: unknown) {
   if (filterValue == null || filterValue === '') return true;
   const arr = Array.isArray(filterValue) ? filterValue : [filterValue];
   const strArr = arr.map((v) => String(v).trim()).filter(Boolean);
@@ -178,7 +185,7 @@ function allianceNameMultiSelectFilterFn(row: any, id: string, filterValue: unkn
 }
 
 // Custom filter: boolean filter for taxable
-const booleanFilter = (row: any, id: string, filterValue: any) => {
+const booleanFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
   if (filterValue === undefined || filterValue === null || filterValue === '') return true;
   const cellValue = row.getValue(id);
   const filterBool = filterValue === 'true' || filterValue === true;
@@ -325,7 +332,9 @@ function AllianceNameColumnFilter({
 }
 
 // Filter component: Min only (income, loot, days inactive, etc.)
-const MinOnlyFilterInput = ({ column, placeholder }: any) => {
+type RaidsColumnFilterProps = { column: MRT_Column<RaidTarget> };
+
+const MinOnlyFilterInput = ({ column, placeholder }: RaidsColumnFilterProps & { placeholder?: string }) => {
   const colStr = columnFilterString(column.getFilterValue());
   const [raw, setRaw] = useState<string>(colStr);
   const [debounced] = useDebouncedValue(raw, 500);
@@ -357,7 +366,7 @@ const MinOnlyFilterInput = ({ column, placeholder }: any) => {
 };
 
 // Generic Filter component: Max only (for military units)
-const MaxOnlyFilterInput = ({ column, placeholder }: any) => {
+const MaxOnlyFilterInput = ({ column, placeholder }: RaidsColumnFilterProps & { placeholder?: string }) => {
   const colStr = columnFilterString(column.getFilterValue());
   const [raw, setRaw] = useState<string>(colStr);
   const [debounced] = useDebouncedValue(raw, 500);
@@ -388,9 +397,9 @@ const MaxOnlyFilterInput = ({ column, placeholder }: any) => {
 };
 
 // Numeric-only Min filter (for Days Since War and Win% columns)
-const NumericMinOnlyFilterInput = ({ column, max }: any) => {
+const NumericMinOnlyFilterInput = ({ column, max }: RaidsColumnFilterProps & { max?: number }) => {
   const colStr = columnFilterString(column.getFilterValue());
-  const [localValue, setLocalValue] = useState<any>(() => numberInputValueFromFilterString(colStr));
+  const [localValue, setLocalValue] = useState<string | number>(() => numberInputValueFromFilterString(colStr));
   const [debounced] = useDebouncedValue(localValue, 400);
   const lastEmittedRef = useRef(colStr);
 
@@ -551,7 +560,11 @@ export function RaidsTable({
   });
 
   const toggleReminderForNation = useCallback((nation: RaidTarget) => {
-    nation.hasReminderActive ? removeReminderMutation.mutate(nation.id) : addReminderMutation.mutate(nation.id);
+    if (nation.hasReminderActive) {
+      removeReminderMutation.mutate(nation.id);
+    } else {
+      addReminderMutation.mutate(nation.id);
+    }
   }, [addReminderMutation, removeReminderMutation]);
 
   const handleReminderToggle = useCallback((row: MRT_Row<RaidTarget>) => {
