@@ -14,6 +14,7 @@ import {
   MRT_ToggleFullScreenButton,
   MRT_ToggleGlobalFilterButton,
   type MRT_DensityState,
+  type MRT_RowData,
   type MRT_TableInstance,
 } from 'mantine-react-table';
 
@@ -28,12 +29,12 @@ const TOOLBAR_ICON_SZ = 18;
 const CSV_TOOLTIP_ENABLED = 'Download filtered rows as CSV (includes all pages)';
 const CSV_TOOLTIP_DISABLED = 'No rows match the current filters';
 
-export type MrtTableToolbarInternalActionsProps<TData extends Record<string, any>> = {
+export type MrtTableToolbarInternalActionsProps<TData extends MRT_RowData> = {
   table: MRT_TableInstance<TData>;
   onExportCsv: () => void;
 };
 
-export function MrtTableToolbarInternalActions<TData extends Record<string, any>>({
+export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
   table,
   onExportCsv,
 }: MrtTableToolbarInternalActionsProps<TData>) {

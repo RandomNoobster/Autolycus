@@ -162,7 +162,7 @@ function mergeColumnFilters(
   base: MRT_ColumnFiltersState,
   overrides: MRT_ColumnFiltersState
 ): MRT_ColumnFiltersState {
-  const map = new Map<string, any>();
+  const map = new Map<string, unknown>();
   base.forEach((f) => map.set(f.id, f.value));
   overrides.forEach((f) => map.set(f.id, f.value));
   return Array.from(map.entries()).map(([id, value]) => ({ id, value }));

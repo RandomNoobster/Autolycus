@@ -60,8 +60,11 @@ export function TokenRequestPage() {
       // Redirect to the target page with the token
       const separator = redirectPath.includes('?') ? '&' : '?';
       navigate(`${redirectPath}${separator}token=${response.token}`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to generate token. Please try again.');
+    } catch (err) {
+      setError(
+        (err as { message?: string } | null)?.message ||
+          'Failed to generate token. Please try again.'
+      );
       setLoading(false);
     }
   };

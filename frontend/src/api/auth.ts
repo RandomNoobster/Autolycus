@@ -22,7 +22,8 @@ interface TokenVerifyRequest {
 
 interface TokenVerifyResponse {
   valid: boolean;
-  payload?: any;
+  /** Decoded token payload: `user_id`, `timestamp`, plus any extra fields the token was signed with. */
+  payload?: { user_id?: number; timestamp?: number; [key: string]: unknown };
   error?: string;
   code?: string;
   message?: string;

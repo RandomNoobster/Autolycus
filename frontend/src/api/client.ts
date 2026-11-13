@@ -75,7 +75,7 @@ export async function apiRequest<T>(
   }
 
   const rawText = await response.text();
-  let data: any = null;
+  let data: unknown = null;
   if (rawText) {
     try {
       data = JSON.parse(rawText);
@@ -96,16 +96,18 @@ export async function apiRequest<T>(
     }
 
     const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
+    const body: Partial<ApiError> =
+      data !== null && typeof data === 'object' ? (data as Partial<ApiError>) : {};
     const error: ApiError = {
-      error: data?.error || (gateway ? 'Service unavailable' : 'Request failed'),
+      error: body.error || (gateway ? 'Service unavailable' : 'Request failed'),
       message:
-        data?.message ||
+        body.message ||
         (gateway
           ? 'The API server is not responding. It may be down or still starting.'
           : typeof data === 'string' && data.length < 400
             ? data
             : 'An unexpected error occurred'),
-      code: data?.code || (gateway ? BACKEND_UNAVAILABLE_CODE : 'UNKNOWN_ERROR'),
+      code: body.code || (gateway ? BACKEND_UNAVAILABLE_CODE : 'UNKNOWN_ERROR'),
       ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
     };
     throw error;
