@@ -1,4 +1,4 @@
-"""API tests for JSON body handling on auth routes (bare Flask app, no database)."""
+"""API tests for non-object JSON body handling on auth and damage routes (bare Flask app, no database)."""
 import logging
 import os
 import sys
@@ -15,10 +15,14 @@ from api.security import generate_token
 AUTH_TOKEN_API_KEY = "test-auth-key"
 DISCORD_BOT_API_KEY = "test-bot-key"
 
-# Bodies sent with Content-Type: application/json that get_json() cannot decode.
+# Bodies sent with Content-Type: application/json that are not a JSON object:
+# undecodable ones make get_json() raise, decodable non-objects have no .get().
 BAD_BODIES = [
     pytest.param(b"", id="empty-body"),
     pytest.param(b"{not valid json", id="invalid-json"),
+    pytest.param(b"[1, 2]", id="json-array"),
+    pytest.param(b'"token"', id="json-string"),
+    pytest.param(b"5", id="json-number"),
 ]
 
 # (path, extra headers, expected error code once the body is treated as {}).
@@ -72,7 +76,7 @@ def client(app, monkeypatch):
 
 @pytest.mark.parametrize("body", BAD_BODIES)
 @pytest.mark.parametrize("path,headers,expected_code", ROUTES)
-def test_undecodable_json_body_returns_400(client, caplog, path, headers, expected_code, body):
+def test_non_object_json_body_returns_400(client, caplog, path, headers, expected_code, body):
     with caplog.at_level(logging.ERROR):
         response = client.post(
             path,

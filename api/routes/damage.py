@@ -12,6 +12,7 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request
 
+from api.request_utils import get_json_object
 from api.security import optional_discord_session
 from database.mongo import get_sync_db
 from infra.async_bridge import run_sync
@@ -135,7 +136,7 @@ def get_damage() -> tuple[Any, int]:
 def calculate_damage_custom() -> tuple[Any, int]:
     """Calculate damage using custom inputs (public endpoint)."""
     try:
-        payload = request.get_json(silent=True) or {}
+        payload = get_json_object()
         nation1_id = _parse_int(payload.get("nation1Id"))
         nation2_id = _parse_int(payload.get("nation2Id"))
 

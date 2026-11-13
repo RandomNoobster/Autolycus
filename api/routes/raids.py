@@ -14,6 +14,7 @@ from typing import Any, Optional
 from flask import Blueprint, current_app, jsonify, request
 
 from api.rate_limit import try_acquire_rate_limit
+from api.request_utils import get_json_object
 from api.security import optional_discord_session, require_discord_session, require_same_origin
 from database.mongo import get_sync_db
 from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
@@ -453,7 +454,7 @@ def add_reminder() -> tuple[Any, int]:
         if auth_error:
             return auth_error
 
-        data = request.get_json(silent=True) or {}
+        data = get_json_object()
         nation_id = _normalize_nation_id(data.get('nationId'))
         if nation_id is None:
             return _error_response(
@@ -596,7 +597,7 @@ def update_reminder_config() -> tuple[Any, int]:
         if mongo_db is None:
             return _db_unavailable()
 
-        data = request.get_json(silent=True) or {}
+        data = get_json_object()
         offsets = _sanitize_reminder_offsets(data.get('beigeAlertConfig'))
         if offsets is None:
             return _error_response(
@@ -641,7 +642,7 @@ def update_reminder_channels() -> tuple[Any, int]:
         if mongo_db is None:
             return _db_unavailable()
 
-        data = request.get_json(silent=True) or {}
+        data = get_json_object()
         discord_dm = data.get('discordDm')
         web_push = data.get('webPush')
         if not isinstance(discord_dm, bool) or not isinstance(web_push, bool):
