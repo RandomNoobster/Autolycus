@@ -1,4 +1,5 @@
 """API tests for reminder and browser push routes (bare Flask app, database calls patched)."""
+import logging
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -246,3 +247,33 @@ def test_register_device_rejects_unknown_push_hosts(client, monkeypatch):
 def test_remove_device_validates_id(client):
     response = client.delete("/api/push/subscriptions/not-a-device", headers=SAME_ORIGIN)
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b"", b"{not valid json", b"[1, 2]", b'"text"', b"5"],
+    ids=["empty-body", "invalid-json", "json-array", "json-string", "json-number"],
+)
+@pytest.mark.parametrize(
+    "method,path,expected_code",
+    [
+        ("POST", "/api/raids/reminders", "VALIDATION_ERROR"),
+        ("PUT", "/api/raids/reminders/config", "VALIDATION_ERROR"),
+        ("PUT", "/api/raids/reminders/channels", "VALIDATION_ERROR"),
+        ("POST", "/api/push/subscriptions", "INVALID_SUBSCRIPTION"),
+    ],
+    ids=["add-reminder", "reminder-config", "reminder-channels", "push-register"],
+)
+def test_non_object_json_body_returns_400(client, monkeypatch, caplog, method, path, expected_code, body):
+    monkeypatch.setattr(push_routes, "get_push_sender", lambda: FakeSender())
+    with caplog.at_level(logging.ERROR):
+        response = client.open(
+            path,
+            method=method,
+            data=body,
+            headers={"Content-Type": "application/json", **SAME_ORIGIN},
+        )
+
+    assert response.status_code == 400
+    assert response.get_json()["code"] == expected_code
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR], caplog.text

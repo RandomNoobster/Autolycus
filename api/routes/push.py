@@ -11,6 +11,7 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, request
 
 from api.rate_limit import rate_limit
+from api.request_utils import get_json_object
 from api.routes.reminder_views import delivery_view, device_view
 from api.security import require_discord_session, require_same_origin
 from database import reminders as reminder_db
@@ -97,7 +98,7 @@ def register_push_device() -> tuple[Any, int]:
             return _db_unavailable()
 
         uid = _session_user_id()
-        data = request.get_json(silent=True) or {}
+        data = get_json_object()
         keys = data.get('keys') if isinstance(data.get('keys'), dict) else {}
         key_id = data.get('keyId') if isinstance(data.get('keyId'), str) else sender.key_id
         error, device = reminder_service.register_push_device_sync(
