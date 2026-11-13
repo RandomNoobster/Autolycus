@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import discord
-import pnwkit
 from discord.ext import commands
 
 from bot.discord_utils import errors as err_embeds
@@ -25,21 +24,16 @@ intents.members = True
 # REMEMEBR: cannot import a file which is also imported by cogs
 
 # envs
-api_key = os.getenv("API_KEY")
 channel_id = int(os.getenv("DEBUG_CHANNEL"))
 
 # logging
 setup_logging(process_name="bot", level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
-# pnwkit
-kit = pnwkit.QueryKit(api_key)
-
 # discord bot
 # No member chunking at startup: nothing reads the member cache, and across ~1200
 # servers the gateway rate limit held on_ready (and reminder delivery) back ~11 min.
 bot = commands.Bot(intents=intents, command_prefix="!", chunk_guilds_at_startup=False)
-bot.pnw_kit = kit
 bot.interaction_registry = InteractionRegistry()
 discord_views.register_interaction_handlers(bot.interaction_registry)
 bot.interaction_registry.register_stateless(DM_TEST_ACK_HANDLER, handle_test_dm_ack)

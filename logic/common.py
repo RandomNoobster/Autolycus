@@ -103,8 +103,8 @@ def _price_for(prices: dict[str, float], resource: str) -> float:
         return 0.0
 
 
-# pnwkit subscription payloads may coerce AttackType to ordinals (VICTORY=14).
-# HTTP GraphQL nation scans return enum *names*; this map is for the sub path only.
+# Rows written by the old pnwkit-based subscription path may hold AttackType ordinals
+# (VICTORY=14). HTTP GraphQL nation scans return enum *names*.
 _ATTACK_TYPE_BY_ORDINAL: dict[int, str] = {
     0: 'AIRVINFRA',
     1: 'AIRVSOLDIERS',
@@ -129,7 +129,7 @@ def normalize_attack_type(value: Any) -> str:
     """Normalize attack type to an uppercase enum name.
 
     Nation scans use raw HTTP GraphQL (string names like ``VICTORY``).
-    Subscription updates go through pnwkit and may store ordinals (``14``).
+    Rows stored by the old pnwkit-based subscription path may hold ordinals (``14``).
     """
     if value is None or isinstance(value, bool):
         return ''
@@ -268,7 +268,7 @@ _WAR_TYPE_BY_ORDINAL: dict[int, str] = {
     2: 'RAID',
 }
 
-# pnwkit WarPolicy ordinals (ATTRITION starts at 1).
+# pnwkit WarPolicy ordinals (ATTRITION starts at 1), found in rows it stored.
 _WAR_POLICY_BY_ORDINAL: dict[int, str] = {
     1: 'ATTRITION',
     2: 'TURTLE',

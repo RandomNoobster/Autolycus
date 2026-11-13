@@ -256,7 +256,7 @@ def test_compute_beige_loot_ordinary_war_type_multiplier():
 
 
 def test_compute_beige_loot_accepts_numeric_victory_type():
-    """pnwkit serializes AttackType.VICTORY as integer 14 in subscription payloads."""
+    """Rows stored via the old pnwkit subscription path hold AttackType.VICTORY as 14."""
     nation = {
         "id": "55556",
         "wars": [

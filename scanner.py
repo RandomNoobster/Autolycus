@@ -10,7 +10,6 @@ from functools import partial
 from typing import Any
 
 import aiohttp
-import pnwkit
 from dotenv import load_dotenv
 
 from logic import queries
@@ -19,6 +18,8 @@ from database.mongo import get_db
 from database.sqlite_cache import (ensure_metadata_table, ensure_table_and_columns,
                                    get_alliances_db_path, get_nations_db_path,
                                    prune_missing_ids, set_metadata, upsert)
+from infra.pnw_payloads import coerce_payload
+from infra.pnw_subscriptions import PnwSubscription
 from logic.api_client import call
 from logic.common import compute_beige_loot, normalize_alliance_position
 from logic.merge_utils import get_query
@@ -30,8 +31,6 @@ api_key = os.getenv("API_KEY")
 if not api_key:
     raise RuntimeError("API_KEY is required for scanner")
 call_api = partial(call, api_key=api_key)
-
-kit = pnwkit.QueryKit(api_key)
 
 setup_logging(process_name="scanner", level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -274,24 +273,6 @@ async def _get_subscription_persist_context() -> tuple[dict[str, Any] | None, tu
     _subscription_persist_context = (prices, revenue_context)
     _subscription_persist_context_monotonic = now
     return prices, revenue_context
-
-
-def _to_plain_dict(payload: Any) -> dict[str, Any]:
-    if isinstance(payload, dict):
-        return dict(payload)
-    for attr in ("model_dump", "dict", "to_dict"):
-        fn = getattr(payload, attr, None)
-        if callable(fn):
-            candidate = fn()
-            if isinstance(candidate, dict):
-                return candidate
-    if hasattr(payload, "__dict__"):
-        return {
-            key: value
-            for key, value in vars(payload).items()
-            if not key.startswith("_")
-        }
-    raise TypeError(f"Unsupported subscription payload type: {type(payload)!r}")
 
 
 def _to_json_safe(value: Any) -> Any:
@@ -707,10 +688,10 @@ async def nation_subscription_worker() -> None:
         persist_latencies_1m: list[float] = []
         last_event_monotonic = time.monotonic()
         events_processed = 0
+        subscription = PnwSubscription(api_key, model, subscribed_event)
         try:
-            sub_kit = pnwkit.QueryKit(api_key)
             subscribe_started = time.monotonic()
-            subscription = await sub_kit.subscribe(model, subscribed_event, {})
+            await subscription.connect()
             subscribe_latency_ms = round((time.monotonic() - subscribe_started) * 1000)
             reconnect_attempt = 0
             async with _nation_scan_write_lock:
@@ -776,7 +757,7 @@ async def nation_subscription_worker() -> None:
                     persist_latencies_1m.clear()
 
                 try:
-                    nation_row = _to_plain_dict(payload)
+                    nation_row = coerce_payload(model, payload)
                 except Exception as exc:
                     logger.warning(
                         "event=subscription_event_invalid worker=%s nation_id=unknown error_type=%s error=%s",
@@ -822,6 +803,8 @@ async def nation_subscription_worker() -> None:
                 else:
                     writes_failed_1m += 1
         except Exception as exc:
+            # Release the socket and session before backing off.
+            await subscription.close()
             reconnect_attempt += 1
             reconnects_1m += 1
             async with _nation_scan_write_lock:
@@ -868,6 +851,7 @@ async def nation_subscription_worker() -> None:
             await asyncio.sleep(backoff_s)
             continue
         finally:
+            await subscription.close()
             conn.close()
             logger.info(
                 "event=subscription_worker_stop worker=%s reason=restart uptime_s=%s events_processed=%s",

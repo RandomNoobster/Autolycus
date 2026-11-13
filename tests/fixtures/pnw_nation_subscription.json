@@ -1,0 +1,455 @@
+{
+  "_comment": [
+    "Reconstructed, not captured live: frame layout follows the Pusher protocol (v7) and how",
+    "pnwkit-py 2.6.26 (pnwkit/new.py Socket/Subscription) read PnW frames; nation fields use",
+    "GraphQL formats (string IDs, ISO dates, enum names, nested __typename).",
+    "expected_rows = pnwkit-py 2.6.26 Nation.from_data(item) flattened by scanner._to_plain_dict",
+    "and scanner._to_json_safe at commit e82f946, with pnwkit's duplicate '__dict__' keys removed."
+  ],
+  "model": "nation",
+  "event": "update",
+  "channel": "private-nation-update-6f1c2b9e0d",
+  "auth": "a22734a47847a64386c8:test-signature",
+  "frames": {
+    "connection_established": {
+      "event": "pusher:connection_established",
+      "data": "{\"socket_id\": \"843217.1977055\", \"activity_timeout\": 120}"
+    },
+    "subscription_succeeded": {
+      "event": "pusher_internal:subscription_succeeded",
+      "channel": "private-nation-update-6f1c2b9e0d",
+      "data": "{}"
+    },
+    "stream": [
+      {
+        "event": "NATION_UPDATE",
+        "channel": "private-nation-update-6f1c2b9e0d",
+        "data": "{\"id\": \"246810\", \"nation_name\": \"Lowland Republic\", \"leader_name\": \"Ada\", \"alliance_id\": \"0\", \"alliance_position\": \"NOALLIANCE\", \"alliance_position_id\": \"0\", \"continent\": \"eu\", \"color\": \"beige\", \"war_policy\": \"TURTLE\", \"warpolicy\": \"Turtle\", \"domestic_policy\": \"URBANIZATION\", \"dompolicy\": \"Urbanization\", \"government_type\": \"REPUBLIC\", \"economic_policy\": \"MODERATE\", \"social_policy\": \"LIBERAL\", \"num_cities\": 12, \"score\": 1543.27, \"population\": 2450000, \"vacation_mode_turns\": 0, \"beige_turns\": 14, \"soldiers\": 0, \"tanks\": 0, \"aircraft\": 0, \"ships\": 0, \"missiles\": 0, \"nukes\": 0, \"spies\": null, \"last_active\": \"2026-11-13T04:58:21+00:00\", \"date\": \"2021-02-03T17:22:10+00:00\", \"alliance_join_date\": null, \"moon_landing_date\": null, \"tax_id\": \"0\", \"discord\": \"\", \"flag\": \"https://example.invalid/flag.png\", \"advanced_pirate_economy\": false, \"military_salvage\": false, \"fallout_shelter\": false, \"alliance\": null, \"treasures\": [], \"bounties\": [], \"military_research\": {\"ground_cost\": 2, \"ground_capacity\": 1, \"air_cost\": 0, \"air_capacity\": 0, \"naval_cost\": 0, \"naval_capacity\": 0}, \"cities\": [{\"__typename\": \"City\", \"id\": \"90001\", \"nation_id\": \"246810\", \"date\": \"2019-06-01\", \"powered\": true, \"infrastructure\": 1850.0, \"land\": 2000.0, \"nuke_date\": \"0000-00-00\", \"barracks\": 5, \"farm\": 0}, {\"__typename\": \"City\", \"id\": \"90002\", \"nation_id\": \"246810\", \"date\": \"2019-06-01\", \"powered\": true, \"infrastructure\": 1850.0, \"land\": 2000.0, \"nuke_date\": \"2026-10-30\", \"barracks\": 5, \"farm\": 0}], \"wars\": [{\"__typename\": \"War\", \"id\": \"1700001\", \"date\": \"2026-11-08T10:00:00+00:00\", \"war_type\": \"RAID\", \"att_id\": \"135791\", \"def_id\": \"246810\", \"defid\": \"246810\", \"winner_id\": \"135791\", \"winner\": \"135791\", \"turnsleft\": 0, \"att_money_looted\": 2500000.0, \"def_money_looted\": 0.0, \"attacker\": {\"__typename\": \"Nation\", \"id\": \"135791\", \"war_policy\": \"PIRATE\", \"advanced_pirate_economy\": true}, \"defender\": {\"__typename\": \"Nation\", \"id\": \"246810\", \"war_policy\": \"TURTLE\", \"advanced_pirate_economy\": false}, \"attacks\": [{\"__typename\": \"WarAttack\", \"id\": \"88000001\", \"date\": \"2026-11-09T12:00:00+00:00\", \"type\": \"GROUND\", \"att_id\": \"135791\", \"def_id\": \"246810\", \"war_id\": \"1700001\", \"victor\": \"135791\", \"money_looted\": 410000.0, \"coal_looted\": null, \"food_looted\": null, \"loot_info\": null}, {\"__typename\": \"WarAttack\", \"id\": \"88000002\", \"date\": \"2026-11-10T08:00:00+00:00\", \"type\": \"VICTORY\", \"att_id\": \"135791\", \"def_id\": \"246810\", \"war_id\": \"1700001\", \"victor\": \"135791\", \"money_looted\": 3200000.0, \"coal_looted\": 120.0, \"food_looted\": 3400.0, \"loot_info\": null}]}]}"
+      },
+      {
+        "event": "pusher:ping",
+        "data": "{}"
+      },
+      {
+        "event": "BULK_NATION_UPDATE",
+        "channel": "private-nation-update-6f1c2b9e0d",
+        "data": "[{\"id\": \"112233\", \"nation_name\": \"Highland\", \"leader_name\": \"Bo\", \"alliance_id\": \"4321\", \"alliance_position\": \"MEMBER\", \"alliance_position_id\": \"232\", \"continent\": \"na\", \"color\": \"blue\", \"war_policy\": \"FORTRESS\", \"domestic_policy\": \"IMPERIALISM\", \"government_type\": \"DEMOCRACY\", \"num_cities\": 25, \"score\": 4012.5, \"vacation_mode_turns\": 0, \"beige_turns\": 0, \"last_active\": \"2026-11-13T05:01:02+00:00\", \"date\": \"2019-09-09T09:09:09+00:00\", \"alliance_join_date\": \"2025-01-15T00:00:00+00:00\", \"tax_id\": \"7788\", \"alliance\": {\"__typename\": \"Alliance\", \"id\": \"4321\", \"name\": \"Example Alliance\", \"color\": \"blue\", \"flag\": \"\", \"date\": \"2018-01-01T00:00:00+00:00\"}, \"treasures\": [{\"__typename\": \"Treasure\", \"name\": \"Pearl\", \"nation_id\": \"112233\", \"spawn_date\": \"2026-10-01T00:00:00+00:00\"}], \"bounties\": [], \"military_research\": {\"ground_cost\": 2, \"ground_capacity\": 1, \"air_cost\": 0, \"air_capacity\": 0, \"naval_cost\": 0, \"naval_capacity\": 0}, \"cities\": [], \"wars\": []}, {\"id\": \"998877\", \"nation_name\": \"Sleepy\", \"leader_name\": \"Cy\", \"alliance_id\": \"0\", \"alliance_position\": \"NOALLIANCE\", \"alliance_position_id\": \"0\", \"war_policy\": \"ATTRITION\", \"num_cities\": 5, \"score\": 300.0, \"vacation_mode_turns\": 48, \"beige_turns\": 0, \"last_active\": \"2026-11-01T00:00:00+00:00\", \"date\": \"2024-05-05T05:05:05+00:00\", \"alliance_join_date\": null, \"tax_id\": \"0\", \"alliance\": null, \"treasures\": [], \"military_research\": null, \"wars\": null}]"
+      },
+      {
+        "event": "NATION_UPDATE",
+        "channel": "private-nation-update-someone-else",
+        "data": "{\"id\": \"555\", \"nation_name\": \"Not ours\", \"leader_name\": \"Bo\", \"alliance_id\": \"4321\", \"alliance_position\": \"MEMBER\", \"alliance_position_id\": \"232\", \"continent\": \"na\", \"color\": \"blue\", \"war_policy\": \"FORTRESS\", \"domestic_policy\": \"IMPERIALISM\", \"government_type\": \"DEMOCRACY\", \"num_cities\": 25, \"score\": 4012.5, \"vacation_mode_turns\": 0, \"beige_turns\": 0, \"last_active\": \"2026-11-13T05:01:02+00:00\", \"date\": \"2019-09-09T09:09:09+00:00\", \"alliance_join_date\": \"2025-01-15T00:00:00+00:00\", \"tax_id\": \"7788\", \"alliance\": {\"__typename\": \"Alliance\", \"id\": \"4321\", \"name\": \"Example Alliance\", \"color\": \"blue\", \"flag\": \"\", \"date\": \"2018-01-01T00:00:00+00:00\"}, \"treasures\": [{\"__typename\": \"Treasure\", \"name\": \"Pearl\", \"nation_id\": \"112233\", \"spawn_date\": \"2026-10-01T00:00:00+00:00\"}], \"bounties\": [], \"military_research\": {\"ground_cost\": 2, \"ground_capacity\": 1, \"air_cost\": 0, \"air_capacity\": 0, \"naval_cost\": 0, \"naval_capacity\": 0}, \"cities\": [], \"wars\": []}"
+      }
+    ]
+  },
+  "expected_items": [
+    {
+      "id": "246810",
+      "nation_name": "Lowland Republic",
+      "leader_name": "Ada",
+      "alliance_id": "0",
+      "alliance_position": "NOALLIANCE",
+      "alliance_position_id": "0",
+      "continent": "eu",
+      "color": "beige",
+      "war_policy": "TURTLE",
+      "warpolicy": "Turtle",
+      "domestic_policy": "URBANIZATION",
+      "dompolicy": "Urbanization",
+      "government_type": "REPUBLIC",
+      "economic_policy": "MODERATE",
+      "social_policy": "LIBERAL",
+      "num_cities": 12,
+      "score": 1543.27,
+      "population": 2450000,
+      "vacation_mode_turns": 0,
+      "beige_turns": 14,
+      "soldiers": 0,
+      "tanks": 0,
+      "aircraft": 0,
+      "ships": 0,
+      "missiles": 0,
+      "nukes": 0,
+      "spies": null,
+      "last_active": "2026-11-13T04:58:21+00:00",
+      "date": "2021-02-03T17:22:10+00:00",
+      "alliance_join_date": null,
+      "moon_landing_date": null,
+      "tax_id": "0",
+      "discord": "",
+      "flag": "https://example.invalid/flag.png",
+      "advanced_pirate_economy": false,
+      "military_salvage": false,
+      "fallout_shelter": false,
+      "alliance": null,
+      "treasures": [],
+      "bounties": [],
+      "military_research": {
+        "ground_cost": 2,
+        "ground_capacity": 1,
+        "air_cost": 0,
+        "air_capacity": 0,
+        "naval_cost": 0,
+        "naval_capacity": 0
+      },
+      "cities": [
+        {
+          "__typename": "City",
+          "id": "90001",
+          "nation_id": "246810",
+          "date": "2019-06-01",
+          "powered": true,
+          "infrastructure": 1850.0,
+          "land": 2000.0,
+          "nuke_date": "0000-00-00",
+          "barracks": 5,
+          "farm": 0
+        },
+        {
+          "__typename": "City",
+          "id": "90002",
+          "nation_id": "246810",
+          "date": "2019-06-01",
+          "powered": true,
+          "infrastructure": 1850.0,
+          "land": 2000.0,
+          "nuke_date": "2026-10-30",
+          "barracks": 5,
+          "farm": 0
+        }
+      ],
+      "wars": [
+        {
+          "__typename": "War",
+          "id": "1700001",
+          "date": "2026-11-08T10:00:00+00:00",
+          "war_type": "RAID",
+          "att_id": "135791",
+          "def_id": "246810",
+          "defid": "246810",
+          "winner_id": "135791",
+          "winner": "135791",
+          "turnsleft": 0,
+          "att_money_looted": 2500000.0,
+          "def_money_looted": 0.0,
+          "attacker": {
+            "__typename": "Nation",
+            "id": "135791",
+            "war_policy": "PIRATE",
+            "advanced_pirate_economy": true
+          },
+          "defender": {
+            "__typename": "Nation",
+            "id": "246810",
+            "war_policy": "TURTLE",
+            "advanced_pirate_economy": false
+          },
+          "attacks": [
+            {
+              "__typename": "WarAttack",
+              "id": "88000001",
+              "date": "2026-11-09T12:00:00+00:00",
+              "type": "GROUND",
+              "att_id": "135791",
+              "def_id": "246810",
+              "war_id": "1700001",
+              "victor": "135791",
+              "money_looted": 410000.0,
+              "coal_looted": null,
+              "food_looted": null,
+              "loot_info": null
+            },
+            {
+              "__typename": "WarAttack",
+              "id": "88000002",
+              "date": "2026-11-10T08:00:00+00:00",
+              "type": "VICTORY",
+              "att_id": "135791",
+              "def_id": "246810",
+              "war_id": "1700001",
+              "victor": "135791",
+              "money_looted": 3200000.0,
+              "coal_looted": 120.0,
+              "food_looted": 3400.0,
+              "loot_info": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "112233",
+      "nation_name": "Highland",
+      "leader_name": "Bo",
+      "alliance_id": "4321",
+      "alliance_position": "MEMBER",
+      "alliance_position_id": "232",
+      "continent": "na",
+      "color": "blue",
+      "war_policy": "FORTRESS",
+      "domestic_policy": "IMPERIALISM",
+      "government_type": "DEMOCRACY",
+      "num_cities": 25,
+      "score": 4012.5,
+      "vacation_mode_turns": 0,
+      "beige_turns": 0,
+      "last_active": "2026-11-13T05:01:02+00:00",
+      "date": "2019-09-09T09:09:09+00:00",
+      "alliance_join_date": "2025-01-15T00:00:00+00:00",
+      "tax_id": "7788",
+      "alliance": {
+        "__typename": "Alliance",
+        "id": "4321",
+        "name": "Example Alliance",
+        "color": "blue",
+        "flag": "",
+        "date": "2018-01-01T00:00:00+00:00"
+      },
+      "treasures": [
+        {
+          "__typename": "Treasure",
+          "name": "Pearl",
+          "nation_id": "112233",
+          "spawn_date": "2026-10-01T00:00:00+00:00"
+        }
+      ],
+      "bounties": [],
+      "military_research": {
+        "ground_cost": 2,
+        "ground_capacity": 1,
+        "air_cost": 0,
+        "air_capacity": 0,
+        "naval_cost": 0,
+        "naval_capacity": 0
+      },
+      "cities": [],
+      "wars": []
+    },
+    {
+      "id": "998877",
+      "nation_name": "Sleepy",
+      "leader_name": "Cy",
+      "alliance_id": "0",
+      "alliance_position": "NOALLIANCE",
+      "alliance_position_id": "0",
+      "war_policy": "ATTRITION",
+      "num_cities": 5,
+      "score": 300.0,
+      "vacation_mode_turns": 48,
+      "beige_turns": 0,
+      "last_active": "2026-11-01T00:00:00+00:00",
+      "date": "2024-05-05T05:05:05+00:00",
+      "alliance_join_date": null,
+      "tax_id": "0",
+      "alliance": null,
+      "treasures": [],
+      "military_research": null,
+      "wars": null
+    }
+  ],
+  "expected_rows": [
+    {
+      "id": 246810,
+      "nation_name": "Lowland Republic",
+      "leader_name": "Ada",
+      "alliance_id": 0,
+      "alliance_position": "NOALLIANCE",
+      "alliance_position_id": 0,
+      "continent": "eu",
+      "color": "beige",
+      "war_policy": "TURTLE",
+      "warpolicy": "Turtle",
+      "domestic_policy": "URBANIZATION",
+      "dompolicy": "Urbanization",
+      "government_type": "REPUBLIC",
+      "economic_policy": "MODERATE",
+      "social_policy": "LIBERAL",
+      "num_cities": 12,
+      "score": 1543.27,
+      "population": 2450000,
+      "vacation_mode_turns": 0,
+      "beige_turns": 14,
+      "soldiers": 0,
+      "tanks": 0,
+      "aircraft": 0,
+      "ships": 0,
+      "missiles": 0,
+      "nukes": 0,
+      "spies": null,
+      "last_active": "2026-11-13T04:58:21+00:00",
+      "date": "2021-02-03T17:22:10+00:00",
+      "alliance_join_date": null,
+      "moon_landing_date": null,
+      "tax_id": 0,
+      "discord": "",
+      "flag": "https://example.invalid/flag.png",
+      "advanced_pirate_economy": false,
+      "military_salvage": false,
+      "fallout_shelter": false,
+      "alliance": null,
+      "treasures": [],
+      "bounties": [],
+      "military_research": {
+        "ground_cost": 2,
+        "ground_capacity": 1,
+        "air_cost": 0,
+        "air_capacity": 0,
+        "naval_cost": 0,
+        "naval_capacity": 0
+      },
+      "cities": [
+        {
+          "__typename": "City",
+          "id": 90001,
+          "nation_id": 246810,
+          "date": "2019-06-01T00:00:00",
+          "powered": true,
+          "infrastructure": 1850.0,
+          "land": 2000.0,
+          "nuke_date": null,
+          "barracks": 5,
+          "farm": 0
+        },
+        {
+          "__typename": "City",
+          "id": 90002,
+          "nation_id": 246810,
+          "date": "2019-06-01T00:00:00",
+          "powered": true,
+          "infrastructure": 1850.0,
+          "land": 2000.0,
+          "nuke_date": "2026-10-30T00:00:00",
+          "barracks": 5,
+          "farm": 0
+        }
+      ],
+      "wars": [
+        {
+          "__typename": "War",
+          "id": 1700001,
+          "date": "2026-11-08T10:00:00+00:00",
+          "war_type": "RAID",
+          "att_id": 135791,
+          "def_id": 246810,
+          "defid": 246810,
+          "winner_id": 135791,
+          "winner": 135791,
+          "turnsleft": 0,
+          "att_money_looted": 2500000.0,
+          "def_money_looted": 0.0,
+          "attacker": {
+            "__typename": "Nation",
+            "id": 135791,
+            "war_policy": "PIRATE",
+            "advanced_pirate_economy": true
+          },
+          "defender": {
+            "__typename": "Nation",
+            "id": 246810,
+            "war_policy": "TURTLE",
+            "advanced_pirate_economy": false
+          },
+          "attacks": [
+            {
+              "__typename": "WarAttack",
+              "id": 88000001,
+              "date": "2026-11-09T12:00:00+00:00",
+              "type": "GROUND",
+              "att_id": 135791,
+              "def_id": 246810,
+              "war_id": 1700001,
+              "victor": "135791",
+              "money_looted": 410000.0,
+              "coal_looted": null,
+              "food_looted": null,
+              "loot_info": null
+            },
+            {
+              "__typename": "WarAttack",
+              "id": 88000002,
+              "date": "2026-11-10T08:00:00+00:00",
+              "type": "VICTORY",
+              "att_id": 135791,
+              "def_id": 246810,
+              "war_id": 1700001,
+              "victor": "135791",
+              "money_looted": 3200000.0,
+              "coal_looted": 120.0,
+              "food_looted": 3400.0,
+              "loot_info": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 112233,
+      "nation_name": "Highland",
+      "leader_name": "Bo",
+      "alliance_id": 4321,
+      "alliance_position": "MEMBER",
+      "alliance_position_id": 232,
+      "continent": "na",
+      "color": "blue",
+      "war_policy": "FORTRESS",
+      "domestic_policy": "IMPERIALISM",
+      "government_type": "DEMOCRACY",
+      "num_cities": 25,
+      "score": 4012.5,
+      "vacation_mode_turns": 0,
+      "beige_turns": 0,
+      "last_active": "2026-11-13T05:01:02+00:00",
+      "date": "2019-09-09T09:09:09+00:00",
+      "alliance_join_date": "2025-01-15T00:00:00+00:00",
+      "tax_id": 7788,
+      "alliance": {
+        "__typename": "Alliance",
+        "id": 4321,
+        "name": "Example Alliance",
+        "color": "blue",
+        "flag": "",
+        "date": "2018-01-01T00:00:00+00:00"
+      },
+      "treasures": [
+        {
+          "__typename": "Treasure",
+          "name": "Pearl",
+          "nation_id": 112233,
+          "spawn_date": "2026-10-01T00:00:00+00:00"
+        }
+      ],
+      "bounties": [],
+      "military_research": {
+        "ground_cost": 2,
+        "ground_capacity": 1,
+        "air_cost": 0,
+        "air_capacity": 0,
+        "naval_cost": 0,
+        "naval_capacity": 0
+      },
+      "cities": [],
+      "wars": []
+    },
+    {
+      "id": 998877,
+      "nation_name": "Sleepy",
+      "leader_name": "Cy",
+      "alliance_id": 0,
+      "alliance_position": "NOALLIANCE",
+      "alliance_position_id": 0,
+      "war_policy": "ATTRITION",
+      "num_cities": 5,
+      "score": 300.0,
+      "vacation_mode_turns": 48,
+      "beige_turns": 0,
+      "last_active": "2026-11-01T00:00:00+00:00",
+      "date": "2024-05-05T05:05:05+00:00",
+      "alliance_join_date": null,
+      "tax_id": 0,
+      "alliance": null,
+      "treasures": [],
+      "military_research": null,
+      "wars": null
+    }
+  ]
+}
