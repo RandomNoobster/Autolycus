@@ -402,7 +402,7 @@ def verify_discord_link() -> tuple[Any, int]:
                 "code": "AUTH_REQUIRED",
             }), 401
 
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         nation_input = str(data.get("nationId") or "").strip()
         if not nation_input:
             return jsonify({
@@ -513,7 +513,7 @@ def generate_access_token() -> tuple[Any, int]:
         }
     """
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         
         # Extract parameters with defaults
         user_id = data.get('user_id')
@@ -631,7 +631,7 @@ def issue_discord_token_code() -> tuple[Any, int]:
                 'code': 'UNAUTHORIZED'
             }), 401
 
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         user_id = data.get('user_id')
         data_type = data.get('data_type', 'raids')
         expires_in = data.get('expires_in', 3600)
@@ -711,7 +711,7 @@ def issue_discord_token_code() -> tuple[Any, int]:
 def exchange_token_code() -> tuple[Any, int]:
     """Exchange a short-lived auth code for a signed access token."""
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         code = data.get('code')
         if not code:
             return jsonify({
@@ -799,7 +799,7 @@ def verify_access_token() -> tuple[Any, int]:
         from api.security import (TokenExpiredError, TokenInvalidError,
                                   verify_token)
         
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         token = data.get('token')
         
         if not token:
