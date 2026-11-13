@@ -8,7 +8,7 @@ from . import queries
 from logic import economy as economy_logic
 from logic.common import normalize_war_type, weird_division
 from logic.merge_utils import get_query
-from logic.military import calculate_win_chance_raw
+from logic.military import calculate_win_chance_raw, unit_buy_costs
 
 logger = logging.getLogger(__name__)
 
@@ -489,6 +489,9 @@ def _battle_infra(
 def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: str) -> None:
     att = results[attacker]
     dfn = results[defender]
+    # Lost units are valued at their owner's buy cost after Efficiency research.
+    att_cost = unit_buy_costs(att)
+    dfn_cost = unit_buy_costs(dfn)
     city_infra = dfn["city"]["infrastructure"]
     city_land = dfn["city"]["land"]
     ground_win_rate = results[f"{attacker}_ground_win_rate"]
@@ -583,14 +586,14 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
     results[f"{attacker}_ground_{attacker}_gas"] = att["tanks"] * 0.01
     results[f"{attacker}_ground_{attacker}_alum"] = 0
     results[f"{attacker}_ground_{attacker}_steel"] = (
-        results[f"{attacker}_ground_{attacker}_avg_tanks"] * 0.5
-        - _salvage(results, attacker, ground_win_rate, results[f"{attacker}_ground_{attacker}_avg_tanks"] * 0.5)
-        - _salvage(results, attacker, ground_win_rate, results[f"{attacker}_ground_{defender}_avg_tanks"] * 0.5)
+        results[f"{attacker}_ground_{attacker}_avg_tanks"] * att_cost["tanks"]["steel"]
+        - _salvage(results, attacker, ground_win_rate, results[f"{attacker}_ground_{attacker}_avg_tanks"] * att_cost["tanks"]["steel"])
+        - _salvage(results, attacker, ground_win_rate, results[f"{attacker}_ground_{defender}_avg_tanks"] * dfn_cost["tanks"]["steel"])
     )
     results[f"{attacker}_ground_{attacker}_money"] = (
         -results[f"{attacker}_ground_loot_avg"]
-        + results[f"{attacker}_ground_{attacker}_avg_tanks"] * 60
-        + results[f"{attacker}_ground_{attacker}_avg_soldiers"] * 5
+        + results[f"{attacker}_ground_{attacker}_avg_tanks"] * att_cost["tanks"]["money"]
+        + results[f"{attacker}_ground_{attacker}_avg_soldiers"] * att_cost["soldiers"]["money"]
     )
     results[f"{attacker}_ground_{attacker}_total"] = _cost_total(results, f"{attacker}_ground_{attacker}")
 
@@ -608,13 +611,13 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
         base_gas * (1 - results[f"{attacker}_ground_fail"])
         + min(base_gas, results[f"{attacker}_ground_{attacker}_gas"]) * results[f"{attacker}_ground_fail"]
     )
-    results[f"{attacker}_ground_{defender}_alum"] = results[f"{attacker}_ground_{defender}_avg_aircraft"] * 10
-    results[f"{attacker}_ground_{defender}_steel"] = results[f"{attacker}_ground_{defender}_avg_tanks"] * 0.5
+    results[f"{attacker}_ground_{defender}_alum"] = results[f"{attacker}_ground_{defender}_avg_aircraft"] * dfn_cost["aircraft"]["aluminum"]
+    results[f"{attacker}_ground_{defender}_steel"] = results[f"{attacker}_ground_{defender}_avg_tanks"] * dfn_cost["tanks"]["steel"]
     results[f"{attacker}_ground_{defender}_money"] = (
         results[f"{attacker}_ground_loot_avg"]
-        + results[f"{attacker}_ground_{defender}_avg_aircraft"] * 4000
-        + results[f"{attacker}_ground_{defender}_avg_tanks"] * 60
-        + results[f"{attacker}_ground_{defender}_avg_soldiers"] * 5
+        + results[f"{attacker}_ground_{defender}_avg_aircraft"] * dfn_cost["aircraft"]["money"]
+        + results[f"{attacker}_ground_{defender}_avg_tanks"] * dfn_cost["tanks"]["money"]
+        + results[f"{attacker}_ground_{defender}_avg_soldiers"] * dfn_cost["soldiers"]["money"]
         + results[f"{attacker}_ground_{defender}_lost_infra_avg_value"]
     )
     results[f"{attacker}_ground_{defender}_total"] = _cost_total(results, f"{attacker}_ground_{defender}")
@@ -641,39 +644,39 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
         ("airvships", "airvother"),
     ]:
         results[f"{attacker}_{attack}_{attacker}_alum"] = (
-            results[f"{attacker}_{casualties}_{attacker}_avg"] * 10
-            - _salvage(results, attacker, air_win_rate, results[f"{attacker}_{casualties}_{attacker}_avg"] * 10)
-            - _salvage(results, attacker, air_win_rate, results[f"{attacker}_{casualties}_{defender}_avg"] * 10)
+            results[f"{attacker}_{casualties}_{attacker}_avg"] * att_cost["aircraft"]["aluminum"]
+            - _salvage(results, attacker, air_win_rate, results[f"{attacker}_{casualties}_{attacker}_avg"] * att_cost["aircraft"]["aluminum"])
+            - _salvage(results, attacker, air_win_rate, results[f"{attacker}_{casualties}_{defender}_avg"] * dfn_cost["aircraft"]["aluminum"])
         )
         results[f"{attacker}_{attack}_{attacker}_steel"] = 0
-        results[f"{attacker}_{attack}_{attacker}_money"] = results[f"{attacker}_{casualties}_{attacker}_avg"] * 4000
+        results[f"{attacker}_{attack}_{attacker}_money"] = results[f"{attacker}_{casualties}_{attacker}_avg"] * att_cost["aircraft"]["money"]
         results[f"{attacker}_{attack}_{attacker}_total"] = _cost_total(results, f"{attacker}_{attack}_{attacker}")
 
-    results[f"{attacker}_airvair_{defender}_alum"] = results[f"{attacker}_airvair_{defender}_avg"] * 10
+    results[f"{attacker}_airvair_{defender}_alum"] = results[f"{attacker}_airvair_{defender}_avg"] * dfn_cost["aircraft"]["aluminum"]
     results[f"{attacker}_airvair_{defender}_steel"] = 0
     results[f"{attacker}_airvair_{defender}_money"] = (
-        results[f"{attacker}_airvair_{defender}_avg"] * 4000
+        results[f"{attacker}_airvair_{defender}_avg"] * dfn_cost["aircraft"]["money"]
         + results[f"{attacker}_air_{defender}_lost_infra_avg_value"] * 1 / 3
     )
 
-    results[f"{attacker}_airvinfra_{defender}_alum"] = results[f"{attacker}_airvother_{defender}_avg"] * 10
+    results[f"{attacker}_airvinfra_{defender}_alum"] = results[f"{attacker}_airvother_{defender}_avg"] * dfn_cost["aircraft"]["aluminum"]
     results[f"{attacker}_airvinfra_{defender}_steel"] = 0
     results[f"{attacker}_airvinfra_{defender}_money"] = (
-        results[f"{attacker}_airvother_{defender}_avg"] * 4000
+        results[f"{attacker}_airvother_{defender}_avg"] * dfn_cost["aircraft"]["money"]
         + results[f"{attacker}_air_{defender}_lost_infra_avg_value"]
     )
 
     for suffix, destroy_key, unit_price in [
-        ("airvsoldiers", "soldiers_destroyed", 5),
-        ("airvtanks", "tanks_destroyed", 60),
-        ("airvships", "ships_destroyed", 50000),
+        ("airvsoldiers", "soldiers_destroyed", dfn_cost["soldiers"]["money"]),
+        ("airvtanks", "tanks_destroyed", dfn_cost["tanks"]["money"]),
+        ("airvships", "ships_destroyed", dfn_cost["ships"]["money"]),
     ]:
-        results[f"{attacker}_{suffix}_{defender}_alum"] = results[f"{attacker}_airvother_{defender}_avg"] * 10
+        results[f"{attacker}_{suffix}_{defender}_alum"] = results[f"{attacker}_airvother_{defender}_avg"] * dfn_cost["aircraft"]["aluminum"]
         results[f"{attacker}_{suffix}_{defender}_steel"] = (
-            0 if suffix != "airvtanks" else results[f"{attacker}_air_{defender}_tanks_destroyed_avg"] * 0.5
+            0 if suffix != "airvtanks" else results[f"{attacker}_air_{defender}_tanks_destroyed_avg"] * dfn_cost["tanks"]["steel"]
         )
         results[f"{attacker}_{suffix}_{defender}_money"] = (
-            results[f"{attacker}_airvother_{defender}_avg"] * 4000
+            results[f"{attacker}_airvother_{defender}_avg"] * dfn_cost["aircraft"]["money"]
             + results[f"{attacker}_air_{defender}_lost_infra_avg_value"] * 1 / 3
             + results[f"{attacker}_air_{defender}_{destroy_key}_avg"] * unit_price
         )
@@ -689,11 +692,11 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
         results[f"{attacker}_{tactic}_{attacker}_gas"] = att["ships"] * 1.0
         results[f"{attacker}_{tactic}_{attacker}_alum"] = 0
         results[f"{attacker}_{tactic}_{attacker}_steel"] = (
-            results[f"{attacker}_{tactic}_{attacker}_avg"] * 30
-            - _salvage(results, attacker, naval_win_rate, results[f"{attacker}_{tactic}_{attacker}_avg"] * 30)
-            - _salvage(results, attacker, naval_win_rate, results[f"{attacker}_{tactic}_{defender}_avg"] * 30)
+            results[f"{attacker}_{tactic}_{attacker}_avg"] * att_cost["ships"]["steel"]
+            - _salvage(results, attacker, naval_win_rate, results[f"{attacker}_{tactic}_{attacker}_avg"] * att_cost["ships"]["steel"])
+            - _salvage(results, attacker, naval_win_rate, results[f"{attacker}_{tactic}_{defender}_avg"] * dfn_cost["ships"]["steel"])
         )
-        results[f"{attacker}_{tactic}_{attacker}_money"] = results[f"{attacker}_{tactic}_{attacker}_avg"] * 50000
+        results[f"{attacker}_{tactic}_{attacker}_money"] = results[f"{attacker}_{tactic}_{attacker}_avg"] * att_cost["ships"]["money"]
         results[f"{attacker}_{tactic}_{attacker}_total"] = _cost_total(results, f"{attacker}_{tactic}_{attacker}")
 
         base_mun = dfn["ships"] * 1.75 * _defender_consumption(naval_win_rate)
@@ -707,10 +710,10 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
             + min(base_gas, results[f"{attacker}_{tactic}_{attacker}_gas"]) * results[f"{attacker}_naval_fail"]
         )
         results[f"{attacker}_{tactic}_{defender}_alum"] = 0
-        results[f"{attacker}_{tactic}_{defender}_steel"] = results[f"{attacker}_{tactic}_{defender}_avg"] * 30
+        results[f"{attacker}_{tactic}_{defender}_steel"] = results[f"{attacker}_{tactic}_{defender}_avg"] * dfn_cost["ships"]["steel"]
         results[f"{attacker}_{tactic}_{defender}_money"] = (
             results[f"{attacker}_{tactic}_{defender}_lost_infra_avg_value"]
-            + results[f"{attacker}_{tactic}_{defender}_avg"] * 50000
+            + results[f"{attacker}_{tactic}_{defender}_avg"] * dfn_cost["ships"]["money"]
         )
         results[f"{attacker}_{tactic}_{defender}_total"] = _cost_total(results, f"{attacker}_{tactic}_{defender}")
         results[f"{attacker}_{tactic}_net"] = (

@@ -4,14 +4,86 @@ import math
 from typing import Any
 
 
-def max_units(barracks: int, factories: int, hangars: int, drydocks: int, population: float) -> dict[str, int]:
-    """Unit caps from military improvements, each also limited by population."""
+# --- Military research -------------------------------------------------------
+# Effects per level, from the in-game Military Research page (2026-11-13; see
+# .ctx/military_research_canon.md). The page shows only the step from level 0
+# to 1; every level up to 20 is assumed to
+# add the same step. Capacity research raises unit caps and cuts upkeep;
+# Efficiency ("cost") research cuts buy costs and raises daily recruitment.
+RESEARCH_MAX_LEVEL = 20
+RESEARCH_FIELDS = ("ground_capacity", "ground_cost", "air_capacity", "air_cost", "naval_capacity", "naval_cost")
+UNIT_BRANCH = {'soldiers': 'ground', 'tanks': 'ground', 'aircraft': 'air', 'ships': 'naval'}
+
+CAPACITY_PER_LEVEL = {'soldiers': 3000, 'tanks': 250, 'aircraft': 15, 'ships': 5}
+REBUY_PER_LEVEL = {'soldiers': 2000, 'tanks': 100, 'aircraft': 6, 'ships': 2}
+
+# Buy cost per unit at level 0, and the cut per Efficiency level.
+BASE_UNIT_COST = {
+    'soldiers': {'money': 5.0},
+    'tanks': {'money': 60.0, 'steel': 0.5},
+    'aircraft': {'money': 4000.0, 'aluminum': 10.0},
+    'ships': {'money': 50000.0, 'steel': 30.0},
+}
+UNIT_COST_CUT_PER_LEVEL = {
+    'soldiers': {'money': 0.1},
+    'tanks': {'money': 1.0, 'steel': 0.01},
+    'aircraft': {'money': 50.0, 'aluminum': 0.2},
+    'ships': {'money': 500.0, 'steel': 0.5},
+}
+
+# Money upkeep per unit at level 0 as (peace, war), and the cut per Capacity level.
+BASE_UPKEEP = {'soldiers': (1.25, 1.88), 'tanks': (50.0, 75.0), 'aircraft': (750.0, 1000.0), 'ships': (3300.0, 5000.0)}
+UPKEEP_CUT_PER_LEVEL = {'soldiers': (0.04, 0.06), 'tanks': (2.0, 3.0), 'aircraft': (30.0, 20.0), 'ships': (60.0, 100.0)}
+# Soldiers eat 1 food per this many soldiers as (peace, war); Ground Capacity adds to it.
+SOLDIERS_PER_FOOD = (750, 500)
+SOLDIERS_PER_FOOD_PER_LEVEL = (20, 30)
+
+
+def research_levels(nation: dict[str, Any]) -> dict[str, int]:
+    """The nation's six research levels, clamped to 0..20 (missing or hidden = 0)."""
+    research = nation.get('military_research') or {}
+    levels = {}
+    for field in RESEARCH_FIELDS:
+        try:
+            level = int(research.get(field) or 0)
+        except (TypeError, ValueError):
+            level = 0
+        levels[field] = min(max(level, 0), RESEARCH_MAX_LEVEL)
+    return levels
+
+
+def unit_buy_costs(nation: dict[str, Any]) -> dict[str, dict[str, float]]:
+    """Per-unit buy cost after Efficiency research: ``{unit: {resource: amount}}``."""
+    levels = research_levels(nation)
     return {
-        'soldiers': max(0, math.floor(min(3000 * barracks, population / 6.67))),
-        'tanks': max(0, math.floor(min(250 * factories, population / 66.67))),
-        'aircraft': max(0, math.floor(min(15 * hangars, population / 1000))),
-        'ships': max(0, math.floor(min(5 * drydocks, population / 10000))),
+        unit: {
+            resource: amount - UNIT_COST_CUT_PER_LEVEL[unit][resource] * levels[f"{UNIT_BRANCH[unit]}_cost"]
+            for resource, amount in costs.items()
+        }
+        for unit, costs in BASE_UNIT_COST.items()
     }
+
+
+def max_units(
+    barracks: int, factories: int, hangars: int, drydocks: int, population: float,
+    levels: dict[str, int] | None = None,
+) -> dict[str, int]:
+    """Unit caps from military improvements plus Capacity research, each also limited by population.
+
+    ``levels`` comes from research_levels(); without it no research is counted.
+    """
+    levels = levels or {}
+    improvement_caps = {
+        'soldiers': (3000 * barracks, population / 6.67),
+        'tanks': (250 * factories, population / 66.67),
+        'aircraft': (15 * hangars, population / 1000),
+        'ships': (5 * drydocks, population / 10000),
+    }
+    caps = {}
+    for unit, (from_improvements, from_population) in improvement_caps.items():
+        bonus = CAPACITY_PER_LEVEL[unit] * levels.get(f"{UNIT_BRANCH[unit]}_capacity", 0)
+        caps[unit] = max(0, math.floor(min(from_improvements + bonus, from_population)))
+    return caps
 
 
 def militarization_checker(nation: dict[str, Any]) -> dict[str, float]:
@@ -26,15 +98,18 @@ def militarization_checker(nation: dict[str, Any]) -> dict[str, float]:
     milt['factory_mmr'] = round(factories / cities, 1)
     milt['hangar_mmr'] = round(hangars / cities, 1)
     milt['drydock_mmr'] = round(drydocks / cities, 1)
-    caps = max_units(barracks, factories, hangars, drydocks, nation['population'])
+    levels = research_levels(nation)
+    caps = max_units(barracks, factories, hangars, drydocks, nation['population'], levels)
     for unit, cap in caps.items():
         milt[f'max_{unit}'] = cap
-    # Propaganda Bureau recruits 10% more per day (.ctx/projects_canon.md).
+    # Daily recruitment comes from the improvements (a third of the soldier cap,
+    # a fifth of the others) plus Efficiency research; Capacity research does
+    # not raise it. Propaganda Bureau recruits 10% more (.ctx/projects_canon.md).
     pg_mod = int(bool(nation.get("propaganda_bureau"))) * 0.1 + 1
-    milt['soldiers_daily'] = round(milt['max_soldiers']/3) * pg_mod
-    milt['tanks_daily'] = round(milt['max_tanks']/5) * pg_mod
-    milt['aircraft_daily'] = round(milt['max_aircraft']/5) * pg_mod
-    milt['ships_daily'] = round(milt['max_ships']/5) * pg_mod
+    base_caps = max_units(barracks, factories, hangars, drydocks, nation['population'])
+    for unit, share in (('soldiers', 3), ('tanks', 5), ('aircraft', 5), ('ships', 5)):
+        rebuy = REBUY_PER_LEVEL[unit] * levels[f"{UNIT_BRANCH[unit]}_cost"]
+        milt[f'{unit}_daily'] = (round(base_caps[unit] / share) + rebuy) * pg_mod
     return milt
 
 

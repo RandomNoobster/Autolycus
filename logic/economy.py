@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import math
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 
@@ -24,24 +24,42 @@ def _domestic_policy(nation: dict[str, Any]) -> str:
     return str(raw).strip().upper().replace(' ', '_')
 
 
+_CENT = Decimal("0.01")
+
+
+def _round2(value: float) -> float:
+    """PHP's round($value, 2): halves go away from zero on the number as written,
+    so 2.675 -> 2.68 where Python's round() gives 2.67."""
+    return float(Decimal(repr(value)).quantize(_CENT, rounding=ROUND_HALF_UP))
+
+
+def _infra_unit_price(amount: float) -> float:
+    return _round2(abs(amount - 10) ** 2.2 / 710 + 300)
+
+
 def infra_cost(starting_infra: float, ending_infra: float, nation: Optional[dict[str, Any]] = None) -> float:
-    def unit_cost(amount: float):
-        return ((abs(amount - 10) ** 2.2) / 710) + 300
-    difference = ending_infra - starting_infra
-    cost = 0
+    """Cost to go from ``starting_infra`` to ``ending_infra``; negative is the $150/point sale refund.
+
+    Follows the game's calcInfraValue (PHP, on the Fandom "City Formulas" page).
+    Both ends are rounded to 2 decimals. A buy is priced in chunks, each at the
+    unit price where the chunk starts. While more than 100 is left, the next
+    chunk is ``difference % 100``, or 100 when that is 0, and the rest is the
+    last chunk. PHP's ``%`` truncates to whole numbers first, so for 150.5 the
+    first chunk is 50 and the fraction ends up in the last chunk.
+    """
+    start = _round2(starting_infra)
+    end = _round2(ending_infra)
+    difference = end - start
     if difference < 0:
         return 150 * difference
-    if difference > 100 and difference % 100 != 0:
-        delta = difference % 100
-        cost += (round(unit_cost(starting_infra), 2) * delta)
-        starting_infra += delta
-        difference -= delta
-    for _ in range(math.floor(difference // 100)):
-        cost += round(unit_cost(starting_infra), 2) * 100
-        starting_infra += 100
-        difference -= 100
-    if difference:
-        cost += (round(unit_cost(starting_infra), 2) * difference)
+    cost = 0.0
+    while difference > 100:
+        chunk = int(difference) % 100 or 100
+        cost += _infra_unit_price(start) * chunk
+        start = _round2(start + chunk)
+        difference = end - start
+    if difference > 0:
+        cost += _infra_unit_price(start) * difference
     multiplier = 1
     if nation:
         if nation.get('center_for_civil_engineering'):

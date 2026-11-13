@@ -1896,15 +1896,27 @@ type War {
 
   # How many missiles the attacker has launched
   att_missiles_used: Int
+    @deprecated(
+      reason: "Use `attacks.att_missiles_lost` instead. This will always return 0"
+    )
 
   # How many missiles the defender has launched
   def_missiles_used: Int
+    @deprecated(
+      reason: "Use `attacks.def_missiles_lost` instead. This will always return 0"
+    )
 
   # How many nukes the attacker has launched
   att_nukes_used: Int
+    @deprecated(
+      reason: "Use `attacks.att_nukes_lost` instead. This will always return 0"
+    )
 
   # How many nukes the defender has launched
   def_nukes_used: Int
+    @deprecated(
+      reason: "Use `attacks.def_nukes_lost` instead. This will always return 0"
+    )
 
   # The value of infrastructure destroyed by the attacker
   att_infra_destroyed_value: Float

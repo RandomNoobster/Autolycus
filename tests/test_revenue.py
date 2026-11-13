@@ -79,12 +79,14 @@ def test_open_markets_bonus_is_shown_as_a_gain():
     assert "Open Markets Bonus: $-" not in result["income_txt"]
 
 
-def test_military_upkeep_uses_research_adjusted_rates():
+def test_military_upkeep_uses_capacity_research():
     from logic.revenue import calculate_military_upkeep, unit_upkeep_rates
 
     nation = {
         "soldiers": 100_000, "tanks": 1_000, "aircraft": 100, "ships": 10, "missiles": 1, "nukes": 1,
-        "military_research": {"ground_cost": 2, "air_cost": 1, "naval_cost": 0},
+        # Efficiency ("cost") research lowers buy costs, not upkeep.
+        "military_research": {"ground_capacity": 2, "air_capacity": 1, "naval_capacity": 0,
+                              "ground_cost": 20, "air_cost": 20, "naval_cost": 20},
         "wars": [],
     }
     upkeep, food = calculate_military_upkeep(nation, {})
@@ -94,4 +96,19 @@ def test_military_upkeep_uses_research_adjusted_rates():
     )
     assert food == pytest.approx(100_000 / (750 + 40))
     war_rates = unit_upkeep_rates({"military_research": None}, at_war=True)
-    assert war_rates["soldiers"][0] == 1.88 and war_rates["ships"][0] == 5000
+    assert war_rates["soldiers"] == (1.88, 1 / 500) and war_rates["ships"][0] == 5000
+
+
+def test_war_upkeep_matches_the_research_page_at_level_one():
+    """Level 0 -> 1 values from the in-game Military Research page."""
+    from logic.revenue import unit_upkeep_rates
+
+    research = {"ground_capacity": 1, "air_capacity": 1, "naval_capacity": 1}
+    peace = unit_upkeep_rates({"military_research": research}, at_war=False)
+    war = unit_upkeep_rates({"military_research": research}, at_war=True)
+
+    assert peace["soldiers"] == pytest.approx((1.21, 1 / 770))
+    assert war["soldiers"] == pytest.approx((1.82, 1 / 530))
+    assert (peace["tanks"][0], war["tanks"][0]) == (48, 72)
+    assert (peace["aircraft"][0], war["aircraft"][0]) == (720, 980)
+    assert (peace["ships"][0], war["ships"][0]) == (3240, 4900)

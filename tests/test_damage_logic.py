@@ -136,6 +136,26 @@ def test_fortified_defender_raises_the_attackers_casualties():
         assert fortified[key] == plain[key], key
 
 
+def test_lost_units_are_valued_at_the_owners_researched_cost():
+    efficient = {"military_research": {"ground_cost": 10, "air_cost": 10, "naval_cost": 10}}
+    base = _calc(_nation(1), _nation(2))
+    cheap_defender = _calc(_nation(1), _nation(2, **efficient))
+
+    # The defender's research lowers the value of what it loses...
+    soldiers = base["nation1_ground_nation2_avg_soldiers"]
+    tanks = base["nation1_ground_nation2_avg_tanks"]
+    aircraft = base["nation1_ground_nation2_avg_aircraft"]
+    assert base["nation1_ground_nation2_money"] - cheap_defender["nation1_ground_nation2_money"] == pytest.approx(
+        soldiers * 1 + tanks * 10 + aircraft * 500
+    )
+    assert cheap_defender["nation1_navalvships_nation2_steel"] == pytest.approx(
+        base["nation1_navalvships_nation2_avg"] * 25
+    )
+    # ...and leaves the attacker's own losses alone.
+    for key in ("nation1_ground_nation1_money", "nation1_airvair_nation1_money", "nation1_navalvships_nation1_steel"):
+        assert cheap_defender[key] == pytest.approx(base[key]), key
+
+
 def test_military_salvage_lowers_naval_steel_cost():
     without = _calc(_nation(1), _nation(2, ships=150))
     with_salvage = _calc(_nation(1, military_salvage=True), _nation(2, ships=150))

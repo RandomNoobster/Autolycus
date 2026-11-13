@@ -18,13 +18,62 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from logic.economy import infra_cost, infra_rebuild_cost
 
 
+def _php_round2(value):
+    from decimal import ROUND_HALF_UP, Decimal
+
+    return float(Decimal(repr(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _php_calc_infra_value(start, end):
+    """Line-by-line port of the game's calcInfraValue (Fandom "City Formulas"), used as the oracle.
+
+    PHP's ``%`` truncates both sides to integers before taking the remainder.
+    """
+    start, end = _php_round2(start), _php_round2(end)
+    difference = end - start
+    if difference == 0:
+        return 0
+    if difference < 0:
+        return 150 * difference
+    price = _php_round2(abs(start - 10) ** 2.2 / 710 + 300)
+    if difference > 100 and int(difference) % 100 == 0:
+        return price * 100 + _php_calc_infra_value(start + 100, end)
+    if difference > 100 and int(difference) % 100 != 0:
+        remainder = int(difference) % 100
+        return price * remainder + _php_calc_infra_value(start + remainder, end)
+    return price * difference
+
+
 class TestInfraCost:
     """Test suite for infrastructure cost calculation.
-    
-    Per PWPedia "Infrastructure" article:
-    Infrastructure has a bulk discount; prices come in batches of 500.
-    Each batch of 500 levels costs proportionally to the starting point.
+
+    Per the game's calcInfraValue (Fandom "City Formulas"): a buy is priced in
+    chunks of up to 100, each at the unit price where the chunk starts.
     """
+
+    @pytest.mark.parametrize("start,end", [
+        (0, 1), (0, 100), (1000, 1500), (1000, 1550), (10, 110),
+        (1000.5, 1150), (1523.45, 2000), (2245.6, 2345.6), (999.99, 1000.01), (100.25, 3999.75),
+    ])
+    def test_matches_the_games_formula(self, start, end):
+        assert infra_cost(start, end) == pytest.approx(_php_calc_infra_value(start, end), rel=1e-12)
+
+    def test_fractional_remainder_goes_into_the_last_chunk(self):
+        # PHP truncates 149.5 % 100 to 49: chunks of 49, 100 and 0.5.
+        def price(amount):
+            return _php_round2(abs(amount - 10) ** 2.2 / 710 + 300)
+
+        expected = price(1000.5) * 49 + price(1049.5) * 100 + price(1149.5) * 0.5
+        assert infra_cost(1000.5, 1150) == pytest.approx(expected)
+
+    def test_prices_round_halves_up_like_php(self):
+        from logic.economy import _round2
+
+        assert _round2(2.675) == 2.68  # Python's round() gives 2.67
+        assert _round2(1.005) == 1.01
+
+    def test_selling_refunds_150_per_point(self):
+        assert infra_cost(1500, 1400.5) == pytest.approx(-150 * 99.5)
 
     def test_single_level_from_zero(self):
         """Test building single infrastructure level from zero."""

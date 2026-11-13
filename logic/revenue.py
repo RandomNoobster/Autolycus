@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     import discord
 
 from infra.cache import cache_game_context
+from logic import military
 
 logger = logging.getLogger(__name__)
 
@@ -526,28 +527,20 @@ def unit_upkeep_rates(nation: dict[str, Any], *, at_war: bool) -> dict[str, tupl
     """Daily ``(money, food)`` upkeep per unit after the nation's military research.
 
     Shared by nation revenue and the builds calculator so the two can't drift.
+    Capacity research cuts upkeep; Efficiency ("cost") research does not.
     """
-    research = nation.get('military_research') or {}
-    ground = research.get('ground_cost') or 0
-    air = research.get('air_cost') or 0
-    naval = research.get('naval_cost') or 0
-    if at_war:
-        return {
-            'soldiers': (1.88 - 0.06 * ground, 1 / (500 + 30 * ground)),
-            'tanks': (75 - 3 * ground, 0.0),
-            'aircraft': (1000 - 20 * air, 0.0),
-            'ships': (5000 - 100 * naval, 0.0),
-            'missiles': (31500, 0.0),
-            'nukes': (52500, 0.0),
-        }
-    return {
-        'soldiers': (1.25 - 0.04 * ground, 1 / (750 + 20 * ground)),
-        'tanks': (50 - 2 * ground, 0.0),
-        'aircraft': (750 - 30 * air, 0.0),
-        'ships': (3300 - 60 * naval, 0.0),
-        'missiles': (21000, 0.0),
-        'nukes': (35000, 0.0),
-    }
+    levels = military.research_levels(nation)
+    side = 1 if at_war else 0
+    rates = {}
+    for unit, base in military.BASE_UPKEEP.items():
+        level = levels[f"{military.UNIT_BRANCH[unit]}_capacity"]
+        rates[unit] = (base[side] - military.UPKEEP_CUT_PER_LEVEL[unit][side] * level, 0.0)
+    ground = levels['ground_capacity']
+    soldiers_per_food = military.SOLDIERS_PER_FOOD[side] + military.SOLDIERS_PER_FOOD_PER_LEVEL[side] * ground
+    rates['soldiers'] = (rates['soldiers'][0], 1 / soldiers_per_food)
+    rates['missiles'] = (31500, 0.0) if at_war else (21000, 0.0)
+    rates['nukes'] = (52500, 0.0) if at_war else (35000, 0.0)
+    return rates
 
 
 def calculate_military_upkeep(nation: dict[str, Any], modifiers: dict[str, float], include_spies: bool = False) -> tuple[float, float]:

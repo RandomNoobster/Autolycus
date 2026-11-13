@@ -5,8 +5,12 @@ import time
 import json
 import logging
 import os
+import sys
 from markdownify import markdownify as md
 from core.logging_config import setup_logging
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scrape_guard import BotBlockedError, check_response, partial_path, publish  # noqa: E402
 
 # --- CONFIGURATION ---
 START_URL = "https://politicsandwar.com/pwpedia/index"
@@ -72,7 +76,9 @@ class PWPediaCrawler:
         for i in range(retries):
             try:
                 response = self.session.get(url, timeout=10)
-                
+                # A bot challenge or rate limit stops the whole crawl (BotBlockedError).
+                check_response(response)
+
                 # Check for HTTP errors (404, 500, etc.)
                 if response.status_code != 200:
                     logging.warning(f"Status {response.status_code} for {url}")
@@ -93,41 +99,48 @@ class PWPediaCrawler:
         logging.info(f"Starting Crawl at {self.start_url}...")
         logging.info(f"Saving data to: {self.output_file}")
         
-        # Open file in 'w' (Write) mode. 
-        # This guarantees we overwrite old data with fresh data every time the script runs.
-        with open(self.output_file, 'w', encoding='utf-8') as f:
-            
-            while self.queue:
-                current_url = self.queue.pop(0)
-                
-                # Skip if already visited
-                if current_url in self.visited:
-                    continue
-                
-                self.visited.add(current_url)
-                
-                # 1. Fetch the Raw HTML
-                html = self.fetch_page(current_url)
-                if not html:
-                    continue
-
-                # 2. Parse HTML
-                soup = BeautifulSoup(html, 'html.parser')
-
-                # 3. HARVEST LINKS (Check the ENTIRE page)
-                # We do this on the whole 'soup' object to ensure we catch links 
-                # in sidebars, footers, and headers, not just the content area.
-                self.find_new_links(soup, current_url)
-
-                # 4. EXTRACT CONTENT (Narrow down to .ck-content)
-                # We only save data if the specific content class exists.
-                self.extract_and_save_content(soup, current_url, f)
-
-                # Politeness delay
-                time.sleep(DELAY)
-
+        # Write to a partial file and replace the old dump only when the crawl
+        # finishes, so a blocked run keeps the last good data.
+        with open(partial_path(self.output_file), 'w', encoding='utf-8') as f:
+            try:
+                self._crawl(f)
+            except BotBlockedError as e:
+                logging.error(f"Blocked by the site, stopping. Previous dump kept. {e}")
+                return False
+        publish(self.output_file)
         logging.info("Crawl Completed.")
         logging.info(f"Total pages crawled: {len(self.visited)}")
+        return True
+
+    def _crawl(self, f):
+        while self.queue:
+            current_url = self.queue.pop(0)
+            
+            # Skip if already visited
+            if current_url in self.visited:
+                continue
+            
+            self.visited.add(current_url)
+            
+            # 1. Fetch the Raw HTML
+            html = self.fetch_page(current_url)
+            if not html:
+                continue
+
+            # 2. Parse HTML
+            soup = BeautifulSoup(html, 'html.parser')
+
+            # 3. HARVEST LINKS (Check the ENTIRE page)
+            # We do this on the whole 'soup' object to ensure we catch links 
+            # in sidebars, footers, and headers, not just the content area.
+            self.find_new_links(soup, current_url)
+
+            # 4. EXTRACT CONTENT (Narrow down to .ck-content)
+            # We only save data if the specific content class exists.
+            self.extract_and_save_content(soup, current_url, f)
+
+            # Politeness delay
+            time.sleep(DELAY)
 
     def find_new_links(self, soup, current_url):
         """
@@ -191,4 +204,4 @@ class PWPediaCrawler:
 # --- ENTRY POINT ---
 if __name__ == "__main__":
     crawler = PWPediaCrawler(START_URL, OUTPUT_FILE)
-    crawler.process_queue()
+    raise SystemExit(0 if crawler.process_queue() else 2)

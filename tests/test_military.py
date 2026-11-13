@@ -246,3 +246,39 @@ class TestMilitarizationChecker:
         assert milt["max_ships"] == 15
         assert milt["soldiers_daily"] == pytest.approx(10_000 * 1.1)
         assert milt["ships_daily"] == pytest.approx(3 * 1.1)
+
+    def test_capacity_research_raises_caps_and_efficiency_raises_daily(self):
+        from logic.military import militarization_checker
+
+        nation = {
+            "population": 1_000_000,
+            "cities": [{"barracks": 5, "factory": 5, "airforcebase": 5, "drydock": 3}],
+            # Scanner rows can carry levels as strings; above-max levels are clamped to 20.
+            "military_research": {"ground_capacity": "2", "air_capacity": 1, "naval_capacity": 99,
+                                  "ground_cost": 1, "air_cost": 0, "naval_cost": None},
+        }
+
+        milt = militarization_checker(nation)
+
+        assert milt["max_soldiers"] == 15_000 + 2 * 3000
+        assert milt["max_tanks"] == 1_250 + 2 * 250
+        assert milt["max_aircraft"] == 75 + 15
+        assert milt["max_ships"] == min(15 + 20 * 5, 1_000_000 // 10_000)  # population still caps ships
+        # Capacity does not raise daily recruitment; Efficiency adds its rebuy.
+        assert milt["soldiers_daily"] == 5_000 + 2_000
+        assert milt["tanks_daily"] == 250 + 100
+        assert milt["aircraft_daily"] == 15
+        assert milt["ships_daily"] == 3
+
+    def test_unit_buy_costs_follow_efficiency_research(self):
+        from logic.military import unit_buy_costs
+
+        base = unit_buy_costs({})
+        researched = unit_buy_costs({"military_research": {"ground_cost": 1, "air_cost": 1, "naval_cost": 1,
+                                                           "ground_capacity": 20}})
+
+        assert base["tanks"] == {"money": 60, "steel": 0.5}
+        assert researched["soldiers"]["money"] == pytest.approx(4.9)
+        assert researched["tanks"] == pytest.approx({"money": 59, "steel": 0.49})
+        assert researched["aircraft"] == pytest.approx({"money": 3950, "aluminum": 9.8})
+        assert researched["ships"] == pytest.approx({"money": 49_500, "steel": 29.5})
