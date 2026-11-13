@@ -28,7 +28,7 @@ from logic import api_client
 from logic import military as military_logic
 from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
-from logic.revenue import pre_revenue_calc, revenue_calc
+from logic.revenue import pre_revenue_calc, revenue_calc_sync
 from database.sqlite_cache import (
     find_nation as sqlite_find_nation,
     get_all_nations,
@@ -726,7 +726,7 @@ class TargetFinding(commands.Cog):
                 else: 
                     target['taxable'] = False
 
-                rev_obj = await revenue_calc(ctx, target, radiation, treasures, prices, colors, seasonal_mod)
+                rev_obj = revenue_calc_sync(target, radiation, treasures, prices, colors, seasonal_mod)
 
                 target['monetary_net_num'] = rev_obj['monetary_net_num']
                 embed.add_field(name="Monetary Net Income", value=rev_obj['mon_net_txt'])
@@ -1188,12 +1188,7 @@ class TargetFinding(commands.Cog):
 
         nation = (await api_client.call(f"{{nations(first:1 id:{nation_id}) {{data{get_query(queries.WAR_STATUS)}}}}}", api_key))['data']['nations']['data'][0]
 
-        if nation['pirate_economy']:
-            max_offense = 6
-        if nation['advanced_pirate_economy']:
-            max_offense = 7
-        else:
-            max_offense = 5
+        max_offense = military_logic.max_offensive_wars(nation)
 
         milt = military_logic.militarization_checker(nation)
         max_sol = milt['max_soldiers']
@@ -1271,12 +1266,7 @@ class TargetFinding(commands.Cog):
             while len(their_enemy_bar) < 10:
                 their_enemy_bar += "⬛"
 
-            if x['pirate_economy']:
-                max_offense = 6
-            if x['advanced_pirate_economy']:
-                max_offense = 7
-            else:
-                max_offense = 5
+            max_offense = military_logic.max_offensive_wars(x)
             
             if x['beigeturns'] > 0:
                 beige = f"\nBeige (turns): {x['beigeturns']}"

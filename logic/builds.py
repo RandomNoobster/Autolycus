@@ -1,22 +1,52 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
-from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from . import queries
 from infra.cache import cache_historical_prices
 from logic.merge_utils import get_query
-from logic.revenue import (calculate_nation_modifiers, pre_revenue_calc,
-                           revenue_calc, revenue_calc_sync)
+from logic.military import max_units
+from logic.revenue import (calculate_nation_modifiers, calculate_treasure_bonus,
+                           pre_revenue_calc, revenue_calc_sync, unit_upkeep_rates)
 from database import sqlite_cache as db_utils
 
 logger = logging.getLogger(__name__)
 
 BuildDict = Dict[str, Any]
 GraphQLCaller = Callable[[str], Awaitable[dict[str, Any]]]
+
+
+class BuildInputError(ValueError):
+    """The requested build criteria can't be used; the message is shown to users."""
+
+
+class NationNotFoundError(ValueError):
+    """The nation to calculate builds for does not exist."""
+
+
+# Project flags that change revenue or build caps; api/constants/projects.py
+# describes the same keys for the builds form.
+REVENUE_PROJECT_FIELDS = (
+    "ironw",
+    "bauxitew",
+    "armss",
+    "egr",
+    "massirr",
+    "itc",
+    "telecom_satellite",
+    "recycling_initiative",
+    "green_tech",
+    "clinical_research_center",
+    "specialized_police_training",
+    "uap",
+    "fallout_shelter",
+    "government_support_agency",
+    "bureau_of_domestic_affairs",
+)
 
 
 def _apply_overrides(
@@ -35,70 +65,56 @@ def _apply_overrides(
     """
     if projects is not None:
         selected = set(projects)
-        for project_key in [
-            "ironw",
-            "bauxitew",
-            "armss",
-            "egr",
-            "massirr",
-            "itc",
-            "telecom_satellite",
-            "recycling_initiative",
-            "green_tech",
-            "clinical_research_center",
-            "specialized_police_training",
-            "uap",
-            "fallout_shelter",
-            "government_support_agency",
-            "bureau_of_domestic_affairs",
-        ]:
+        for project_key in REVENUE_PROJECT_FIELDS:
             nation[project_key] = project_key in selected
     if dom_policy is not None:
         nation["dompolicy"] = dom_policy
 
 
 def _max_units_from_city(city: BuildDict, population: float) -> Dict[str, int]:
-    return {
-        "soldiers": max(0, math.floor(min(3000 * city.get("barracks", 0), population / 6.67))),
-        "tanks": max(0, math.floor(min(250 * city.get("factory", 0), population / 66.67))),
-        "aircraft": max(0, math.floor(min(15 * city.get("airforcebase", 0), population / 1000))),
-        "ships": max(0, math.floor(min(5 * city.get("drydock", 0), population / 10000))),
-    }
+    return max_units(
+        city.get("barracks", 0), city.get("factory", 0), city.get("airforcebase", 0), city.get("drydock", 0), population
+    )
 
 
-def _unit_upkeep_for_max(
+def _unit_upkeep(
     max_units: Dict[str, int],
-    *,
-    at_war: bool,
+    rates: Dict[str, tuple[float, float]],
     mil_cost_mod: float,
 ) -> tuple[float, float, Dict[str, float], Dict[str, float]]:
-    rates = {
-        "soldiers": 1.88 if at_war else 1.25,
-        "tanks": 75 if at_war else 50,
-        "aircraft": 1000 if at_war else 750,
-        "ships": 5000 if at_war else 3300,
+    """``(money, food, money_by_unit, food_by_unit)`` for a city's maximum units."""
+    breakdown = {unit: count * rates[unit][0] * mil_cost_mod for unit, count in max_units.items()}
+    food_breakdown = {unit: count * rates[unit][1] for unit, count in max_units.items()}
+    return sum(breakdown.values()), sum(food_breakdown.values()), breakdown, food_breakdown
+
+
+def _unit_upkeep_report(
+    max_units: Dict[str, int],
+    *,
+    peace_rates: Dict[str, tuple[float, float]],
+    war_rates: Dict[str, tuple[float, float]],
+    selected_mode: str,
+    mil_cost_mod: float,
+    included: bool,
+) -> Dict[str, Any]:
+    """The ``unit_upkeep`` block the builds page shows for one build."""
+    modes = {}
+    for mode, rates in (("peace", peace_rates), ("war", war_rates)):
+        total, food, breakdown, food_breakdown = _unit_upkeep(max_units, rates, mil_cost_mod)
+        modes[mode] = {
+            "total": round(total),
+            "food": round(food, 4),
+            "breakdown": {k: round(v) for k, v in breakdown.items()},
+            "breakdownFood": {k: round(v, 4) for k, v in food_breakdown.items()},
+        }
+    return {
+        "included": included,
+        "selectedMode": selected_mode,
+        "mode": selected_mode,
+        **modes[selected_mode],
+        "counts": max_units,
+        "modes": modes,
     }
-    food_rates = {"soldiers": (1 / (500 if at_war else 750)), "tanks": 0, "aircraft": 0, "ships": 0}
-    breakdown = {}
-    food_breakdown = {}
-    total = 0.0
-    food = 0.0
-    for unit, count in max_units.items():
-        upkeep = count * rates[unit] * mil_cost_mod
-        breakdown[unit] = upkeep
-        total += upkeep
-        unit_food = count * food_rates.get(unit, 0)
-        food_breakdown[unit] = unit_food
-        food += unit_food
-    return total, food, breakdown, food_breakdown
-
-
-def _freeze_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        return tuple((k, _freeze_value(v)) for k, v in sorted(value.items()))
-    if isinstance(value, list):
-        return tuple(_freeze_value(v) for v in value)
-    return value
 
 
 def _score_build_cities_sync(
@@ -110,11 +126,13 @@ def _score_build_cities_sync(
     prices: dict[str, float],
     colors: dict[str, float],
     seasonal_mod: dict[str, float],
-    selected_upkeep_mode: str,
-    mil_cost_mod: float,
+    modifiers: dict[str, float],
+    treasure_bonus: float,
+    upkeep_rates: Dict[str, tuple[float, float]],
     include_military_upkeep: bool,
     disable_population_income: bool,
 ) -> list[BuildDict]:
+    mil_cost_mod = float(modifiers.get("mil_cost", 1))
     cities: list[BuildDict] = []
     for city in to_scan:
         nation_local = dict(base_nation)
@@ -129,60 +147,35 @@ def _score_build_cities_sync(
             seasonal_mod,
             single_city=True,
             disable_population_income=disable_population_income,
+            modifiers=modifiers,
+            treasure_bonus=treasure_bonus,
         )
 
-        population = revenue.get("population", 0)
-        max_units = _max_units_from_city(city, population)
-        peace_total, peace_food, peace_breakdown, peace_food_breakdown = _unit_upkeep_for_max(
-            max_units,
-            at_war=False,
-            mil_cost_mod=mil_cost_mod,
-        )
-        war_total, war_food, war_breakdown, war_food_breakdown = _unit_upkeep_for_max(
-            max_units,
-            at_war=True,
-            mil_cost_mod=mil_cost_mod,
-        )
-
-        resolved_mode = selected_upkeep_mode
-        active_total, active_food, active_breakdown, active_food_breakdown = (
-            (war_total, war_food, war_breakdown, war_food_breakdown)
-            if resolved_mode == "war"
-            else (peace_total, peace_food, peace_breakdown, peace_food_breakdown)
-        )
-
-        revenue["unit_upkeep"] = {
-            "included": include_military_upkeep,
-            "selectedMode": selected_upkeep_mode,
-            "mode": resolved_mode,
-            "total": round(active_total),
-            "food": round(active_food, 4),
-            "breakdown": {k: round(v) for k, v in active_breakdown.items()},
-            "breakdownFood": {k: round(v, 4) for k, v in active_food_breakdown.items()},
-            "counts": max_units,
-            "modes": {
-                "peace": {
-                    "total": round(peace_total),
-                    "food": round(peace_food, 4),
-                    "breakdown": {k: round(v) for k, v in peace_breakdown.items()},
-                    "breakdownFood": {k: round(v, 4) for k, v in peace_food_breakdown.items()},
-                },
-                "war": {
-                    "total": round(war_total),
-                    "food": round(war_food, 4),
-                    "breakdown": {k: round(v) for k, v in war_breakdown.items()},
-                    "breakdownFood": {k: round(v, 4) for k, v in war_food_breakdown.items()},
-                },
-            },
-        }
+        # The per-unit breakdown is built later, only for the builds returned.
+        max_units = _max_units_from_city(city, revenue.get("population", 0))
+        revenue["_max_units"] = max_units
         if include_military_upkeep:
-            revenue["net income"] = revenue.get("net income", 0) - active_total
-            revenue["net_cash_num"] = revenue.get("net_cash_num", 0) - active_total
-            revenue["net income real"] = revenue.get("net income real", revenue.get("net income", 0)) - active_total
-            revenue["net_cash_num_real"] = revenue.get("net_cash_num_real", revenue.get("net_cash_num", 0)) - active_total
+            active_total = sum(count * upkeep_rates[unit][0] for unit, count in max_units.items()) * mil_cost_mod
+            # "money" ranks the money winner, so it carries the upkeep too.
+            for key in ("net income", "net_cash_num", "net income real", "net_cash_num_real", "money", "money real"):
+                revenue[key] = revenue.get(key, 0) - active_total
         cities.append(revenue)
 
     return cities
+
+
+def _rank_builds_sync(
+    cities: list[BuildDict], resources: list[str]
+) -> tuple[list[BuildDict], Dict[str, BuildDict]]:
+    """Order builds by net income and pick the best build for each resource.
+
+    city_builds.db rows are unique per infrastructure level, so no dedupe is
+    needed. Ties on a resource go to the build with the higher net income:
+    ``max`` keeps the first of equal items and the list is in that order.
+    """
+    ranked = sorted(cities, key=lambda build: build.get("net income", 0), reverse=True)
+    best = {resource: max(ranked, key=lambda build: build.get(resource, 0)) for resource in resources}
+    return ranked, best
 
 
 # Raw resource availability per continent.
@@ -218,9 +211,6 @@ _CONTINENT_AVAILABLE: Dict[str, Dict[str, List[str]]] = {
         "json_names": ["oilwell", "bauxitemine", "leadmine"],
     },
 }
-
-# Backwards-compatible alias (historical name incorrectly implied "restricted").
-_CONTINENT_RESTRICTIONS = _CONTINENT_AVAILABLE
 
 _ALL_RAW_MINE_JSON = [
     "coalmine",
@@ -284,11 +274,11 @@ def parse_mmr(mmr: str) -> Tuple[int, int, int, int]:
 
     parts = [part.strip() for part in raw.split("/")]
     if len(parts) != 4:
-        raise ValueError(f"Invalid MMR format: {mmr}")
+        raise BuildInputError(f"Invalid MMR format: {mmr}")
     try:
         values = tuple(int(part) for part in parts)
     except ValueError as exc:
-        raise ValueError(f"Invalid MMR format: {mmr}") from exc
+        raise BuildInputError(f"Invalid MMR format: {mmr}") from exc
     return values  # type: ignore[return-value]
 
 
@@ -331,59 +321,48 @@ def _neutral_manual_nation(continent_code: str) -> dict[str, Any]:
         "alliance": None,
         "date": "2010-01-01T00:00:00.000000Z",
         "cities": [],
-        "ironw": False,
-        "bauxitew": False,
-        "armss": False,
-        "egr": False,
-        "massirr": False,
-        "itc": False,
-        "telecom_satellite": False,
-        "recycling_initiative": False,
-        "green_tech": False,
-        "clinical_research_center": False,
-        "specialized_police_training": False,
-        "uap": False,
-        "fallout_shelter": False,
-        "government_support_agency": False,
-        "bureau_of_domestic_affairs": False,
+        **{project_key: False for project_key in REVENUE_PROJECT_FIELDS},
     }
 
 
+# P&W city bulk-import keys, in the order the import form lists them.
+_TEMPLATE_FIELDS = (
+    ("imp_coalpower", "coalpower"),
+    ("imp_oilpower", "oilpower"),
+    ("imp_windpower", "windpower"),
+    ("imp_nuclearpower", "nuclearpower"),
+    ("imp_coalmine", "coalmine"),
+    ("imp_oilwell", "oilwell"),
+    ("imp_uramine", "uramine"),
+    ("imp_leadmine", "leadmine"),
+    ("imp_ironmine", "ironmine"),
+    ("imp_bauxitemine", "bauxitemine"),
+    ("imp_farm", "farm"),
+    ("imp_gasrefinery", "gasrefinery"),
+    ("imp_aluminumrefinery", "aluminumrefinery"),
+    ("imp_steelmill", "steelmill"),
+    ("imp_munitionsfactory", "munitionsfactory"),
+    ("imp_policestation", "policestation"),
+    ("imp_hospital", "hospital"),
+    ("imp_recyclingcenter", "recyclingcenter"),
+    ("imp_subway", "subway"),
+    ("imp_supermarket", "supermarket"),
+    ("imp_bank", "bank"),
+    ("imp_mall", "mall"),
+    ("imp_stadium", "stadium"),
+    ("imp_barracks", "barracks"),
+    ("imp_factory", "factory"),
+    ("imp_hangars", "airforcebase"),
+    ("imp_drydock", "drydock"),
+)
+
+
 def generate_build_template(build: BuildDict) -> str:
-    """Generate JSON template for the P&W city bulk import."""
-    return (
-        "{\n"
-        f"    \"infra_needed\": {build['infrastructure']},\n"
-        f"    \"imp_total\": {math.floor(float(build['infrastructure'])/50)},\n"
-        f"    \"imp_coalpower\": {build['coalpower']},\n"
-        f"    \"imp_oilpower\": {build['oilpower']},\n"
-        f"    \"imp_windpower\": {build['windpower']},\n"
-        f"    \"imp_nuclearpower\": {build['nuclearpower']},\n"
-        f"    \"imp_coalmine\": {build['coalmine']},\n"
-        f"    \"imp_oilwell\": {build['oilwell']},\n"
-        f"    \"imp_uramine\": {build['uramine']},\n"
-        f"    \"imp_leadmine\": {build['leadmine']},\n"
-        f"    \"imp_ironmine\": {build['ironmine']},\n"
-        f"    \"imp_bauxitemine\": {build['bauxitemine']},\n"
-        f"    \"imp_farm\": {build['farm']},\n"
-        f"    \"imp_gasrefinery\": {build['gasrefinery']},\n"
-        f"    \"imp_aluminumrefinery\": {build['aluminumrefinery']},\n"
-        f"    \"imp_steelmill\": {build['steelmill']},\n"
-        f"    \"imp_munitionsfactory\": {build['munitionsfactory']},\n"
-        f"    \"imp_policestation\": {build['policestation']},\n"
-        f"    \"imp_hospital\": {build['hospital']},\n"
-        f"    \"imp_recyclingcenter\": {build['recyclingcenter']},\n"
-        f"    \"imp_subway\": {build['subway']},\n"
-        f"    \"imp_supermarket\": {build['supermarket']},\n"
-        f"    \"imp_bank\": {build['bank']},\n"
-        f"    \"imp_mall\": {build['mall']},\n"
-        f"    \"imp_stadium\": {build['stadium']},\n"
-        f"    \"imp_barracks\": {build['barracks']},\n"
-        f"    \"imp_factory\": {build['factory']},\n"
-        f"    \"imp_hangars\": {build['airforcebase']},\n"
-        f"    \"imp_drydock\": {build['drydock']}\n"
-        "}"
-    )
+    """Generate the JSON template for the P&W city bulk import."""
+    infra = build.get("infrastructure", 0)
+    template = {"infra_needed": infra, "imp_total": math.floor(float(infra) / 50)}
+    template.update({key: build.get(field, 0) for key, field in _TEMPLATE_FIELDS})
+    return json.dumps(template, indent=4)
 
 
 async def _fetch_historical_prices(call_pnw: GraphQLCaller) -> Optional[dict[str, float]]:  
@@ -406,11 +385,12 @@ async def _fetch_historical_prices_cached(call_pnw: GraphQLCaller) -> Optional[d
     price_query = "{" f'tradeprices(first:30){{data{prices_selection}}}' "}"
     try:
         result = await call_pnw(price_query)
+        # A partial-error response can carry "data": null or "tradeprices": null.
+        price_data = ((result.get("data") or {}).get("tradeprices") or {}).get("data") or []
     except Exception:
         logger.exception("Failed to fetch historical prices")
         return None
 
-    price_data = result.get("data", {}).get("tradeprices", {}).get("data", [])
     if not price_data:
         return None
 
@@ -457,16 +437,15 @@ async def calculate_builds(
     domestic_policy_override: Optional[str] = None,
     military_upkeep_mode: Optional[str] = None,
     disable_population_income: bool = False,
-    status_target: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Calculate optimal city builds using shared game logic."""
 
     if nation is None and nation_id is not None:
-        query = "{" f"nations(first:1 id:{nation_id})" "{data" f"{get_query(queries.REVENUE)}" "}}"  # noqa: E501
+        query = "{" f"nations(first:1 id:{nation_id})" "{data" f"{get_query(queries.BUILDS_NATION)}" "}}"  # noqa: E501
         response = await call_pnw(query)
-        nation_list = response.get("data", {}).get("nations", {}).get("data", [])
+        nation_list = ((response.get("data") or {}).get("nations") or {}).get("data") or []
         if not nation_list:
-            raise ValueError(f"Nation {nation_id} not found in API")
+            raise NationNotFoundError(f"Nation {nation_id} not found in API")
         nation = nation_list[0]
         nation_id = str(nation.get("id"))
     elif nation is not None:
@@ -474,7 +453,7 @@ async def calculate_builds(
     else:
         # Manual configuration: no real nation — use a neutral baseline.
         if infra is None or land is None:
-            raise ValueError("infra and land are required when nation_id is not provided")
+            raise BuildInputError("infra and land are required when nation_id is not provided")
         continent_code_for_manual = normalize_continent_code(continent_override or "na") or "na"
         nation = _neutral_manual_nation(continent_code_for_manual)
         nation_id = "0"
@@ -483,15 +462,19 @@ async def calculate_builds(
         raise ValueError("Nation data unavailable after fetch")
 
     if infra is None:
+        # Floor to a completed 50-infra chunk: rounding up would return builds
+        # that need more improvement slots than the cities have.
         total_infra = sum(city.get("infrastructure", 0) for city in nation.get("cities", []))
-        infra = round(total_infra / max(nation.get("num_cities", 1), 1) / 50) * 50
+        infra = int(total_infra / max(nation.get("num_cities", 1), 1) // 50) * 50
+        if infra <= 0:
+            raise BuildInputError("Infrastructure must be at least 50")
 
     # P&W city improvement capacity is based on completed 50-infra chunks.
     # Normalize user-provided infra to the largest valid chunk the city can actually support.
     if infra % 50 != 0:
         normalized_infra = (infra // 50) * 50
         if normalized_infra <= 0:
-            raise ValueError("Infrastructure must be at least 50")
+            raise BuildInputError("Infrastructure must be at least 50")
         logger.info(
             "Normalizing non-multiple infrastructure from %s to %s for build lookup",
             infra,
@@ -503,10 +486,7 @@ async def calculate_builds(
         total_land = sum(city.get("land", 0) for city in nation.get("cities", []))
         land = round(total_land / max(nation.get("num_cities", 1), 1))
 
-    try:
-        mmr_values = parse_mmr(mmr)
-    except ValueError as exc:
-        raise ValueError(str(exc)) from exc
+    mmr_values = parse_mmr(mmr)
 
     continent_key = (continent_override or str(nation.get("continent", ""))).strip()
     continent_code = normalize_continent_code(continent_key)
@@ -523,7 +503,7 @@ async def calculate_builds(
     valid_upkeep_modes = {"peace", "war"}
     selected_upkeep_mode = (military_upkeep_mode or "peace").lower()
     if selected_upkeep_mode not in valid_upkeep_modes:
-        raise ValueError(
+        raise BuildInputError(
             "military_upkeep_mode must be one of: peace, war"
         )
 
@@ -557,44 +537,51 @@ async def calculate_builds(
         db_utils.fetch_build_rows, db_path, infra, mmr_dict, caps, restricted_mines
     )
     if not rows:
-        raise ValueError(f"No builds found for infrastructure {infra} with the given criteria")
+        raise BuildInputError(f"No builds found for infrastructure {infra} with the given criteria")
 
     nation_age = nation.get("date", "")
     if "T" in nation_age:
         nation_age = nation_age[: nation_age.index("T")]
 
-    to_scan = []
-    for row in rows:
-        city = dict(row)
+    # fetch_build_rows returns fresh dicts, so they are filled in place.
+    to_scan = rows
+    for city in to_scan:
         city["powered"] = "am powered"
         city["land"] = land
         city["date"] = nation_age
-        to_scan.append(city)
 
-    _, colors, prices, treasures, radiation, seasonal_mod = await pre_revenue_calc(
-        status_target,
-        query_for_nation=False,
-        parsed_nation=nation,
-        call_func=call_pnw,
-        get_query_func=get_query,
-        queries_module=queries,
+    # The game context and the 30-day prices don't depend on each other.
+    (_, colors, prices, treasures, radiation, seasonal_mod), averaged_prices = await asyncio.gather(
+        pre_revenue_calc(
+            None,
+            query_for_nation=False,
+            parsed_nation=nation,
+            call_func=call_pnw,
+            get_query_func=get_query,
+            queries_module=queries,
+        ),
+        _fetch_historical_prices(call_pnw),
     )
 
     live_prices = dict(prices)
-    averaged_prices = await _fetch_historical_prices(call_pnw)
     if averaged_prices:
         # If historical data is empty/zeroed out, fall back to live so UI never shows all zeros.
         non_money = [v for k, v in averaged_prices.items() if k != "money"]
         if not non_money or all(v == 0 for v in non_money):
             averaged_prices = dict(live_prices)
 
-    if not use_live_prices:
-        if averaged_prices:
-            for resource, value in averaged_prices.items():
-                prices[resource] = value
+    # The 30-day average is used only when it was actually fetched; the response
+    # reports the prices the builds were ranked with.
+    price_mode = "average" if not use_live_prices and averaged_prices else "live"
+    if price_mode == "average":
+        for resource, value in averaged_prices.items():
+            prices[resource] = value
 
+    # Nation-wide values, computed once instead of once per candidate city.
     modifiers = calculate_nation_modifiers(nation)
     mil_cost_mod = float(modifiers.get("mil_cost", 1))
+    peace_rates = unit_upkeep_rates(nation, at_war=False)
+    war_rates = unit_upkeep_rates(nation, at_war=True)
     base_nation = dict(nation)
 
     cities: List[BuildDict] = await asyncio.to_thread(
@@ -606,47 +593,28 @@ async def calculate_builds(
         prices=prices,
         colors=colors,
         seasonal_mod=seasonal_mod,
-        selected_upkeep_mode=selected_upkeep_mode,
-        mil_cost_mod=mil_cost_mod,
+        modifiers=modifiers,
+        treasure_bonus=calculate_treasure_bonus(nation, treasures),
+        upkeep_rates=war_rates if selected_upkeep_mode == "war" else peace_rates,
         include_military_upkeep=include_military_upkeep,
         disable_population_income=disable_population_income,
     )
 
     if not cities:
-        raise ValueError("No builds matched your criteria")
+        raise BuildInputError("No builds matched your criteria")
 
-    improvement_fields = db_utils.IMPROVEMENT_FIELDS
-    unique_keys = set()
-    unique_builds: List[BuildDict] = []
-    for city in cities:
-        key = tuple(city.get(field, 0) for field in improvement_fields)
-        if key not in unique_keys:
-            unique_keys.add(key)
-            unique_builds.append(city)
-
-    unique_builds.sort(key=lambda build: build.get("net income", 0), reverse=True)
-
-    builds: Dict[str, BuildDict] = {}
-    top_builds: List[BuildDict] = []
-    for resource in available_resources:
-        sorted_builds = sorted(unique_builds, key=lambda build: build.get(resource, 0), reverse=True)
-        if not sorted_builds:
-            continue
-        best_value = sorted_builds[0].get(resource, 0)
-        best_builds = [b for b in sorted_builds if b.get(resource, 0) == best_value]
-        top_builds.extend(best_builds[:20])
-        winner = sorted(best_builds, key=lambda build: build.get("net income", 0), reverse=True)[0]
-        winner["template"] = generate_build_template(winner)
-        builds[resource] = winner
-
-    # Deduplicate top builds while preserving dict structure
-    seen = set()
-    top_unique_builds: List[BuildDict] = []
-    for build in top_builds:
-        frozen = _freeze_value(build)
-        if frozen not in seen:
-            seen.add(frozen)
-            top_unique_builds.append(build)
+    # Ranking tens of thousands of builds is CPU work; keep it off the shared loop.
+    unique_builds, builds = await asyncio.to_thread(_rank_builds_sync, cities, available_resources)
+    for build in [*unique_builds[:100], *builds.values()]:
+        if "unit_upkeep" not in build:
+            build["unit_upkeep"] = _unit_upkeep_report(
+                build["_max_units"],
+                peace_rates=peace_rates,
+                war_rates=war_rates,
+                selected_mode=selected_upkeep_mode,
+                mil_cost_mod=mil_cost_mod,
+                included=include_military_upkeep,
+            )
 
     food_rad_effect_mod = modifiers.get("food_rad_effect_mod", 1)
     radiation_value = radiation.get(continent_code, 0)
@@ -665,9 +633,8 @@ async def calculate_builds(
         "uniqueBuilds": unique_builds[:100],
         "totalUniqueBuilds": total_unique_builds,
         "displayedUniqueBuilds": displayed_unique_builds,
-        "topUniqueBuilds": top_unique_builds,
         "prices": {
-            "mode": "live" if use_live_prices else "average",
+            "mode": price_mode,
             "live": live_prices,
             "average30d": averaged_prices,
         },

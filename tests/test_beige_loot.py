@@ -393,6 +393,95 @@ def test_compute_beige_loot_falls_back_to_war_att_money_looted():
     assert compute_beige_loot(nation, SAMPLE_PRICES) == 1_250_000
 
 
+def _lost_offensive_war(date, war_type="RAID", defender=None, **attack_overrides):
+    """A war nation 55556 declared on 999 and lost (999 looted it)."""
+    return {
+        "date": date,
+        "attid": "55556",
+        "defid": "999",
+        "turnsleft": 0,
+        "war_type": war_type,
+        "attacker": {"war_policy": "FORTRESS"},
+        "defender": defender or {"war_policy": "FORTRESS"},
+        "attacks": [_victory_attack(**attack_overrides)],
+    }
+
+
+def test_compute_beige_loot_counts_a_war_the_nation_declared_and_lost():
+    war = _lost_offensive_war(
+        "2026-08-17T00:00:00+00:00",
+        defender={"war_policy": "PIRATE", "advanced_pirate_economy": True},
+        money_looted=1_540_000,
+        **_NO_RESOURCES,
+    )
+    # The defender looted it, so the defender's Pirate and APE bonuses are undone.
+    assert compute_beige_loot({"id": "55556", "wars": [war]}, SAMPLE_PRICES) == 1_000_000
+
+
+def test_compute_beige_loot_uses_the_defenders_share_of_an_attrition_war():
+    war = _lost_offensive_war(
+        "2026-08-17T00:00:00+00:00", war_type="ATTRITION", money_looted=500_000, **_NO_RESOURCES
+    )
+    # A defender takes 50% of the loot in an attrition war (an attacker takes 25%).
+    assert compute_beige_loot({"id": "55556", "wars": [war]}, SAMPLE_PRICES) == 1_000_000
+
+
+def test_compute_beige_loot_falls_back_to_def_money_looted_for_an_offensive_defeat():
+    war = {
+        "date": "2026-08-17T00:00:00+00:00",
+        "attid": "55556",
+        "defid": "999",
+        "turnsleft": 0,
+        "war_type": "ORDINARY",
+        "winner": "999",
+        "att_money_looted": 9_999_999,  # what the nation looted earlier, not its loss
+        "def_money_looted": 400_000,
+        "defender": {"war_policy": "FORTRESS"},
+        "attacks": [],
+    }
+    assert compute_beige_loot({"id": "55556", "wars": [war]}, SAMPLE_PRICES) == 800_000
+
+
+def test_compute_beige_loot_ignores_wars_the_nation_won():
+    defensive_loss = _lost_raid_war("2026-08-01T00:00:00+00:00", money_looted=700_000, **_NO_RESOURCES)
+    offensive_win = _lost_offensive_war(
+        "2026-08-17T00:00:00+00:00", victor="55556", money_looted=3_000_000, **_NO_RESOURCES
+    )
+    nation = {"id": "55556", "wars": [defensive_loss, offensive_win]}
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == 700_000
+
+
+def test_compute_beige_loot_ignores_attacks_in_a_war_recorded_as_won():
+    war = _lost_raid_war("2026-08-17T00:00:00+00:00", money_looted=700_000, **_NO_RESOURCES)
+    war["winner"] = "55556"
+    assert compute_beige_loot({"id": "55556", "wars": [war]}, SAMPLE_PRICES) is None
+
+
+def test_compute_beige_loot_needs_a_victor_to_count_an_offensive_defeat():
+    war = _lost_offensive_war(
+        "2026-08-17T00:00:00+00:00", victor=None, money_looted=3_000_000, **_NO_RESOURCES
+    )
+    assert compute_beige_loot({"id": "55556", "wars": [war]}, SAMPLE_PRICES) is None
+
+
+def test_compute_beige_loot_treats_a_war_it_did_not_defend_as_declared():
+    """Rows scanned before attid was queried only carry defid."""
+    war = _lost_offensive_war("2026-08-17T00:00:00+00:00", money_looted=250_000, **_NO_RESOURCES)
+    del war["attid"]
+    assert compute_beige_loot({"id": "55556", "wars": [war]}, SAMPLE_PRICES) == 250_000
+
+
+def test_compute_beige_loot_picks_the_latest_defeat_on_either_side():
+    nation = {
+        "id": "55556",
+        "wars": [
+            _lost_raid_war("2026-08-01T00:00:00+00:00", money_looted=700_000, **_NO_RESOURCES),
+            _lost_offensive_war("2026-08-10T00:00:00+00:00", money_looted=90_000, **_NO_RESOURCES),
+        ],
+    }
+    assert compute_beige_loot(nation, SAMPLE_PRICES) == 90_000
+
+
 def test_normalize_attack_type_maps_ordinals():
     from logic.common import normalize_attack_type
     assert normalize_attack_type(14) == "VICTORY"
@@ -408,6 +497,8 @@ def test_background_scanner_query_requests_structured_loot_fields():
         "coal_looted",
         "food_looted",
         "att_money_looted",
+        "def_money_looted",
+        "attid",
         "type",
         "loot_info",
         "victor",

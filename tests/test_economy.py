@@ -1,12 +1,11 @@
 """Unit tests for economy calculations logic.
 
-These tests verify that economy calculations (infra, land, city, expansion costs)
-match the PWPedia game mechanics formulas.
+These tests verify that infrastructure cost calculations match the PWPedia
+game mechanics formulas.
 
 References:
 - PWPedia "Infrastructure" article for infrastructure cost calculations
-- PWPedia "Land" article for land cost calculations
-- PWPedia "Cities" article for city cost calculations
+- .ctx/projects_canon.md for project discounts
 """
 
 import pytest
@@ -16,7 +15,7 @@ import os
 # Add parent directory to path so we can import logic
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from logic.economy import infra_cost, land_cost, city_cost, expansion_cost
+from logic.economy import infra_cost, infra_rebuild_cost
 
 
 class TestInfraCost:
@@ -81,210 +80,42 @@ class TestInfraCost:
             pass  # Either behavior is acceptable
 
 
-class TestLandCost:
-    """Test suite for land cost calculation.
-    
-    Per PWPedia "Land" article:
-    Land cost increases with land owned and city count.
-    Formula varies based on land efficiency and bulking discounts.
-    """
+class TestInfraRebuildCost:
+    """Buying back infrastructure destroyed in an attack."""
 
-    def test_single_land_from_zero(self):
-        """Test buying single land from zero."""
-        cost = land_cost(0, 1)
-        assert cost > 0
+    def test_small_loss_on_fractional_infra_is_never_negative(self):
+        # 2345.67 - 0.15 used to round up to 2346 while 2345.67 truncated to 2345,
+        # pricing the loss as a sale of one infra (-150).
+        assert infra_rebuild_cost(2345.67, 0.15) > 0
+        assert infra_rebuild_cost(2345.9, 0.4) > 0
 
-    def test_range_purchase(self):
-        """Test buying range of land."""
-        cost_0_to_100 = land_cost(0, 100)
-        cost_0_to_50 = land_cost(0, 50)
-        
-        assert cost_0_to_50 < cost_0_to_100
+    def test_cost_covers_the_whole_loss(self):
+        # 99.6 infra would be charged when the ends were rounded separately.
+        full = infra_rebuild_cost(2345.6, 100)
+        assert full == pytest.approx(infra_cost(2245.6, 2345.6))
+        assert full > infra_cost(2246, 2345)
 
-    def test_zero_range_cost(self):
-        """Buying 0 land (same start/end) should cost 0."""
-        assert land_cost(100, 100) == 0
-
-    def test_bulk_discount_applies(self):
-        """Larger land purchases should be more efficient per unit."""
-        cost_bulk = land_cost(0, 100)
-        cost_split = land_cost(0, 50) + land_cost(50, 100)
-        
-        # Per-unit cost better with bulk
-        assert cost_bulk / 100 < cost_split / 100
-
-    def test_escalating_cost(self):
-        """Later land should cost more per unit due to scaling."""
-        cost_early = land_cost(0, 50)
-        cost_late = land_cost(500, 550)
-        
-        # Same amount of land, but later should cost more
-        assert cost_late > cost_early
-
-    def test_with_nation_data(self):
-        """Test land cost with nation data dict."""
-        nation = {
-            "infrastructure": 100,
-            "land": 200,
-            "num_cities": 5
-        }
-        cost = land_cost(0, 100, nation)
-        assert cost > 0
-
-    def test_city_count_affects_cost(self):
-        """More cities should increase land cost."""
-        low_cities = {"num_cities": 1}
-        high_cities = {"num_cities": 20}
-        
-        cost_low = land_cost(0, 100, low_cities)
-        cost_high = land_cost(0, 100, high_cities)
-        
-        # More cities = higher land cost
-        assert cost_high >= cost_low
+    def test_no_loss_costs_nothing(self):
+        assert infra_rebuild_cost(2000, 0) == 0.0
+        assert infra_rebuild_cost(2000, -5) == 0.0
 
 
-class TestCityCost:
-    """Test suite for city cost calculation.
-    
-    Per PWPedia "Cities" article:
-    City costs scale with current city count and nation infrastructure/land.
-    """
+class TestInfraCostDiscounts:
+    """Project and domestic policy discounts on infrastructure."""
 
-    def test_first_city(self):
-        """First city should have a base cost."""
-        first_city = {"num_cities": 0}
-        cost = city_cost(first_city)
-        assert cost > 0
+    def test_urbanization_title_case_from_the_api_applies(self):
+        base = infra_cost(1000, 1500)
+        assert infra_cost(1000, 1500, {"dompolicy": "Urbanization"}) == pytest.approx(base * 0.95)
+        assert infra_cost(1000, 1500, {"domestic_policy": "URBANIZATION"}) == pytest.approx(base * 0.95)
 
-    def test_subsequent_cities_more_expensive(self):
-        """Each additional city should cost more."""
-        city_1 = {"num_cities": 1}
-        city_5 = {"num_cities": 5}
-        
-        cost_1 = city_cost(city_1)
-        cost_5 = city_cost(city_5)
-        
-        assert cost_5 > cost_1
+    def test_policy_boosts_stack_with_gsa_and_bda(self):
+        base = infra_cost(1000, 1500)
+        gsa = {"dompolicy": "Urbanization", "government_support_agency": True}
+        both = {**gsa, "bureau_of_domestic_affairs": True}
+        assert infra_cost(1000, 1500, gsa) == pytest.approx(base * 0.925)
+        assert infra_cost(1000, 1500, both) == pytest.approx(base * 0.9125)
 
-    def test_with_nation_stats(self):
-        """Test city cost with comprehensive nation data."""
-        nation = {
-            "num_cities": 3,
-            "infrastructure": 500,
-            "land": 1000,
-            "population": 5000000
-        }
-        cost = city_cost(nation)
-        assert cost > 0
-
-    def test_cost_escalation(self):
-        """City cost should escalate significantly with city count."""
-        costs = []
-        for i in range(1, 11):
-            nation_state = {"num_cities": i}
-            cost = city_cost(nation_state)
-            costs.append(cost)
-        
-        # Each city should generally cost more than the previous
-        for i in range(1, len(costs)):
-            assert costs[i] >= costs[i - 1], \
-                f"City {i + 1} (cost {costs[i]}) should cost >= City {i} (cost {costs[i-1]})"
-
-
-class TestExpansionCost:
-    """Test suite for total expansion cost calculation.
-    
-    Expansion cost combines infra, land, and city costs.
-    """
-
-    def test_basic_expansion(self):
-        """Test basic expansion scenario."""
-        nation = {
-            "infrastructure": 100,
-            "land": 200,
-            "num_cities": 5
-        }
-        cost = expansion_cost(100, 200, 100, 300, nation)
-        assert cost > 0
-
-    def test_zero_expansion(self):
-        """No expansion (same start/end) should cost 0."""
-        nation = {
-            "infrastructure": 100,
-            "land": 200,
-            "num_cities": 5
-        }
-        # Infra: 100->100, Land: 200->200, no city
-        cost = expansion_cost(100, 200, 100, 200, nation)
-        assert cost == 0
-
-    def test_expansion_parts_add_up(self):
-        """Total expansion should equal sum of parts."""
-        nation = {
-            "infrastructure": 100,
-            "land": 200,
-            "num_cities": 5
-        }
-        
-        # Expansion: add 50 infra, 100 land, 1 city
-        total_cost = expansion_cost(100, 200, 150, 300, nation)
-        
-        infra_cost_sep = infra_cost(100, 150)
-        land_cost_sep = land_cost(200, 300, nation)
-        city_cost_sep = city_cost({"num_cities": nation["num_cities"] + 1}) - \
-                        city_cost({"num_cities": nation["num_cities"]})
-        
-        expected_cost = infra_cost_sep + land_cost_sep + city_cost_sep
-        
-        # Should be equal or very close
-        assert abs(total_cost - expected_cost) < 1
-
-    def test_realistic_expansion_scenario(self):
-        """Test realistic nation expansion scenario."""
-        nation = {
-            "infrastructure": 500,
-            "land": 1000,
-            "num_cities": 10
-        }
-        
-        # Expand: +200 infra, +500 land, +2 cities
-        cost = expansion_cost(500, 1000, 700, 1500, nation)
-        assert cost > 0
-        
-        # Cost should scale reasonably
-        assert cost < 10_000_000_000  # Sanity check (not astronomical)
-
-
-class TestCostIntegration:
-    """Integration tests combining multiple cost calculations."""
-
-    def test_progression_scaling(self):
-        """Costs should scale reasonably as nation grows."""
-        initial_cost = expansion_cost(0, 0, 100, 100, {"infrastructure": 0, "land": 0, "num_cities": 1})
-        mid_cost = expansion_cost(100, 100, 200, 200, {"infrastructure": 100, "land": 100, "num_cities": 5})
-        late_cost = expansion_cost(500, 500, 600, 600, {"infrastructure": 500, "land": 500, "num_cities": 15})
-        
-        # Late game should cost more than early game
-        assert late_cost > initial_cost
-
-    def test_efficiency_comparison(self):
-        """Compare cost efficiency of different build strategies."""
-        nation_base = {"infrastructure": 100, "land": 200, "num_cities": 5}
-        
-        # Strategy 1: Heavy infra
-        cost_infra_heavy = expansion_cost(100, 200, 300, 200, nation_base)
-        
-        # Strategy 2: Balanced
-        cost_balanced = expansion_cost(100, 200, 150, 300, nation_base)
-        
-        # Strategy 3: Heavy land
-        cost_land_heavy = expansion_cost(100, 200, 100, 400, nation_base)
-        
-        # All should be positive
-        assert cost_infra_heavy > 0
-        assert cost_balanced > 0
-        assert cost_land_heavy > 0
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    def test_engineering_projects(self):
+        base = infra_cost(1000, 1500)
+        nation = {"center_for_civil_engineering": True, "advanced_engineering_corps": True}
+        assert infra_cost(1000, 1500, nation) == pytest.approx(base * 0.9)

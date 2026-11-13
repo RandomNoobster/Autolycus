@@ -6,20 +6,20 @@ returning detailed attack damage analysis for war planning.
 """
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, jsonify, request
 
+from api.pnw import UPSTREAM_TIMEOUT_RESPONSE, UPSTREAM_TIMEOUT_SECONDS, call_pnw as _call_pnw
 from api.request_utils import get_json_object
 from api.security import optional_discord_session
 from database.mongo import get_sync_db
 from infra.async_bridge import run_sync
 from logic import queries
-from api.calculations.damage_calc import calculate_damage
-from database.sqlite_cache import get_nation_search_rows
-from logic.api_client import call as call_api
+from database.sqlite_cache import get_nation_search_rows, get_nations_db_path
 from logic.damage import calculate_damage as calculate_damage_logic
 from logic.merge_utils import get_query
 
@@ -27,8 +27,43 @@ logger = logging.getLogger(__name__)
 
 damage_bp = Blueprint('damage', __name__, url_prefix='/api/damage')
 
-_API_KEY = os.getenv("API_KEY")
-_BOT_KEY = os.getenv("BOT_KEY")
+_NATION_NOT_FOUND_RESPONSE = {
+    'error': 'Nation not found',
+    'message': 'One or both nations could not be loaded',
+    'code': 'NATION_NOT_FOUND'
+}
+
+# Resistance removed by each victory tier (immense, moderate, pyrrhic), per PWPedia.
+_RESISTANCE_BY_TIER = {
+    'ground': (10, 7, 4),
+    'air': (12, 9, 6),
+    'naval': (14, 11, 8),
+}
+_NUKE_RESISTANCE = 25
+_MISSILE_RESISTANCE = 18
+
+# Search rows keyed by the nations.db file's (path, mtime, size): each keystroke
+# reuses them until the scanner writes the file again.
+_search_lock = threading.Lock()
+_search_cache: dict[str, Any] = {"stamp": None, "rows": []}
+
+
+def _search_rows(db_path: Path) -> list[tuple[str, str, str, str, str]]:
+    """``(id, name, leader, name.lower(), leader.lower())`` for every named nation."""
+    stat = db_path.stat()
+    stamp = (str(db_path), stat.st_mtime_ns, stat.st_size)
+    with _search_lock:
+        if _search_cache["stamp"] != stamp:
+            rows = []
+            for nation in get_nation_search_rows(db_path):
+                name = str(nation.get('nation_name') or '')
+                leader = str(nation.get('leader_name') or '')
+                if name or leader:
+                    rows.append((str(nation.get('id', '')), name, leader, name.lower(), leader.lower()))
+            _search_cache["stamp"] = stamp
+            _search_cache["rows"] = rows
+        return _search_cache["rows"]
+
 
 # Attack types configuration
 ATTACK_TYPES = [
@@ -45,13 +80,6 @@ ATTACK_TYPES = [
 ]
 
 
-async def _call_pnw(query: str, *, use_bot_key: bool = False) -> dict[str, Any]:
-    """Call the Politics & War API with shared credentials."""
-    if not _API_KEY:
-        raise RuntimeError("api_key environment variable must be set for damage routes")
-    return await call_api(query, api_key=_API_KEY, use_bot_key=use_bot_key, bot_key=_BOT_KEY)
-
-
 async def _fetch_battle_nations(nation_ids: list[int]) -> dict[int, dict[str, Any]]:
     unique_ids = sorted({int(nid) for nid in nation_ids if nid})
     if not unique_ids:
@@ -61,12 +89,12 @@ async def _fetch_battle_nations(nation_ids: list[int]) -> dict[int, dict[str, An
         "{"
         f"nations(id:[{','.join(map(str, unique_ids))}])"
         "{data"
-        f"{get_query(queries.BATTLE_CALC)}"
+        f"{get_query(queries.DAMAGE_CALC)}"
         "}}"
     )
 
     response = await _call_pnw(query)
-    nation_list = response.get("data", {}).get("nations", {}).get("data", [])
+    nation_list = ((response.get("data") or {}).get("nations") or {}).get("data") or []
     return {int(nation["id"]): nation for nation in nation_list}
 
 
@@ -110,7 +138,20 @@ def get_damage() -> tuple[Any, int]:
                 'code': 'INVALID_PARAMETER'
             }), 400
 
-        results = run_sync(calculate_damage(str(nation1_id), str(nation2_id)))
+        nation_map = run_sync(
+            _fetch_battle_nations([nation1_id, nation2_id]), timeout=UPSTREAM_TIMEOUT_SECONDS
+        )
+        if nation1_id not in nation_map or nation2_id not in nation_map:
+            return jsonify(_NATION_NOT_FOUND_RESPONSE), 404
+
+        results = run_sync(
+            calculate_damage_logic(
+                call_pnw=_call_pnw,
+                nation1=dict(nation_map[nation1_id]),
+                nation2=dict(nation_map[nation2_id]),
+            ),
+            timeout=UPSTREAM_TIMEOUT_SECONDS,
+        )
 
         chart_data = _generate_chart_data(results)
         inputs = _build_prefill_inputs(results, nation1_id, nation2_id)
@@ -123,6 +164,8 @@ def get_damage() -> tuple[Any, int]:
             )
         ), 200
 
+    except TimeoutError:
+        return jsonify(UPSTREAM_TIMEOUT_RESPONSE), 504
     except Exception as e:
         logger.error(f"Error in get_damage: {e}", exc_info=True)
         return jsonify({
@@ -159,20 +202,20 @@ def calculate_damage_custom() -> tuple[Any, int]:
                 'field': exc.field,
             }), 400
 
-        nation_map = run_sync(_fetch_battle_nations([nation1_id, nation2_id]))
+        nation_map = run_sync(
+            _fetch_battle_nations([nation1_id, nation2_id]), timeout=UPSTREAM_TIMEOUT_SECONDS
+        )
 
         if nation1_id not in nation_map or nation2_id not in nation_map:
-            return jsonify({
-                'error': 'Nation not found',
-                'message': 'One or both nations could not be loaded',
-                'code': 'NATION_NOT_FOUND'
-            }), 404
+            return jsonify(_NATION_NOT_FOUND_RESPONSE), 404
 
-        nation1 = nation_map[nation1_id]
-        nation2 = nation_map[nation2_id]
-
-        nation1.update(nation1_updates)
-        nation2.update(nation2_updates)
+        # Copies, so a nation against itself gets two independent sets of overrides.
+        nation1 = dict(nation_map[nation1_id])
+        nation2 = dict(nation_map[nation2_id])
+        for nation, updates in ((nation1, nation1_updates), (nation2, nation2_updates)):
+            # A custom city replaces the city list; keep reporting the real count.
+            nation["num_cities"] = len(nation.get("cities") or [])
+            nation.update(updates)
         _apply_war_override(nation1, nation1_id, nation2_id, war_override)
 
         results = run_sync(
@@ -180,7 +223,8 @@ def calculate_damage_custom() -> tuple[Any, int]:
                 call_pnw=_call_pnw,
                 nation1=nation1,
                 nation2=nation2,
-            )
+            ),
+            timeout=UPSTREAM_TIMEOUT_SECONDS,
         )
 
         chart_data = _generate_chart_data(results)
@@ -194,6 +238,8 @@ def calculate_damage_custom() -> tuple[Any, int]:
             )
         ), 200
 
+    except TimeoutError:
+        return jsonify(UPSTREAM_TIMEOUT_RESPONSE), 504
     except Exception as e:
         logger.error(f"Error in calculate_damage_custom: {e}", exc_info=True)
         return jsonify({
@@ -251,7 +297,7 @@ def get_linked_active_wars() -> tuple[Any, int]:
             "wars": [],
         }), 200
 
-    if not _API_KEY:
+    if not os.getenv("API_KEY"):
         return jsonify({
             "error": "Configuration error",
             "message": "API_KEY is not set.",
@@ -259,7 +305,11 @@ def get_linked_active_wars() -> tuple[Any, int]:
         }), 503
 
     try:
-        raw_wars = run_sync(_fetch_linked_nation_active_wars_raw(linked_id))
+        raw_wars = run_sync(
+            _fetch_linked_nation_active_wars_raw(linked_id), timeout=UPSTREAM_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        return jsonify(UPSTREAM_TIMEOUT_RESPONSE), 504
     except RuntimeError as exc:
         logger.error("linked-active-wars PnW failure: %s", exc, exc_info=True)
         return jsonify({
@@ -313,35 +363,31 @@ def search_nations() -> tuple[Any, int]:
         if not query:
             return jsonify([]), 200
 
-        limit = int(request.args.get('limit', 10))
-        limit = min(limit, 50)
+        try:
+            limit = int(request.args.get('limit', 10))
+        except ValueError:
+            return jsonify({
+                'error': 'Invalid parameter',
+                'message': 'limit must be an integer',
+                'code': 'INVALID_PARAMETER'
+            }), 400
+        limit = max(1, min(limit, 50))
 
-        data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
+        data_path = get_nations_db_path()
         if not data_path.exists():
             logger.warning("[nations/search] nations.db not found")
             return jsonify([]), 200
 
-        # Only the three columns the search reads; loading every nation's JSON blobs
-        # here on each autocomplete keystroke used hundreds of MB per request.
-        nations = get_nation_search_rows(data_path)
+        # Only id and names are loaded, and they are reused until nations.db
+        # changes, instead of re-reading the table on every autocomplete keystroke.
+        nations = _search_rows(data_path)
         if not nations:
             logger.info("[nations/search] nations.db loaded but empty")
             return jsonify([]), 200
 
         query_lower = query.lower()
         results = []
-        for nation in nations:
-            nation_id = str(nation.get('id', ''))
-            nation_name = str(nation.get('nation_name') or nation.get('nationName') or '')
-            leader_name = str(nation.get('leader_name') or nation.get('leaderName') or '')
-
-            if not nation_name and not leader_name:
-                continue
-
-            name_lower = nation_name.lower()
-            leader_lower = leader_name.lower()
-
-            score = 0
+        for nation_id, nation_name, leader_name, name_lower, leader_lower in nations:
             if query_lower == name_lower or query_lower == leader_lower or query == nation_id:
                 score = 1000
             elif name_lower.startswith(query_lower) or leader_lower.startswith(query_lower):
@@ -403,7 +449,7 @@ def _extract_nation_data(results: dict[str, Any], nation_key: str) -> dict[str, 
     return {
         'id': nation_info.get('id', 0),
         'nationName': nation_info.get('nation_name', 'Unknown'),
-        'numCities': len(cities),
+        'numCities': nation_info.get('num_cities') or len(cities),
         'flagUrl': flag_url,
         'vds': nation_info.get('vds', False),  # Vital Defense System
         'irond': nation_info.get('irond', False),  # Iron Dome
@@ -423,78 +469,20 @@ def _parse_int(value: Any) -> int | None:
         return None
 
 
-def _war_turns_left(war: dict[str, Any]) -> int:
-    for key in ("turns_left", "turnsleft"):
-        raw = war.get(key)
-        if raw is None:
-            continue
-        try:
-            return max(0, int(raw))
-        except (TypeError, ValueError):
-            continue
-    return 0
-
-
 def _war_att_def_ids(war: dict[str, Any]) -> tuple[int | None, int | None]:
-    att = _parse_int(war.get("att_id") or war.get("attid"))
-    deff = _parse_int(war.get("def_id") or war.get("defid"))
-    return att, deff
+    return _parse_int(war.get("att_id")), _parse_int(war.get("def_id"))
 
 
-def _control_nation_id(war: dict[str, Any]) -> int | None:
-    for key in ("ground_control", "groundcontrol"):
-        raw = war.get(key)
-        if raw is None or raw == "":
-            continue
-        try:
-            v = int(raw)
-            return v if v > 0 else None
-        except (TypeError, ValueError):
-            continue
-    return None
+def _war_nation_id(war: dict[str, Any], key: str) -> int | None:
+    """Nation id holding ground control, air superiority or a blockade, if any."""
+    return _parse_int(war.get(key))
 
 
-def _air_superiority_id(war: dict[str, Any]) -> int | None:
-    for key in ("air_superiority", "airsuperiority"):
-        raw = war.get(key)
-        if raw is None or raw == "":
-            continue
-        try:
-            v = int(raw)
-            return v if v > 0 else None
-        except (TypeError, ValueError):
-            continue
-    return None
-
-
-def _naval_blockade_id(war: dict[str, Any]) -> int | None:
-    for key in ("naval_blockade", "navalblockade"):
-        raw = war.get(key)
-        if raw is None or raw == "":
-            continue
-        try:
-            v = int(raw)
-            return v if v > 0 else None
-        except (TypeError, ValueError):
-            continue
-    return None
-
-
-def _war_bool(war: dict[str, Any], *keys: str) -> bool:
-    for key in keys:
-        if key in war and war[key] is not None:
-            return bool(war[key])
-    return False
-
-
-def _war_nonneg_int(war: dict[str, Any], *keys: str) -> int:
-    for key in keys:
-        if key in war and war[key] is not None:
-            try:
-                return max(0, int(war[key]))
-            except (TypeError, ValueError):
-                continue
-    return 0
+def _war_nonneg_int(war: dict[str, Any], key: str) -> int:
+    try:
+        return max(0, int(war.get(key) or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _normalize_damage_war_type(raw: Any) -> str:
@@ -518,7 +506,7 @@ def _nation_flag_name(
     nation: dict[str, Any],
 ) -> tuple[str | None, str | None, str | None]:
     nid = _parse_int(nation.get("id"))
-    nname = str(nation.get("nation_name") or nation.get("nationName") or "").strip()
+    nname = str(nation.get("nation_name") or "").strip()
     flag = str(nation.get("flag") or "").strip() or None
     return (str(nid) if nid else None), (nname or None), flag
 
@@ -543,26 +531,15 @@ def _fortify_slots_from_att_def(
     att_fortify: bool,
     def_fortify: bool,
 ) -> tuple[bool, bool]:
-    """Map game attacker/defender fortify flags to calculator nation1/nation2 slots."""
+    """Map game attacker/defender fortify flags to calculator nation1/nation2 slots.
+
+    The mapping is its own inverse, so it also turns nation1/nation2 toggles back
+    into (attacker, defender) flags.
+    """
     if attacker_id == nation1_id:
         return bool(att_fortify), bool(def_fortify)
     if attacker_id == nation2_id:
         return bool(def_fortify), bool(att_fortify)
-    return False, False
-
-
-def _fortify_att_def_from_slots(
-    nation1_id: int,
-    nation2_id: int,
-    attacker_id: int,
-    nation1_fortified: bool,
-    nation2_fortified: bool,
-) -> tuple[bool, bool]:
-    """Map calculator nation1/nation2 fortify toggles to game attacker/defender flags."""
-    if attacker_id == nation1_id:
-        return bool(nation1_fortified), bool(nation2_fortified)
-    if attacker_id == nation2_id:
-        return bool(nation2_fortified), bool(nation1_fortified)
     return False, False
 
 
@@ -572,7 +549,7 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
         return None
     if linked_id not in (att_id, def_id):
         return None
-    if _war_turns_left(war) <= 0:
+    if _war_nonneg_int(war, "turns_left") <= 0:
         return None
 
     opp = _opponent_nation_blob(war, linked_id)
@@ -585,13 +562,13 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
     alliance = opp.get("alliance") if isinstance(opp.get("alliance"), dict) else None
     al_name, al_flag = _alliance_display(alliance)
 
-    wtype = _normalize_damage_war_type(war.get("war_type") or war.get("warType"))
-    gc = _control_nation_id(war)
-    air = _air_superiority_id(war)
-    naval = _naval_blockade_id(war)
+    wtype = _normalize_damage_war_type(war.get("war_type"))
+    gc = _war_nation_id(war, "ground_control")
+    air = _war_nation_id(war, "air_superiority")
+    naval = _war_nation_id(war, "naval_blockade")
 
-    att_f = _war_bool(war, "att_fortify", "attFortify")
-    def_f = _war_bool(war, "def_fortify", "defFortify")
+    att_f = bool(war.get("att_fortify"))
+    def_f = bool(war.get("def_fortify"))
     n1_fort, n2_fort = _fortify_slots_from_att_def(
         linked_id, opp_id, att_id, att_f, def_f
     )
@@ -605,8 +582,8 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
         "navalBlockadeId": naval,
         "nation1Fortified": n1_fort,
         "nation2Fortified": n2_fort,
-        "attackerPeace": _war_bool(war, "att_peace", "attpeace", "attPeace"),
-        "defenderPeace": _war_bool(war, "def_peace", "defpeace", "defPeace"),
+        "attackerPeace": bool(war.get("att_peace")),
+        "defenderPeace": bool(war.get("def_peace")),
     }
 
     wid = war.get("id")
@@ -615,10 +592,10 @@ def _build_linked_war_preset_item(war: dict[str, Any], linked_id: int) -> dict[s
     except (TypeError, ValueError):
         war_id = None
 
-    att_res = _war_nonneg_int(war, "att_resistance", "attResistance")
-    def_res = _war_nonneg_int(war, "def_resistance", "defResistance")
-    att_pts = _war_nonneg_int(war, "att_points", "attpoints", "attPoints")
-    def_pts = _war_nonneg_int(war, "def_points", "defpoints", "defPoints")
+    att_res = _war_nonneg_int(war, "att_resistance")
+    def_res = _war_nonneg_int(war, "def_resistance")
+    att_pts = _war_nonneg_int(war, "att_points")
+    def_pts = _war_nonneg_int(war, "def_points")
 
     linked_is_attacker = att_id == linked_id
     if linked_is_attacker:
@@ -809,7 +786,7 @@ def _apply_war_override(
         k in war for k in ("nation1Fortified", "nation2Fortified")
     )
     if uses_nation_slots:
-        att_fortify, def_fortify = _fortify_att_def_from_slots(
+        att_fortify, def_fortify = _fortify_slots_from_att_def(
             nation1_id,
             nation2_id,
             attacker_id,
@@ -824,7 +801,7 @@ def _apply_war_override(
         "attid": str(attacker_id),
         "defid": str(defender_id),
         "turnsleft": 1,
-        "war_type": war.get("warType") or "ORDINARY",
+        "war_type": _normalize_damage_war_type(war.get("warType")),
         "groundcontrol": _id_or_none(war.get("groundControlId")),
         "airsuperiority": _id_or_none(war.get("airSuperiorityId")),
         "navalblockade": _id_or_none(war.get("navalBlockadeId")),
@@ -936,10 +913,12 @@ def _build_damage_response(
     nation1_info = _extract_nation_data(results, "nation1")
     nation2_info = _extract_nation_data(results, "nation2")
 
+    # The defender stats describe the same battle from the defending side: what the
+    # defender spends and loses while the attacker attacks it.
     scenario1_attacker = _build_attack_analysis(results, "nation1", "nation2", perspective="attacker")
-    scenario1_defender = _build_attack_analysis(results, "nation2", "nation1", perspective="attacker")
+    scenario1_defender = _build_attack_analysis(results, "nation1", "nation2", perspective="defender")
     scenario2_attacker = _build_attack_analysis(results, "nation2", "nation1", perspective="attacker")
-    scenario2_defender = _build_attack_analysis(results, "nation1", "nation2", perspective="attacker")
+    scenario2_defender = _build_attack_analysis(results, "nation2", "nation1", perspective="defender")
 
     return {
         "nations": {
@@ -982,14 +961,12 @@ def _build_attack_analysis(
         results: Raw results dict from cache.
         attacker: Key for attacking nation ('nation1' or 'nation2').
         defender: Key for defending nation.
-    
+        perspective: ``'attacker'`` for the attacking side's figures, ``'defender'``
+            for what the defending side spends and loses in the same battle.
+
     Returns:
         Object containing per-resistance, per-MAP, and total stats.
     """
-    attacker_info = results.get(attacker, {})
-    vds = attacker_info.get('vds', False)
-    irond = attacker_info.get('irond', False)
-
     is_attacker_view = perspective == 'attacker'
     side_key = attacker if is_attacker_view else defender
     net_sign = 1 if is_attacker_view else -1
@@ -1003,15 +980,8 @@ def _build_attack_analysis(
         maps = attack_config['maps']
         label = attack_config['label']
         
-        # Calculate resistance based on attack type and win rates
-        resistance = _calculate_resistance(
-            attack_type, 
-            results.get(f'{attacker}_ground_win_rate', 0.5),
-            results.get(f'{attacker}_air_win_rate', 0.5),
-            results.get(f'{attacker}_naval_win_rate', 0.5),
-            vds,
-            irond
-        )
+        # Expected resistance the attacker removes with one attack of this type
+        resistance = _calculate_resistance(results, attacker, defender, attack_type)
         
         # Base values from results
         net_damage = results.get(f'{attacker}_{attack_type}_net', 0)
@@ -1026,9 +996,6 @@ def _build_attack_analysis(
         side_food = results.get(f'{attacker}_{attack_type}_{side_key}_food', 0)
         infra_destroyed = results.get(f'{attacker}_{attack_type}_{defender}_lost_infra_avg_value', 0)
 
-        if attack_type == 'nuke' and side_uranium == 0 and side_key == attacker:
-            side_uranium = 500
-        
         # Per resistance stats (for when you're winning)
         if resistance > 0:
             per_resistance.append({
@@ -1105,37 +1072,27 @@ def _build_attack_analysis(
 
 
 def _calculate_resistance(
-    attack_type: str,
-    ground_win_rate: float,
-    air_win_rate: float,
-    naval_win_rate: float,
-    vds: bool,
-    irond: bool
+    results: dict[str, Any], attacker: str, defender: str, attack_type: str
 ) -> float:
     """
-    Calculate resistance dealt per attack based on type and win rates.
-    
-    Args:
-        attack_type: The type of attack being performed.
-        ground_win_rate: Probability of winning ground battles.
-        air_win_rate: Probability of winning air battles.
-        naval_win_rate: Probability of winning naval battles.
-        vds: Whether defender has Vital Defense System.
-        irond: Whether defender has Iron Dome.
-    
-    Returns:
-        Expected resistance dealt per attack.
+    Expected resistance ``attacker`` removes from ``defender`` with one attack.
+
+    Battles weight each victory tier's resistance by its probability. Nukes and
+    missiles are scaled by the defender's Vital Defense System (25% shot down)
+    and Iron Dome (30% shot down) chances, via the logic layer's mods.
     """
-    if attack_type == 'ground':
-        return 10 * ground_win_rate
-    elif attack_type.startswith('air'):
-        return 12 * air_win_rate
-    elif attack_type.startswith('naval'):
-        return 14 * naval_win_rate
-    elif attack_type == 'nuke':
-        return 25 * (1 - 0.2 * int(vds))
-    elif attack_type == 'missile':
-        return 18 * (1 - 0.5 * int(irond))
+    if attack_type == 'nuke':
+        return _NUKE_RESISTANCE * results.get(f'{defender}_vds_mod', 1)
+    if attack_type == 'missile':
+        return _MISSILE_RESISTANCE * results.get(f'{defender}_irond_mod', 1)
+    for battle in ('ground', 'air', 'naval'):
+        if attack_type.startswith(battle):
+            immense, moderate, pyrrhic = _RESISTANCE_BY_TIER[battle]
+            return (
+                immense * results.get(f'{attacker}_{battle}_it', 0)
+                + moderate * results.get(f'{attacker}_{battle}_mod', 0)
+                + pyrrhic * results.get(f'{attacker}_{battle}_pyr', 0)
+            )
     return 0
 
 

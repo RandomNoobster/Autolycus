@@ -5,45 +5,25 @@ This module provides API endpoints for the city builds feature,
 returning build templates and resource production data.
 """
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any
 
 from flask import Blueprint, jsonify, request
 
-from api.calculations.builds_calc import calculate_builds
 from api.constants import DOMESTIC_POLICIES, PROJECTS
+from api.pnw import UPSTREAM_TIMEOUT_RESPONSE, UPSTREAM_TIMEOUT_SECONDS, call_pnw as _call_pnw
 from infra.async_bridge import run_sync
-from logic.api_client import call as call_api
+from logic.builds import (
+    BuildInputError,
+    NationNotFoundError,
+    calculate_builds,
+    generate_build_template,
+    normalize_continent_code,
+)
 
 logger = logging.getLogger(__name__)
 
 builds_bp = Blueprint('builds', __name__, url_prefix='/api/builds')
-
-_API_KEY = os.getenv("API_KEY")
-_BOT_KEY = os.getenv("BOT_KEY")
-
-
-async def _call_pnw(query: str, *, use_bot_key: bool = False) -> dict[str, Any]:
-    """Call the Politics & War API with shared credentials."""
-    if not _API_KEY:
-        raise RuntimeError("API_KEY environment variable must be set for builds routes")
-    return await call_api(query, api_key=_API_KEY, use_bot_key=use_bot_key, bot_key=_BOT_KEY)
-
-# Resource keys used in builds
-RESOURCES = [
-    'aluminum', 'bauxite', 'coal', 'food', 'gasoline',
-    'iron', 'lead', 'munitions', 'oil', 'steel', 'uranium'
-]
-
-# Improvement fields
-IMPROVEMENTS = [
-    'infrastructure', 'oilpower', 'windpower', 'coalpower', 'nuclearpower',
-    'coalmine', 'oilwell', 'uramine', 'leadmine', 'ironmine', 'bauxitemine',
-    'farm', 'gasrefinery', 'aluminumrefinery', 'steelmill', 'munitionsfactory',
-    'policestation', 'hospital', 'recyclingcenter', 'subway', 'supermarket',
-    'bank', 'mall', 'stadium', 'barracks', 'factory', 'airforcebase', 'drydock'
-]
 
 # Canonical project keys used across API validation + frontend picker.
 CANONICAL_PROJECT_FIELDS = list(PROJECTS.keys())
@@ -61,9 +41,6 @@ PROJECT_SOURCE_TO_CANONICAL = {
     **{key: key for key in CANONICAL_PROJECT_FIELDS},
     **PROJECT_FIELD_ALIASES,
 }
-
-# Policy field mapping
-POLICY_FIELDS = ['warpolicy', 'dompolicy']
 
 
 @builds_bp.route('/nation/<int:nation_id>', methods=['GET'])
@@ -89,16 +66,18 @@ def get_nation_profile(nation_id: int) -> tuple[Any, int]:
         - generatedAt: ISO timestamp
     """
     try:
-        nation_data = run_sync(_fetch_nation_profile(str(nation_id)))
+        nation_data = run_sync(_fetch_nation_profile(str(nation_id)), timeout=UPSTREAM_TIMEOUT_SECONDS)
 
         return jsonify(nation_data), 200
-        
+
     except ValueError as e:
         return jsonify({
             'error': 'Not found',
             'message': str(e),
             'code': 'NATION_NOT_FOUND'
         }), 404
+    except TimeoutError:
+        return jsonify(UPSTREAM_TIMEOUT_RESPONSE), 504
     except Exception as e:
         logger.error(f"Error in get_nation_profile: {e}", exc_info=True)
         return jsonify({
@@ -214,19 +193,24 @@ def get_builds() -> tuple[Any, int]:
             try:
                 infra_level = int(infra)
             except ValueError:
+                infra_level = None
+            if infra_level is None or infra_level < 50:
                 return jsonify({
                     'error': 'Invalid parameter',
-                    'message': 'infra must be an integer',
+                    'message': 'infra must be an integer of at least 50',
                     'code': 'INVALID_PARAMETER'
                 }), 400
-        
+
         if land:
             try:
                 land_amount = int(land)
             except ValueError:
+                land_amount = None
+            # Population density divides by land, so it has to be positive.
+            if land_amount is None or land_amount <= 0:
                 return jsonify({
                     'error': 'Invalid parameter',
-                    'message': 'land must be an integer',
+                    'message': 'land must be a positive integer',
                     'code': 'INVALID_PARAMETER'
                 }), 400
 
@@ -238,18 +222,18 @@ def get_builds() -> tuple[Any, int]:
             }), 400
         
         if continent:
-            # Validate continent code
-            valid_continents = ['na', 'sa', 'eu', 'af', 'as', 'au', 'an']
-            if continent.lower() not in valid_continents:
+            # Codes (na, sa, ...) and full names (North America) are both accepted.
+            continent_override = normalize_continent_code(continent)
+            if continent_override is None:
                 return jsonify({
                     'error': 'Invalid parameter',
-                    'message': f'continent must be one of: {", ".join(valid_continents)}',
+                    'message': 'continent must be one of: na, sa, eu, af, as, au, an',
                     'code': 'INVALID_PARAMETER'
                 }), 400
-            continent_override = continent.lower()
         
         results = run_sync(
             calculate_builds(
+                call_pnw=_call_pnw,
                 nation_id=str(nation_id) if nation_id is not None else None,
                 infra=infra_level,
                 land=land_amount,
@@ -261,7 +245,8 @@ def get_builds() -> tuple[Any, int]:
                 domestic_policy_override=domestic_policy_override,
                 military_upkeep_mode=military_upkeep_mode,
                 disable_population_income=disable_population_income,
-            )
+            ),
+            timeout=UPSTREAM_TIMEOUT_SECONDS,
         )
 
         # Transform builds to API shape expected by frontend
@@ -286,7 +271,23 @@ def get_builds() -> tuple[Any, int]:
             'foodModifiers': results.get('foodModifiers'),
             'generatedAt': datetime.now(timezone.utc).isoformat()
         }), 200
-        
+
+    except NationNotFoundError as e:
+        return jsonify({
+            'error': 'Not found',
+            'message': str(e),
+            'code': 'NATION_NOT_FOUND'
+        }), 404
+    except BuildInputError as e:
+        # Inputs calculate_builds can't use (MMR format, infra with no matching
+        # builds); its messages are written for users.
+        return jsonify({
+            'error': 'Invalid parameter',
+            'message': str(e),
+            'code': 'INVALID_PARAMETER'
+        }), 400
+    except TimeoutError:
+        return jsonify(UPSTREAM_TIMEOUT_RESPONSE), 504
     except Exception as e:
         logger.error(f"Error in get_builds: {e}", exc_info=True)
         return jsonify({
@@ -309,8 +310,8 @@ def _transform_build(build_data: dict[str, Any]) -> dict[str, Any]:
     if not build_data:
         return {}
     
-    # Build the template JSON string for copy functionality
-    template = _generate_template_json(build_data)
+    # Same bulk-import template the Discord bot posts.
+    template = generate_build_template(build_data)
     
     return {
         # Identification
@@ -395,55 +396,6 @@ def _transform_build(build_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _generate_template_json(build_data: dict[str, Any]) -> str:
-    """
-    Generate the JSON template string for copying to P&W bulk import.
-    
-    Args:
-        build_data: Raw build data.
-    
-    Returns:
-        Formatted JSON string for P&W city bulk import.
-    """
-    import json
-    
-    infra = build_data.get('infrastructure', 0)
-    
-    template = {
-        "infra_needed": infra,
-        "imp_total": int(infra // 50),
-        "imp_coalpower": build_data.get('coalpower', 0),
-        "imp_oilpower": build_data.get('oilpower', 0),
-        "imp_windpower": build_data.get('windpower', 0),
-        "imp_nuclearpower": build_data.get('nuclearpower', 0),
-        "imp_coalmine": build_data.get('coalmine', 0),
-        "imp_oilwell": build_data.get('oilwell', 0),
-        "imp_uramine": build_data.get('uramine', 0),
-        "imp_leadmine": build_data.get('leadmine', 0),
-        "imp_ironmine": build_data.get('ironmine', 0),
-        "imp_bauxitemine": build_data.get('bauxitemine', 0),
-        "imp_farm": build_data.get('farm', 0),
-        "imp_gasrefinery": build_data.get('gasrefinery', 0),
-        "imp_aluminumrefinery": build_data.get('aluminumrefinery', 0),
-        "imp_munitionsfactory": build_data.get('munitionsfactory', 0),
-        "imp_steelmill": build_data.get('steelmill', 0),
-        "imp_policestation": build_data.get('policestation', 0),
-        "imp_hospital": build_data.get('hospital', 0),
-        "imp_recyclingcenter": build_data.get('recyclingcenter', 0),
-        "imp_subway": build_data.get('subway', 0),
-        "imp_supermarket": build_data.get('supermarket', 0),
-        "imp_bank": build_data.get('bank', 0),
-        "imp_mall": build_data.get('mall', 0),
-        "imp_stadium": build_data.get('stadium', 0),
-        "imp_barracks": build_data.get('barracks', 0),
-        "imp_factory": build_data.get('factory', 0),
-        "imp_hangars": build_data.get('airforcebase', 0),
-        "imp_drydock": build_data.get('drydock', 0),
-    }
-    
-    return json.dumps(template, indent=4)
-
-
 async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
     """
     Fetch nation profile data from P&W API for build configuration.
@@ -457,8 +409,6 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
     Raises:
         ValueError: If nation is not found
     """
-    from logic import queries
-
     # GraphQL query for nation profile
     project_fields_for_query = sorted(PROJECT_SOURCE_TO_CANONICAL.keys())
     project_fields_block = "\n                ".join(project_fields_for_query)
@@ -488,33 +438,12 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
     
     # Fetch nation data from P&W API
     response = await _call_pnw(query)
-    nation_data = response['data']['nations']['data']
+    nation_data = ((response.get('data') or {}).get('nations') or {}).get('data') or []
     
     if len(nation_data) == 0:
         raise ValueError(f"Nation {nation_id} not found")
     
     nation = nation_data[0]
-    
-    # Normalize continent values from P&W (e.g. "South America", "SOUTH_AMERICA", "sa").
-    continent_map = {
-        'north america': 'na',
-        'north_america': 'na',
-        'na': 'na',
-        'south america': 'sa',
-        'south_america': 'sa',
-        'sa': 'sa',
-        'europe': 'eu',
-        'eu': 'eu',
-        'africa': 'af',
-        'af': 'af',
-        'asia': 'as',
-        'as': 'as',
-        'australia': 'au',
-        'au': 'au',
-        'antarctica': 'an',
-        'an': 'an',
-    }
-    continent_raw = str(nation.get('continent', '')).strip().lower()
     
     # Extract active projects as canonical keys so frontend values always match
     # game-data options and backend validation.
@@ -547,7 +476,8 @@ async def _fetch_nation_profile(nation_id: str) -> dict[str, Any]:
         'id': nation.get('id'),
         'name': nation.get('nation_name', ''),
         'leader': nation.get('leader_name', ''),
-        'continent': continent_map.get(continent_raw, 'na'),
+        # P&W reports names like "South America" or "SOUTH_AMERICA".
+        'continent': normalize_continent_code(str(nation.get('continent') or '')) or 'na',
         'cities': cities,
         'projects': projects,
         'policies': policies,

@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 
 # TTL values in seconds
-TTL_PRICES = 300          # 5 minutes - trade prices update ~hourly
 TTL_GAME_DATA = 600       # 10 minutes - colors, radiation, treasures
 TTL_HISTORICAL_PRICES = 1800  # 30 minutes - historical price averages
 
@@ -154,11 +153,6 @@ def _cached(namespace: str, ttl: int) -> cached:
         key_builder=build_key_ignoring_callables,
         **REDIS_CONFIG,
     )
-
-
-def cache_prices(ttl: int = TTL_PRICES):
-    """Cache decorator for trade price fetches."""
-    return _cached("prices", ttl)
 
 
 def cache_game_context(ttl: int = TTL_GAME_DATA):

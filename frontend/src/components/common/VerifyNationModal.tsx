@@ -1,9 +1,15 @@
 import { Alert, Button, Modal, Stack, Text, TextInput } from '@mantine/core';
+import { IconBrandDiscord } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
-import { verifyDiscordLink } from '@/api/auth';
+import { getDiscordLoginUrl, verifyDiscordLink } from '@/api/auth';
+import { internalNavPath } from '@/lib/internalNavPath';
 import type { ApiError } from '@/types';
+
+/** Backend code for a Discord sign-in too old to confirm the current username. */
+const REAUTH_REQUIRED_CODE = 'REAUTH_REQUIRED';
 
 interface VerifyNationModalProps {
   opened: boolean;
@@ -23,6 +29,9 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
   const [nationInput, setNationInput] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const location = useLocation();
+  const needsReauth = errorCode === REAUTH_REQUIRED_CODE;
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
@@ -34,6 +43,7 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
     },
     onSuccess: (result) => {
       setErrorMessage(null);
+      setErrorCode(null);
       setSuccessMessage(
         result.relinked
           ? 'Verification updated. Your Discord account is now linked to the new nation.'
@@ -45,6 +55,7 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
       const apiError = error as ApiError;
       setSuccessMessage(null);
       setErrorMessage(apiError.message || 'Verification failed. Please try again.');
+      setErrorCode(apiError.code || null);
     },
   });
 
@@ -54,6 +65,7 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
     if (!opened) {
       setSuccessMessage(null);
       setErrorMessage(null);
+      setErrorCode(null);
       verifyMutation.reset();
     }
   }, [opened, verifyMutation.reset]);
@@ -63,6 +75,7 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
     if (verifyMutation.isPending) return;
     setSuccessMessage(null);
     setErrorMessage(null);
+    setErrorCode(null);
     verifyMutation.mutate();
   }
 
@@ -91,8 +104,26 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
           </Alert>
         )}
         {errorMessage && (
-          <Alert color="red" variant="light" title="Verification failed">
-            {errorMessage}
+          <Alert
+            color="red"
+            variant="light"
+            title={needsReauth ? 'Sign in again to verify' : 'Verification failed'}
+          >
+            <Stack gap="sm">
+              <Text size="sm">{errorMessage}</Text>
+              {needsReauth && (
+                <Button
+                  component="a"
+                  href={getDiscordLoginUrl(internalNavPath(location.pathname, location.search))}
+                  size="sm"
+                  color="indigo"
+                  variant="filled"
+                  leftSection={<IconBrandDiscord size={18} />}
+                >
+                  Sign in again
+                </Button>
+              )}
+            </Stack>
           </Alert>
         )}
       </Stack>

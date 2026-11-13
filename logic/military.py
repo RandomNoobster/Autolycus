@@ -1,46 +1,46 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Any
 
-from .common import weird_division
+
+def max_units(barracks: int, factories: int, hangars: int, drydocks: int, population: float) -> dict[str, int]:
+    """Unit caps from military improvements, each also limited by population."""
+    return {
+        'soldiers': max(0, math.floor(min(3000 * barracks, population / 6.67))),
+        'tanks': max(0, math.floor(min(250 * factories, population / 66.67))),
+        'aircraft': max(0, math.floor(min(15 * hangars, population / 1000))),
+        'ships': max(0, math.floor(min(5 * drydocks, population / 10000))),
+    }
 
 
 def militarization_checker(nation: dict[str, Any]) -> dict[str, float]:
+    """Average military improvements per city, unit caps and daily recruitment."""
     milt: dict[str, float] = {}
     cities = len(nation['cities'])
-    barracks = 0
-    factories = 0
-    hangars = 0
-    drydocks = 0
-    for city in nation['cities']:
-        barracks += city['barracks']
-        factories += city['factory']
-        hangars += city['airforcebase']
-        drydocks += city['drydock']
+    barracks = sum(city['barracks'] for city in nation['cities'])
+    factories = sum(city['factory'] for city in nation['cities'])
+    hangars = sum(city['airforcebase'] for city in nation['cities'])
+    drydocks = sum(city['drydock'] for city in nation['cities'])
     milt['barracks_mmr'] = round(barracks / cities, 1)
     milt['factory_mmr'] = round(factories / cities, 1)
     milt['hangar_mmr'] = round(hangars / cities, 1)
     milt['drydock_mmr'] = round(drydocks / cities, 1)
-    milt['max_soldiers'] = math.floor(min(3000 * barracks, nation['population']/6.67))
-    milt['max_tanks'] = math.floor(min(250 * factories, nation['population']/66.67))
-    milt['max_aircraft'] = math.floor(min(15 * hangars, nation['population']/1000))
-    milt['max_ships'] = math.floor(min(5 * drydocks, nation['population']/10000))
-    pg_mod = (int(nation["propaganda_bureau"]) * 0.1 + 1) 
+    caps = max_units(barracks, factories, hangars, drydocks, nation['population'])
+    for unit, cap in caps.items():
+        milt[f'max_{unit}'] = cap
+    # Propaganda Bureau recruits 10% more per day (.ctx/projects_canon.md).
+    pg_mod = int(bool(nation.get("propaganda_bureau"))) * 0.1 + 1
     milt['soldiers_daily'] = round(milt['max_soldiers']/3) * pg_mod
     milt['tanks_daily'] = round(milt['max_tanks']/5) * pg_mod
     milt['aircraft_daily'] = round(milt['max_aircraft']/5) * pg_mod
     milt['ships_daily'] = round(milt['max_ships']/5) * pg_mod
-    milt['soldiers_days'] = math.ceil(weird_division(milt['max_soldiers'] - nation['soldiers'], milt['max_soldiers']/3))
-    milt['tanks_days'] = math.ceil(weird_division(milt['max_tanks'] - nation['tanks'], milt['max_tanks']/5))
-    milt['aircraft_days'] = math.ceil(weird_division(milt['max_aircraft'] - nation['aircraft'], milt['max_aircraft']/5))
-    milt['ships_days'] = math.ceil(weird_division(milt['max_ships'] - nation['ships'], milt['max_ships']/5))
-    milt['total_milt'] = (nation['soldiers'] / (cities * 5 * 3000) + nation['tanks'] / (cities * 5 * 250) + nation['aircraft'] / (cities * 5 * 15) + nation['ships'] / (cities * 3 * 5)) / 4
-    milt['soldiers_milt'] = nation['soldiers'] / (cities * 5 * 3000)
-    milt['tanks_milt'] = nation['tanks'] / (cities * 5 * 250)
-    milt['aircraft_milt'] = nation['aircraft'] / (cities * 5 * 15)
-    milt['ships_milt'] = nation['ships'] / (cities * 3 * 5)
     return milt
+
+
+def max_offensive_wars(nation: dict[str, Any]) -> int:
+    """Offensive war slots: 5, plus one each for Pirate Economy and Advanced Pirate Economy."""
+    return 5 + int(bool(nation.get("pirate_economy"))) + int(bool(nation.get("advanced_pirate_economy")))
 
 
 def score_range(score: float) -> tuple[float, float]:
@@ -83,11 +83,12 @@ def calculate_win_chance_raw(attacker_value: float, defender_value: float) -> fl
     MIN_EFFICIENCY = 0.4  # Both sides roll between 40% and 100% of their score
     MAX_EFFICIENCY = 1.0
     
-    # Handle edge cases
-    if defender_value == 0:
-        return 1.0
-    if attacker_value == 0:
+    # Handle edge cases. An attacker with nothing to attack with cannot win, even
+    # against an empty defender (the game does not allow the attack at all).
+    if attacker_value <= 0:
         return 0.0
+    if defender_value <= 0:
+        return 1.0
 
     # Define the ranges for both sides (40% to 100% efficiency)
     min_a = MIN_EFFICIENCY * attacker_value

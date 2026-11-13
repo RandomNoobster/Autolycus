@@ -3,6 +3,8 @@ Projects Constants - revenue-relevant only.
 
 Only include projects that actually change revenue math in logic.revenue
 or alter infrastructure caps used in build generation.
+
+Effects follow .ctx/projects_canon.md, the confirmed project descriptions.
 """
 
 PROJECTS = {
@@ -16,7 +18,7 @@ PROJECTS = {
     },
     'armss': {
         'name': 'Arms Stockpile',
-        'description': 'Munitions Factories output +34% (1.5 -> 2.01 munitions/turn) and lead usage scales up accordingly.'
+        'description': 'Munitions Factories output +20% (1.5 -> 1.8 munitions/turn); lead usage does not increase.'
     },
     'egr': {
         'name': 'Emergency Gasoline Reserve',
@@ -40,7 +42,7 @@ PROJECTS = {
     },
     'green_tech': {
         'name': 'Green Technologies',
-        'description': 'Cuts manufacturing pollution by 25%, farm pollution by 50%, subways produce less pollution, and resource production upkeep drops 10%.'
+        'description': 'Cuts manufacturing pollution by 25% and farm pollution by 50%, subways remove 25 more pollution each, and resource production upkeep drops 10%.'
     },
     'clinical_research_center': {
         'name': 'Clinical Research Center',
@@ -48,7 +50,7 @@ PROJECTS = {
     },
     'specialized_police_training': {
         'name': 'Specialized Police Training',
-        'description': 'Police stations cut crime by 3.5% each (up from 2.5%), station cap rises, and cities gain +4 base commerce.'
+        'description': 'Police stations cut crime by 3.5% each (up from 2.5%) and cities gain +4% commerce.'
     },
     'uap': {
         'name': 'Uranium Enrichment Program',
@@ -56,7 +58,7 @@ PROJECTS = {
     },
     'fallout_shelter': {
         'name': 'Fallout Shelter',
-        'description': 'Caps radiation food penalty at 85% hit.'
+        'description': 'Reduces food lost to radiation by 15%.'
     },
     'government_support_agency': {
         'name': 'Government Support Agency',
@@ -64,7 +66,7 @@ PROJECTS = {
     },
     'bureau_of_domestic_affairs': {
         'name': 'Bureau of Domestic Affairs',
-        'description': 'Boost domestic policy effects by 25% (Open Markets 1.5% → 1.75%; Imperialism 7.5% → 8.75%). Requires Government Support Agency.'
+        'description': 'Boosts domestic policy effects by a further 25% (Open Markets 1.5% → 1.75%; Imperialism 7.5% → 8.75%) and removes the policy change timer. Requires Government Support Agency.'
     },
 }
 

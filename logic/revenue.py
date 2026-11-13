@@ -9,18 +9,16 @@ Reference: pwpedia_data.jsonl for all game mechanics and formulas.
 
 from __future__ import annotations
 
-import json
 import logging
 import math
-from datetime import datetime
+import functools
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 if TYPE_CHECKING:
     import discord
 
 from infra.cache import cache_game_context
-
-from .common import weird_division
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +166,7 @@ def calculate_nation_modifiers(nation: dict[str, Any]) -> dict[str, float]:
         'mun_mod': 1,
         'gas_mod': 1,
         'manu_poll_mod': 1,
-        'farm_poll_mod': 0.5,
+        'farm_poll_mod': 1,
         'subw_poll_red': 45,
         'rss_upkeep_mod': 1,
         'ste_mod': 1,
@@ -498,10 +496,7 @@ def calculate_population_effects(city: dict[str, Any], modifiers: dict[str, floa
     )
     disease_rate = max(0, min(disease_rate_raw, 100))
     disease_deaths = max(base_pop * (disease_rate / 100), 0)
-    city_age = (datetime.utcnow() - datetime.strptime(city['date'], "%Y-%m-%d")).days
-    if city_age == 0:
-        city_age = 1
-    city_age_mod = 1 + math.log(city_age) / 15
+    city_age_mod = _city_age_mod(str(city['date'])[:10], datetime.now(timezone.utc).date())
     population = (base_pop - disease_deaths - crime_deaths) * city_age_mod
     food_consumption = (base_pop ** 2 / 125000000) + ((base_pop * city_age_mod - base_pop) / 850)
     return {
@@ -512,6 +507,46 @@ def calculate_population_effects(city: dict[str, Any], modifiers: dict[str, floa
         'disease_rate_raw': disease_rate_raw,
         'food_consumption': food_consumption,
         'city_age_mod': city_age_mod,
+    }
+
+
+@functools.lru_cache(maxsize=4096)
+def _city_age_mod(founded: str, today: date) -> float:
+    """Population multiplier from a city's age; ``founded`` is ``YYYY-MM-DD``.
+
+    City dates arrive as dates from scans and as ISO datetimes from the
+    subscription payloads; callers pass only the day.
+    """
+    founded_on = datetime.strptime(founded, "%Y-%m-%d").date()
+    city_age = max((today - founded_on).days, 1)
+    return 1 + math.log(city_age) / 15
+
+
+def unit_upkeep_rates(nation: dict[str, Any], *, at_war: bool) -> dict[str, tuple[float, float]]:
+    """Daily ``(money, food)`` upkeep per unit after the nation's military research.
+
+    Shared by nation revenue and the builds calculator so the two can't drift.
+    """
+    research = nation.get('military_research') or {}
+    ground = research.get('ground_cost') or 0
+    air = research.get('air_cost') or 0
+    naval = research.get('naval_cost') or 0
+    if at_war:
+        return {
+            'soldiers': (1.88 - 0.06 * ground, 1 / (500 + 30 * ground)),
+            'tanks': (75 - 3 * ground, 0.0),
+            'aircraft': (1000 - 20 * air, 0.0),
+            'ships': (5000 - 100 * naval, 0.0),
+            'missiles': (31500, 0.0),
+            'nukes': (52500, 0.0),
+        }
+    return {
+        'soldiers': (1.25 - 0.04 * ground, 1 / (750 + 20 * ground)),
+        'tanks': (50 - 2 * ground, 0.0),
+        'aircraft': (750 - 30 * air, 0.0),
+        'ships': (3300 - 60 * naval, 0.0),
+        'missiles': (21000, 0.0),
+        'nukes': (35000, 0.0),
     }
 
 
@@ -540,47 +575,14 @@ def calculate_military_upkeep(nation: dict[str, Any], modifiers: dict[str, float
             break
     
     if include_spies:
-        military_upkeep += nation.get('spies', 0) * 2400
+        military_upkeep += (nation.get('spies') or 0) * 2400
     
-    ground_research = nation.get('military_research', {}).get('ground_cost', 0)
-    air_research = nation.get('military_research', {}).get('air_cost', 0)
-    naval_research = nation.get('military_research', {}).get('naval_cost', 0)
-    
-    if not at_war:
-        military_upkeep += nation.get('soldiers', 0) * (1.25 - 0.04 * ground_research)
-        food_consumption += nation.get('soldiers', 0) / (750 + 20 * ground_research)
-        military_upkeep += nation.get('tanks', 0) * (50 - 2 * ground_research)
-        military_upkeep += nation.get('aircraft', 0) * (750 - 30 * air_research)
-        military_upkeep += nation.get('ships', 0) * (3300 - 60 * naval_research)
-        military_upkeep += nation.get('missiles', 0) * 21000
-        military_upkeep += nation.get('nukes', 0) * 35000
-    else:
-        military_upkeep += nation.get('soldiers', 0) * (1.88 - 0.06 * ground_research)
-        food_consumption += nation.get('soldiers', 0) / (500 + 30 * ground_research)
-        military_upkeep += nation.get('tanks', 0) * (75 - 3 * ground_research)
-        military_upkeep += nation.get('aircraft', 0) * (1000 - 20 * air_research)
-        military_upkeep += nation.get('ships', 0) * (5000 - 100 * naval_research)
-        military_upkeep += nation.get('missiles', 0) * 31500
-        military_upkeep += nation.get('nukes', 0) * 52500
-    
+    for unit, (money, food) in unit_upkeep_rates(nation, at_war=at_war).items():
+        count = nation.get(unit) or 0
+        military_upkeep += count * money
+        food_consumption += count * food
+
     return military_upkeep, food_consumption
-
-
-def calculate_military_upkeep_from_buildings(city: dict[str, Any]) -> float:
-    """Calculate military building maintenance costs (not unit upkeep).
-    
-    Args:
-        city: City data with military building counts
-        
-    Returns:
-        Total military building upkeep cost
-    """
-    military_upkeep = 0.0
-    military_upkeep += int(city.get('barracks', 0)) * 3000 * 1.25
-    military_upkeep += int(city.get('factory', 0)) * 250 * 50
-    military_upkeep += int(city.get('airforcebase', 0)) * 15 * 500
-    military_upkeep += int(city.get('drydock', 0)) * 5 * 3750
-    return military_upkeep
 
 
 def calculate_treasure_bonus(nation: dict[str, Any], treasures: list[dict[str, Any]]) -> float:
@@ -612,273 +614,6 @@ def calculate_treasure_bonus(nation: dict[str, Any], treasures: list[dict[str, A
     return nation_treasure_bonus
 
 
-async def revenue_calc(
-    message: Optional[discord.Message],
-    nation: dict[str, Any],
-    radiation: dict[str, float],
-    treasures: list[dict[str, Any]],
-    prices: dict[str, float],
-    colors: dict[str, float],
-    seasonal_mod: dict[str, float],
-    build: Optional[str] = None,
-    single_city: bool = False,
-    include_spies: bool = False,
-    disable_population_income: bool = False,
-) -> dict[str, Any]:
-    """Calculate complete nation revenue and resource production.
-    
-    This is the main revenue calculation function that aggregates all city-level
-    calculations into nation-wide totals, including resource gains/losses,
-    income/expenses, and final net revenue.
-    
-    Args:
-        message: Discord message to edit with status (for UI feedback)
-        nation: Complete nation data from P&W API
-        radiation: Regional radiation modifiers
-        treasures: List of all treasures in game (for bonuses)
-        prices: Current market prices for all resources
-        colors: Color bonus amounts (money per turn)
-        seasonal_mod: Seasonal production modifiers by continent
-        build: Optional custom city build as JSON string
-        single_city: If True, calculate only one city; if False, all cities
-        include_spies: If True, include spy upkeep in calculations
-        
-    Returns:
-        Dict with detailed revenue breakdown including:
-        - monetary_net_num: Total money + resource values
-        - net_cash_num: Cash-only revenue
-        - All resources (food, fuel, etc.)
-        - Formatted text fields for embeds
-    """
-    rss_upkeep = 0.0
-    civil_upkeep = 0.0
-    military_upkeep = 0.0
-    money_income = 0.0
-    population_income = 0.0
-    power_upkeep = 0.0
-    nationpop = 0.0
-    total_infra = 0
-    coal = 0.0
-    oil = 0.0
-    uranium = 0.0
-    lead = 0.0
-    iron = 0.0
-    bauxite = 0.0
-    gasoline = 0.0
-    munitions = 0.0
-    steel = 0.0
-    aluminum = 0.0
-    food = 0.0
-    
-    starve_net_text = ""
-    starve_money_text = ""
-    starve_exp_text = ""
-    color_text = ""
-    new_player_text = ""
-    policy_bonus_text = ""
-    treasure_text = ""
-    footer = ""
-    
-    modifiers = calculate_nation_modifiers(nation)
-    
-    # Handle custom build input
-    if build is not None:
-        try:
-            build = json.loads(build)
-        except json.JSONDecodeError:
-            if message is not None:
-                await message.edit(content="Something is wrong with the build you sent!")
-            return {}
-        land = 0
-        for city in nation['cities']:
-            land += city['land']
-        city = {}
-        for key, value in build.items():
-            city[key[4:]] = int(value)
-        city['infrastructure'] = city.pop('a_needed')
-        city['land'] = round(land/nation['num_cities'])
-        city['powered'] = True
-        city['date'] = nation['cities'][math.ceil(nation['num_cities']/2)]['date']
-        city['airforcebase'] = city['hangars']
-        nation['cities'] = [city]
-    
-    # Calculate per-city contributions
-    for city in nation['cities']:
-        total_infra += city['infrastructure']
-        base_pop = city['infrastructure'] * 100
-        
-        power_result = calculate_power_generation(city)
-        power_upkeep += power_result['power_upkeep']
-        coal += power_result['coal']
-        oil += power_result['oil']
-        uranium += power_result['uranium']
-        total_pollution = power_result['pollution']
-        unpowered_infra = power_result['unpowered_infra']
-        
-        resource_result = calculate_resource_production(city, modifiers)
-        rss_upkeep += resource_result['rss_upkeep']
-        total_pollution += resource_result['pollution']
-        coal += resource_result['coal']
-        oil += resource_result['oil']
-        uranium += resource_result['uranium']
-        lead += resource_result['lead']
-        iron += resource_result['iron']
-        bauxite += resource_result['bauxite']
-        
-        farms = city.get('farm', 0)
-        if farms > 0:
-            rss_upkeep += 300 * farms * modifiers['rss_upkeep_mod']
-            total_pollution += 2 * farms * modifiers['farm_poll_mod']
-            food += calculate_food_production(city, nation, modifiers, seasonal_mod, radiation)
-        
-        manufacturing_result = calculate_manufacturing(city, modifiers, unpowered_infra)
-        rss_upkeep += manufacturing_result['rss_upkeep']
-        total_pollution += manufacturing_result['pollution']
-        coal += manufacturing_result['coal']
-        oil += manufacturing_result['oil']
-        iron += manufacturing_result['iron']
-        bauxite += manufacturing_result['bauxite']
-        lead += manufacturing_result['lead']
-        gasoline += manufacturing_result['gasoline']
-        steel += manufacturing_result['steel']
-        aluminum += manufacturing_result['aluminum']
-        munitions += manufacturing_result['munitions']
-        
-        civil_result = calculate_civil_improvements(city, modifiers, unpowered_infra)
-        civil_upkeep += civil_result['civil_upkeep']
-        total_pollution += civil_result['pollution']
-        commerce = civil_result['commerce']
-        police_stations = civil_result['police_stations']
-        hospitals = civil_result['hospitals']
-        
-        city['real_pollution'] = total_pollution
-        city['pollution'] = max(total_pollution, 0)
-        raw_commerce = civil_result.get('raw_commerce', civil_result['commerce'])
-        city['real_commerce'] = raw_commerce
-        city['commerce'] = commerce
-
-        pop_result = calculate_population_effects(
-            city,
-            modifiers,
-            base_pop,
-            raw_commerce,
-            police_stations,
-            hospitals,
-            city['pollution'],
-        )
-        crime_rate_raw = (
-            (math.pow(103 - raw_commerce, 2) + base_pop) / 111111
-            - police_stations * modifiers['pol_cri_red']
-        )
-        city['real_crime_rate'] = crime_rate_raw
-        city['crime_rate'] = max(crime_rate_raw, 0)
-        city['real_disease_rate'] = pop_result.get('disease_rate_raw', pop_result['disease_rate'])
-        city['disease_rate'] = pop_result['disease_rate']
-        nationpop += pop_result['population']
-        city_population_income = (((commerce / 50) * 0.725) + 0.725) * pop_result['population']
-        population_income += city_population_income
-        money_income += city_population_income
-        food -= pop_result['food_consumption']
-    
-    # Apply nation-level bonuses
-    nation_treasure_bonus = calculate_treasure_bonus(nation, treasures)
-    if nation_treasure_bonus > 1:
-        treasure_text = f"\n\nTreasure Bonus: ${round(money_income * (nation_treasure_bonus - 1)):,}"
-    
-    color_bonus = 0.0
-    if not single_city:
-        color_bonus = colors[nation['color']]
-        color_text = f"\n\nColor Trade Bloc Bonus: ${round(color_bonus):,}"
-    
-    if modifiers['new_player_bonus'] > 1:
-        new_player_text = f"\n\nNew Player Bonus: ${round((modifiers['new_player_bonus'] - 1) * money_income):,}"
-    
-    if modifiers['policy_bonus'] != 1 and nation.get('dompolicy') == "Open Markets":
-        policy_bonus_text = f"\n\nOpen Markets Bonus: ${round(money_income * (1 - modifiers['policy_bonus'])):,}"
-    
-    if not single_city:
-        military_upkeep_calc, food_consumption = calculate_military_upkeep(nation, modifiers, include_spies)
-        military_upkeep = military_upkeep_calc
-        food -= food_consumption
-    else:
-        military_upkeep = calculate_military_upkeep_from_buildings(city)
-    
-    military_upkeep *= modifiers['mil_cost']
-    if modifiers['mil_cost'] != 1 and nation.get('dompolicy') == "Imperialism":
-        policy_bonus_text = f"\n\nImperialism Bonus: ${round(military_upkeep * (1 - modifiers['mil_cost'])):,}"
-    
-    # Check for starvation penalty
-    if food < 0:
-        starve_exp_text = f"\n\nPossible Starvation Penalty: ${round(money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * 0.33):,}*"
-        starve_money_text = f" (${round(money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * 0.67 + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep):,}*)"
-        starve_net_text = f" (${round(money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * 0.67 + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep + coal * prices['coal'] + oil * prices['oil'] + uranium * prices['uranium'] + lead * prices['lead'] + iron * prices['iron'] + bauxite * prices['bauxite'] + gasoline * prices['gasoline'] + munitions * prices['munitions'] + steel * prices['steel'] + aluminum * prices['aluminum'] + food * prices['food']):,}*)"
-        footer = "* The income if the nation is suffering from a starvation penalty"
-    
-    max_infra = sorted(nation['cities'], key=lambda k: k['infrastructure'], reverse=True)[0]['infrastructure']
-    
-    if single_city:
-        rev_obj = nation['cities'][0]
-    else:
-        rev_obj = {}
-    
-    rev_obj['monetary_net_num'] = round(
-        money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus
-        + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep
-        + coal * prices['coal'] + oil * prices['oil'] + uranium * prices['uranium']
-        + lead * prices['lead'] + iron * prices['iron'] + bauxite * prices['bauxite']
-        + gasoline * prices['gasoline'] + munitions * prices['munitions']
-        + steel * prices['steel'] + aluminum * prices['aluminum'] + food * prices['food']
-    )
-    rev_obj['net_cash_num'] = round(
-        money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus
-        + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep
-    )
-    adjusted_population_income = round(
-        population_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus
-    )
-    rev_obj['monetary_net_num_real'] = rev_obj['monetary_net_num']
-    rev_obj['net_cash_num_real'] = rev_obj['net_cash_num']
-    if disable_population_income:
-        rev_obj['monetary_net_num'] = rev_obj['monetary_net_num_real'] - adjusted_population_income
-        rev_obj['net_cash_num'] = rev_obj['net_cash_num_real'] - adjusted_population_income
-    rev_obj['food'] = food
-    rev_obj['aluminum'] = aluminum
-    rev_obj['bauxite'] = bauxite
-    rev_obj['coal'] = coal
-    rev_obj['gasoline'] = gasoline
-    rev_obj['iron'] = iron
-    rev_obj['lead'] = lead
-    rev_obj['munitions'] = munitions
-    rev_obj['oil'] = oil
-    rev_obj['steel'] = steel
-    rev_obj['uranium'] = uranium
-    
-    if single_city and not build:
-        rev_obj['money'] = rev_obj['net_cash_num']
-        rev_obj['net income'] = rev_obj['monetary_net_num']
-        rev_obj['money real'] = rev_obj['net_cash_num_real']
-        rev_obj['net income real'] = rev_obj['monetary_net_num_real']
-        rev_obj['disease_rate'] = city['disease_rate']
-        rev_obj['crime_rate'] = city['crime_rate']
-        rev_obj['commerce'] = city['commerce']
-        rev_obj['pollution'] = city['pollution']
-        rev_obj['population'] = pop_result['population']
-        return rev_obj
-    else:
-        rev_obj['nation'] = nation
-    
-    rev_obj['footer'] = footer
-    rev_obj['max_infra'] = max_infra
-    rev_obj['avg_infra'] = round(total_infra / nation['num_cities'])
-    rev_obj['income_txt'] = f"National Tax Revenue: ${round(money_income):,}{color_text}{new_player_text}{policy_bonus_text}{treasure_text}\n\u200b"
-    rev_obj['expenses_txt'] = f"Power Plant Upkeep: ${round(power_upkeep):,}\n\nResource Prod. Upkeep: ${round(rss_upkeep):,}\n\nMilitary Upkeep: ${round(military_upkeep):,}\n\nCity Improvement Upkeep: ${round(civil_upkeep):,}{starve_exp_text}\n\u200b"
-    rev_obj['net_rev_txt'] = f"Coal: {round(coal):,}\nOil: {round(oil):,}\nUranium: {round(uranium):,}\nLead: {round(lead):,}\nIron: {round(iron):,}\nBauxite: {round(bauxite):,}\nGasoline: {round(gasoline):,}\nMunitions: {round(munitions):,}\nSteel: {round(steel):,}\nAluminum: {round(aluminum):,}\nFood: {round(food):,}\nMoney: ${round(money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep):,}{starve_money_text}\n\u200b"
-    rev_obj['mon_net_txt'] = f"${round(money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep + coal * prices['coal'] + oil * prices['oil'] + uranium * prices['uranium'] + lead * prices['lead'] + iron * prices['iron'] + bauxite * prices['bauxite'] + gasoline * prices['gasoline'] + munitions * prices['munitions'] + steel * prices['steel'] + aluminum * prices['aluminum'] + food * prices['food']):,}{starve_net_text}"
-    rev_obj['money_txt'] = f"${round(money_income * modifiers['policy_bonus'] * modifiers['new_player_bonus'] * nation_treasure_bonus + color_bonus - power_upkeep - rss_upkeep - military_upkeep - civil_upkeep):,}{starve_money_text}"
-    
-    return rev_obj
-
-
 def revenue_calc_sync(
     nation: dict[str, Any],
     radiation: dict[str, float],
@@ -886,17 +621,18 @@ def revenue_calc_sync(
     prices: dict[str, float],
     colors: dict[str, float],
     seasonal_mod: dict[str, float],
-    build: Optional[str] = None,
     single_city: bool = False,
     include_spies: bool = False,
     disable_population_income: bool = False,
+    *,
+    modifiers: Optional[dict[str, float]] = None,
+    treasure_bonus: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Synchronous revenue calculation for non-Discord contexts (e.g. API routes).
+    """Calculate complete nation revenue and resource production.
 
-    Identical calculation logic to :func:`revenue_calc`, but avoids the
-    async/await overhead of creating and tearing down an event loop for every
-    call.  Use this in Flask routes or other synchronous code where Discord
-    message editing is not needed.
+    Aggregates every city's production, income and upkeep into nation-wide
+    totals and the formatted text the bot embeds show. Used by the bot, the
+    scanner, reminders and builds (``single_city=True``, one candidate city).
 
     Args:
         nation: Complete nation data from P&W API
@@ -905,9 +641,10 @@ def revenue_calc_sync(
         prices: Current market prices for all resources
         colors: Color bonus amounts (money per turn)
         seasonal_mod: Seasonal production modifiers by continent
-        build: Optional custom city build as JSON string
         single_city: If True, calculate only one city; if False, all cities
         include_spies: If True, include spy upkeep in calculations
+        modifiers: Precomputed ``calculate_nation_modifiers(nation)``
+        treasure_bonus: Precomputed ``calculate_treasure_bonus(nation, treasures)``
 
     Returns:
         Dict with detailed revenue breakdown including:
@@ -922,7 +659,6 @@ def revenue_calc_sync(
     money_income = 0.0
     population_income = 0.0
     power_upkeep = 0.0
-    nationpop = 0.0
     total_infra = 0
     coal = 0.0
     oil = 0.0
@@ -945,26 +681,8 @@ def revenue_calc_sync(
     treasure_text = ""
     footer = ""
 
-    modifiers = calculate_nation_modifiers(nation)
-
-    # Handle custom build input
-    if build is not None:
-        try:
-            build = json.loads(build)
-        except json.JSONDecodeError:
-            return {}
-        land = 0
-        for city in nation['cities']:
-            land += city['land']
-        city = {}
-        for key, value in build.items():
-            city[key[4:]] = int(value)
-        city['infrastructure'] = city.pop('a_needed')
-        city['land'] = round(land/nation['num_cities'])
-        city['powered'] = True
-        city['date'] = nation['cities'][math.ceil(nation['num_cities']/2)]['date']
-        city['airforcebase'] = city['hangars']
-        nation['cities'] = [city]
+    if modifiers is None:
+        modifiers = calculate_nation_modifiers(nation)
 
     # Calculate per-city contributions
     for city in nation['cities']:
@@ -1038,14 +756,15 @@ def revenue_calc_sync(
         city['crime_rate'] = max(crime_rate_raw, 0)
         city['real_disease_rate'] = pop_result.get('disease_rate_raw', pop_result['disease_rate'])
         city['disease_rate'] = pop_result['disease_rate']
-        nationpop += pop_result['population']
         city_population_income = (((commerce / 50) * 0.725) + 0.725) * pop_result['population']
         population_income += city_population_income
         money_income += city_population_income
         food -= pop_result['food_consumption']
 
     # Apply nation-level bonuses
-    nation_treasure_bonus = calculate_treasure_bonus(nation, treasures)
+    nation_treasure_bonus = (
+        treasure_bonus if treasure_bonus is not None else calculate_treasure_bonus(nation, treasures)
+    )
     if nation_treasure_bonus > 1:
         treasure_text = f"\n\nTreasure Bonus: ${round(money_income * (nation_treasure_bonus - 1)):,}"
 
@@ -1058,14 +777,13 @@ def revenue_calc_sync(
         new_player_text = f"\n\nNew Player Bonus: ${round((modifiers['new_player_bonus'] - 1) * money_income):,}"
 
     if modifiers['policy_bonus'] != 1 and nation.get('dompolicy') == "Open Markets":
-        policy_bonus_text = f"\n\nOpen Markets Bonus: ${round(money_income * (1 - modifiers['policy_bonus'])):,}"
+        policy_bonus_text = f"\n\nOpen Markets Bonus: ${round(money_income * (modifiers['policy_bonus'] - 1)):,}"
 
     if not single_city:
         military_upkeep_calc, food_consumption = calculate_military_upkeep(nation, modifiers, include_spies)
         military_upkeep = military_upkeep_calc
         food -= food_consumption
-    else:
-        military_upkeep = calculate_military_upkeep_from_buildings(city)
+    # In single-city mode (builds) the caller adds unit upkeep when requested.
 
     military_upkeep *= modifiers['mil_cost']
     if modifiers['mil_cost'] != 1 and nation.get('dompolicy') == "Imperialism":
@@ -1117,7 +835,7 @@ def revenue_calc_sync(
     rev_obj['steel'] = steel
     rev_obj['uranium'] = uranium
 
-    if single_city and not build:
+    if single_city:
         rev_obj['money'] = rev_obj['net_cash_num']
         rev_obj['net income'] = rev_obj['monetary_net_num']
         rev_obj['money real'] = rev_obj['net_cash_num_real']

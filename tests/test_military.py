@@ -13,7 +13,7 @@ import os
 # Add parent directory to path so we can import logic
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from logic.military import calculate_win_chance_raw, score_range, war_range_query_bounds
+from logic.military import calculate_win_chance_raw, max_offensive_wars, score_range, war_range_query_bounds
 
 
 class TestCalculateWinChance:
@@ -207,3 +207,42 @@ class TestWarRangeQueryBounds:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestMaxOffensiveWars:
+    """Offensive slots per .ctx/projects_canon.md: 5, 6 with Pirate Economy, 7 with Advanced."""
+
+    def test_base(self):
+        assert max_offensive_wars({}) == 5
+
+    def test_pirate_economy(self):
+        assert max_offensive_wars({"pirate_economy": True, "advanced_pirate_economy": False}) == 6
+
+    def test_advanced_pirate_economy(self):
+        assert max_offensive_wars({"pirate_economy": True, "advanced_pirate_economy": True}) == 7
+
+
+class TestMilitarizationChecker:
+    """Caps, averages and daily recruitment for a nation's military buildings."""
+
+    def test_caps_and_daily_recruitment(self):
+        from logic.military import militarization_checker
+
+        nation = {
+            "population": 1_000_000,
+            "propaganda_bureau": True,
+            "cities": [
+                {"barracks": 5, "factory": 5, "airforcebase": 5, "drydock": 3},
+                {"barracks": 5, "factory": 0, "airforcebase": 5, "drydock": 0},
+            ],
+        }
+
+        milt = militarization_checker(nation)
+
+        assert (milt["barracks_mmr"], milt["factory_mmr"], milt["hangar_mmr"], milt["drydock_mmr"]) == (5, 2.5, 5, 1.5)
+        assert milt["max_soldiers"] == 30_000
+        assert milt["max_tanks"] == 1_250
+        assert milt["max_aircraft"] == 150
+        assert milt["max_ships"] == 15
+        assert milt["soldiers_daily"] == pytest.approx(10_000 * 1.1)
+        assert milt["ships_daily"] == pytest.approx(3 * 1.1)

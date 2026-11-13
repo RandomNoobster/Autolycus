@@ -135,7 +135,6 @@ def test_key_is_stable_across_processes():
 @pytest.mark.parametrize(
     "factory",
     [
-        cache_mod.cache_prices,
         cache_mod.cache_game_context,
         cache_mod.cache_historical_prices,
     ],

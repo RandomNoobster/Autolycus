@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import json
 import math
-from datetime import datetime
 from typing import Any, Optional
-
-from .common import weird_division
 
 
 def infra_rebuild_cost(
@@ -16,12 +12,20 @@ def infra_rebuild_cost(
     """Cost for a nation to buy back destroyed infrastructure (not sell proceeds)."""
     if infra_lost <= 0:
         return 0.0
-    after = max(0.0, float(current_infra) - float(infra_lost))
-    return infra_cost(int(round(after)), int(current_infra), nation)
+    current = float(current_infra)
+    # Both ends stay fractional: rounding only one of them could make a small
+    # loss look like a sale (a negative cost).
+    return infra_cost(max(0.0, current - float(infra_lost)), current, nation)
 
 
-def infra_cost(starting_infra: int, ending_infra: int, nation: Optional[dict[str, Any]] = None) -> float:
-    def unit_cost(amount: int):
+def _domestic_policy(nation: dict[str, Any]) -> str:
+    """Domestic policy as an enum-style name: 'Urbanization' and 'URBANIZATION' both match."""
+    raw = nation.get('domestic_policy') or nation.get('dompolicy') or ''
+    return str(raw).strip().upper().replace(' ', '_')
+
+
+def infra_cost(starting_infra: float, ending_infra: float, nation: Optional[dict[str, Any]] = None) -> float:
+    def unit_cost(amount: float):
         return ((abs(amount - 10) ** 2.2) / 710) + 300
     difference = ending_infra - starting_infra
     cost = 0
@@ -44,75 +48,13 @@ def infra_cost(starting_infra: int, ending_infra: int, nation: Optional[dict[str
             multiplier -= 0.05
         if nation.get('advanced_engineering_corps'):
             multiplier -= 0.05
-        if nation.get('dompolicy') == "URBANIZATION":
+        if _domestic_policy(nation) == "URBANIZATION":
+            # 5%, raised 50% by Government Support Agency and a further 25% by
+            # Bureau of Domestic Affairs (.ctx/projects_canon.md).
+            scale = 1.0
             if nation.get('government_support_agency'):
-                multiplier -= 0.075
-            else:
-                multiplier -= 0.05
+                scale += 0.5
+            if nation.get('bureau_of_domestic_affairs'):
+                scale += 0.25
+            multiplier -= 0.05 * scale
     return cost * multiplier
-
-
-def land_cost(starting_land: int, ending_land: int, nation: Optional[dict[str, Any]] = None) -> float:
-    def unit_cost(amount: int):
-        return (.002*(amount-20)*(amount-20))+50
-    difference = ending_land - starting_land
-    cost = 0
-    if difference < 0:
-        return 50 * difference
-    if difference > 500 and difference % 500 != 0:
-        delta = difference % 500
-        cost += round(unit_cost(starting_land), 2) * delta
-        starting_land += delta
-        difference -= delta
-    for _ in range(math.floor(difference // 500)):
-        cost += round(unit_cost(starting_land), 2) * 500
-        starting_land += 500
-        difference -= 500
-    if difference:
-        cost += (round(unit_cost(starting_land), 2) * difference)
-    multiplier = 1
-    if nation:
-        if nation['arable_land_agency']:
-            multiplier -= 0.05
-        if nation['advanced_engineering_corps']:
-            multiplier -= 0.05
-        if nation['domestic_policy'] == "RAPID_EXPANSION":
-            if nation['government_support_agency']:
-                multiplier -= 0.075
-            else:
-                multiplier -= 0.05
-    return cost * multiplier
-
-
-def city_cost(city: int, nation: Optional[dict[str, Any]] = None) -> float:
-    if city <= 1:
-        raise ValueError("The provided value cannot be less than or equal to 1.")
-    city -= 1
-    modifier = 0
-    multiplier = 1
-    if nation:
-        if nation['urban_planning']:
-            modifier -= 50000000
-        if nation['advanced_urban_planning']:
-            modifier -= 100000000
-        if nation['metropolitan_planning']:
-            modifier -= 100000000
-        if nation['domestic_policy'] == "MANIFEST_DESTINY":
-            if nation['government_support_agency']:
-                multiplier -= 0.075
-            else:
-                multiplier -= 0.05        
-    return (50000 * math.pow((city - 1), 3) + 150000 * city + 75000 + modifier) * multiplier
-
-
-def expansion_cost(current: int, end: int, infra: int, land: int, nation: Optional[dict[str, Any]] = None) -> float:
-    diff = end - current
-    if diff < 1:
-        raise ValueError("Invalid start and end input.")
-    cost = 0
-    while current < end:
-        current += 1
-        cost += city_cost(current, nation)
-        cost += infra_cost(10, infra, nation)
-        cost += land_cost(250, land, nation)
-    return cost

@@ -551,7 +551,7 @@ def verify_discord_link() -> tuple[Any, int]:
             return jsonify({
                 "error": "Sign-in required",
                 "message": (
-                    "Please sign out and sign in with Discord again, then verify. "
+                    "Please sign in with Discord again, then verify. "
                     "This confirms your current Discord username."
                 ),
                 "code": "REAUTH_REQUIRED",

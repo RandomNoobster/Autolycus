@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-import math
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-RSS = ['aluminum', 'bauxite', 'coal', 'food', 'gasoline', 'iron', 'lead', 'money', 'munitions', 'oil', 'steel', 'uranium', 'credits']
 EMBED_COLOR = 0xff5100  # Orange color used throughout Autolycus embeds
 
 # Resource order matches legacy loot_info strings and GraphQL ``*_looted`` fields.
@@ -230,25 +228,35 @@ def _is_beige_loot_attack(attack: dict[str, Any], nation_id: str) -> bool:
     return False
 
 
-def _undo_loot_multipliers(loot_value: float, war: dict[str, Any]) -> float:
-    """Reverse attacker policy / war-type multipliers to estimate base loot."""
-    attacker_info = war.get('attacker') or {}
+# Share of the full loot each war type grants, by the side that takes it
+# (PWPedia War-Types): a defender winning an attrition war takes 50%, not 25%.
+_WAR_TYPE_LOOT_SHARE: dict[str, dict[str, float]] = {
+    'attacker': {'RAID': 1.0, 'ORDINARY': 0.5, 'ATTRITION': 0.25},
+    'defender': {'RAID': 1.0, 'ORDINARY': 0.5, 'ATTRITION': 0.5},
+}
+
+
+def _undo_loot_multipliers(loot_value: float, war: dict[str, Any], looter: str) -> float:
+    """Reverse the looter's war policy, Advanced Pirate Economy and war-type share.
+
+    *looter* is the war side that took the loot (``'attacker'`` or ``'defender'``),
+    so the result is what a raider declaring a raid war without loot bonuses gets.
+    """
+    looter_info = war.get(looter) or {}
     policy = _normalize_war_policy(
-        attacker_info.get('war_policy') or attacker_info.get('warpolicy')
+        looter_info.get('war_policy') or looter_info.get('warpolicy')
     )
     if policy == "ATTRITION":
         loot_value = loot_value / 0.8
     elif policy == "PIRATE":
         loot_value = loot_value / 1.4
-    if attacker_info.get('advanced_pirate_economy'):
+    # Advanced Pirate Economy adds 10% to victory loot; Pirate Economy only boosts
+    # ground-attack loot, so it is not undone here (.ctx/projects_canon.md).
+    if looter_info.get('advanced_pirate_economy'):
         loot_value = loot_value / 1.1
 
-    war_type = _normalize_war_type(war.get('war_type'))
-    if war_type == "ATTRITION":
-        loot_value *= 4
-    elif war_type == "ORDINARY":
-        loot_value *= 2
-    return loot_value
+    war_type = normalize_war_type(war.get('war_type'))
+    return loot_value / _WAR_TYPE_LOOT_SHARE[looter].get(war_type, 1.0)
 
 
 _WAR_TYPE_BY_ORDINAL: dict[int, str] = {
@@ -272,7 +280,8 @@ _WAR_POLICY_BY_ORDINAL: dict[int, str] = {
 }
 
 
-def _normalize_war_type(value: Any) -> str:
+def normalize_war_type(value: Any) -> str:
+    """War type as an uppercase enum name (``RAID``), accepting ordinals and ``WarType.X``."""
     if value is None or isinstance(value, bool):
         return ''
     if isinstance(value, (int, float)) and float(value).is_integer():
@@ -302,42 +311,76 @@ def _normalize_war_policy(value: Any) -> str:
     return text.upper()
 
 
+def _war_field(war: dict[str, Any], *keys: str) -> Any:
+    """First non-null value among *keys* (deprecated and current GraphQL names)."""
+    for key in keys:
+        value = war.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _nation_side(war: dict[str, Any], nation_id: str) -> Optional[str]:
+    """``'defender'`` or ``'attacker'``: the side of *war* the nation fought on."""
+    def_id = _war_field(war, 'defid', 'def_id')
+    att_id = _war_field(war, 'attid', 'att_id')
+    if def_id is not None and str(def_id) == nation_id:
+        return 'defender'
+    if att_id is not None and str(att_id) == nation_id:
+        return 'attacker'
+    if def_id is not None and att_id is None:
+        # Nation.wars lists only the nation's own wars, and rows scanned before
+        # ``attid`` was queried lack it: a war it did not defend, it declared.
+        return 'attacker'
+    return None
+
+
 def _lost_war_loot(
     war: dict[str, Any],
     nation_id: str,
     prices: dict[str, float],
+    side: str,
 ) -> tuple[bool, Optional[float]]:
-    """``(lost, normalized_loot)`` for one finished war the nation defended.
+    """``(lost, normalized_loot)`` for one finished war the nation fought on *side*.
 
     ``lost`` is True when the nation was beaten: a beige-loot attack against it,
     or the opponent recorded as the war's winner. The loot comes from the latest
     such attack, a genuine $0 included; when no attack carries loot data it is
-    the war's ``att_money_looted`` (bulk scans often omit nested attacks). It is
-    None when the war has no loot data at all.
+    the money the winning side looted (``att_money_looted`` for a war the nation
+    defended, ``def_money_looted`` for one it declared; bulk scans often omit
+    nested attacks). It is None when the war has no loot data at all.
     """
+    winner = str(_war_field(war, 'winner', 'winner_id') or '')
+    if winner == nation_id:
+        return False, None  # it won this war; any loot in it was its own
+
+    looter = 'attacker' if side == 'defender' else 'defender'
     lost = False
     for attack in reversed(war.get('attacks') or []):  # latest attack first
         if not _is_beige_loot_attack(attack, nation_id):
             continue
+        if side == 'attacker' and not attack.get('victor'):
+            # Without a victor this could be the nation's own win, and raiders
+            # usually win the wars they declare: only count a proven defeat.
+            continue
         lost = True
         loot_value = _attack_beige_loot_market_value(attack, prices)
         if loot_value is not None:
-            return True, _undo_loot_multipliers(max(float(loot_value), 0.0), war)
+            return True, _undo_loot_multipliers(max(float(loot_value), 0.0), war, looter)
 
-    winner = str(war.get('winner') if war.get('winner') is not None else war.get('winner_id') or '')
-    if winner not in ('', '0', nation_id):
+    if winner not in ('', '0'):
         lost = True
     if not lost:
         return False, None
 
-    raw_money = war.get('att_money_looted')
+    raw_money = war.get('att_money_looted' if looter == 'attacker' else 'def_money_looted')
     try:
         money_loot = float(raw_money) if raw_money is not None else None
     except (TypeError, ValueError):
         money_loot = None
     if money_loot is None:
         return True, None
-    return True, _undo_loot_multipliers(max(money_loot, 0.0), war)
+    return True, _undo_loot_multipliers(max(money_loot, 0.0), war, looter)
 
 
 def compute_beige_loot(
@@ -346,12 +389,13 @@ def compute_beige_loot(
 ) -> Optional[int]:
     """Estimate what a raider can expect to loot when this nation is next beiged.
 
-    Uses only the nation's most recent lost defensive war (ranked by end date),
-    including a genuine $0 result; older defeats never stand in for it. The
-    loot is normalized to a baseline raider: the previous attacker's war policy,
-    Advanced Pirate Economy and the war type are undone, giving the value for a
-    raid war by an attacker without loot bonuses. The defender's own war policy
-    (Moneybags, Turtle, Guardian) is kept, since it also applies to the next raid.
+    Uses only the nation's most recent lost war (ranked by end date), whether it
+    defended that war or declared it and was beaten back, including a genuine $0
+    result; older defeats never stand in for it. The loot is normalized to a
+    baseline raider: the winner's war policy, Advanced Pirate Economy and its
+    war-type share are undone, giving the value for a raid war declared by an
+    attacker without loot bonuses. The nation's own war policy (Moneybags,
+    Turtle, Guardian) is kept, since it also applies to the next raid.
 
     Prefers GraphQL structured ``money_looted`` / ``*_looted`` fields because
     ``loot_info`` is deprecated and commonly empty. Falls back to parsing
@@ -364,7 +408,7 @@ def compute_beige_loot(
 
     Returns:
         Estimated loot value in dollars, or *None* when it cannot be computed
-        (no prices, no lost defensive war, or that war has no loot data).
+        (no prices, no lost war, or that war has no loot data).
     """
     if not prices:
         return None
@@ -387,16 +431,16 @@ def compute_beige_loot(
             if turns_left_val > 0:
                 continue  # still active
 
-            def_id = war.get('defid', war.get('def_id'))
-            if str(def_id) != nation_id:
-                continue  # only care about wars where this nation was defender
+            side = _nation_side(war, nation_id)
+            if side is None:
+                continue
 
-            lost, loot = _lost_war_loot(war, nation_id, prices)
+            lost, loot = _lost_war_loot(war, nation_id, prices, side)
             if not lost:
                 continue
 
             # Rank by when the war ended (the defeat that set current holdings), not when
-            # it was declared: overlapping defensive wars can end in either order.
+            # it was declared: overlapping wars can end in either order.
             war_dt = parse_war_date(war.get('end_date') or war.get('date'))
             if latest_date is None or war_dt > latest_date:
                 latest_date = war_dt

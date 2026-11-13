@@ -32,7 +32,7 @@ from logic.builds import generate_build_template
 from logic.common import str_to_int
 from logic.merge_utils import get_query
 from logic.military import militarization_checker
-from logic.revenue import pre_revenue_calc, revenue_calc
+from logic.revenue import pre_revenue_calc, revenue_calc_sync
 from logic.verification import verify_discord_nation_link
 from core.config import AUTOLYCUS_WEB_BASE_URL
 
@@ -339,17 +339,15 @@ class Background(commands.Cog):
             build_txt = "daily revenue"
             single_city = False
 
-            rev_obj = await revenue_calc(
-                ctx,
+            rev_obj = revenue_calc_sync(
                 nation,
                 radiation,
                 treasures,
                 prices,
                 colors,
                 seasonal_mod,
-                None,
-                single_city,
-                True,
+                single_city=single_city,
+                include_spies=True,
             )
 
             embed = discord.Embed(
@@ -426,17 +424,15 @@ class Background(commands.Cog):
             for nation in nations:
                 if nation['color'] == "gray" and not include_grey:
                     continue
-                rev_obj = await revenue_calc(
-                    ctx,
+                rev_obj = revenue_calc_sync(
                     nation,
                     radiation,
                     treasures,
                     prices,
                     colors,
                     seasonal_mod,
-                    None,
-                    False,
-                    False,
+                    single_city=False,
+                    include_spies=False,
                 )
                 for rs in RSS:
                     try:
