@@ -1,28 +1,22 @@
-import { Button, Group, Loader, Stack, TextInput, Alert } from '@mantine/core';
+import { Button, Group, Loader, TextInput, Alert } from '@mantine/core';
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
-import type { ButtonProps, GroupProps, MantineSize, TextInputProps } from '@mantine/core';
+import type { MantineSize, TextInputProps } from '@mantine/core';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
 interface NationIdFieldProps {
+  /** The current id. Typing stays local until submit. */
   value: string;
-  /** Optional live parent sync. Prefer omitting this on heavy pages — typing stays local until submit. */
-  onChange?: (value: string) => void;
   onSubmit: (value: string) => void;
   label?: ReactNode;
-  description?: ReactNode;
   placeholder?: string;
   size?: MantineSize;
   buttonLabel: string;
   buttonIcon?: ReactNode;
-  buttonDisabled?: boolean;
-  /** Disable Load when the input still matches the controlled `value` (already loaded id). */
+  /** Disable the button while the input still matches `value` (already loaded), unless that load failed. */
   disableWhenUnchanged?: boolean;
   loading?: boolean;
-  layout?: 'row' | 'column';
-  inputProps?: Omit<TextInputProps, 'value' | 'onChange' | 'label' | 'description' | 'onKeyDown'>;
-  buttonProps?: Omit<ButtonProps, 'onClick' | 'leftSection' | 'children'>;
-  groupProps?: Omit<GroupProps, 'children'>;
+  inputProps?: Omit<TextInputProps, 'value' | 'onChange' | 'label' | 'onKeyDown'>;
   errorMessage?: string | null;
   warningMessage?: string | null;
   successMessage?: string | null;
@@ -30,21 +24,15 @@ interface NationIdFieldProps {
 
 export function NationIdField({
   value,
-  onChange,
   onSubmit,
   label,
-  description,
   placeholder,
   size = 'sm',
   buttonLabel,
   buttonIcon,
-  buttonDisabled = false,
   disableWhenUnchanged = false,
   loading = false,
-  layout = 'row',
   inputProps,
-  buttonProps,
-  groupProps,
   errorMessage,
   warningMessage,
   successMessage,
@@ -67,19 +55,13 @@ export function NationIdField({
   }, [successMessage]);
 
   const trimmed = localValue.trim();
-  const unchanged = disableWhenUnchanged && trimmed === value.trim();
-  const buttonDisabledState =
-    loading || buttonDisabled || !trimmed || unchanged || buttonProps?.disabled;
-  const buttonSize = buttonProps?.size ?? size;
+  // After a failed load the same id must stay submittable, so the user can retry it.
+  const unchanged = disableWhenUnchanged && !errorMessage && trimmed === value.trim();
+  const buttonDisabled = loading || !trimmed || unchanged;
   const isSuccess = showSuccess && !loading && !errorMessage;
 
-  const handleChange = (next: string) => {
-    setLocalValue(next);
-    onChange?.(next);
-  };
-
   const handleSubmit = () => {
-    if (buttonDisabledState) return;
+    if (buttonDisabled) return;
     onSubmit(localValue);
   };
 
@@ -89,56 +71,29 @@ export function NationIdField({
     handleSubmit();
   };
 
-  const inputStyle =
-    layout === 'row' ? { flex: 1, minWidth: 200, ...(inputProps?.style ?? {}) } : inputProps?.style;
-
-  const textInput = (
-    <TextInput
-      value={localValue}
-      onChange={(event) => handleChange(event.currentTarget.value)}
-      onKeyDown={handleKeyDown}
-      placeholder={placeholder}
-      label={label}
-      description={description}
-      size={size}
-      error={errorMessage || undefined}
-      {...inputProps}
-      style={inputStyle}
-    />
-  );
-
-  const button = (
-    <Button
-      size={buttonSize}
-      leftSection={loading ? <Loader size="xs" /> : isSuccess ? <IconCheck size={16} /> : buttonIcon}
-      onClick={handleSubmit}
-      color={isSuccess ? 'green' : undefined}
-      variant={isSuccess ? 'filled' : buttonProps?.variant}
-      {...buttonProps}
-      disabled={buttonDisabledState}
-    >
-      {loading ? 'Loading...' : isSuccess ? 'Loaded!' : buttonLabel}
-    </Button>
-  );
-
-  if (layout === 'column') {
-    return (
-      <Stack gap="xs">
-        {textInput}
-        {button}
-        {warningMessage && (
-          <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light">
-            {warningMessage}
-          </Alert>
-        )}
-      </Stack>
-    );
-  }
-
   return (
-    <Group gap="sm" align="flex-end" wrap="wrap" {...groupProps}>
-      {textInput}
-      {button}
+    <Group gap="sm" align="flex-end" wrap="wrap">
+      <TextInput
+        value={localValue}
+        onChange={(event) => setLocalValue(event.currentTarget.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        label={label}
+        size={size}
+        error={errorMessage || undefined}
+        {...inputProps}
+        style={{ flex: 1, minWidth: 200, ...(inputProps?.style ?? {}) }}
+      />
+      <Button
+        size={size}
+        leftSection={loading ? <Loader size="xs" /> : isSuccess ? <IconCheck size={16} /> : buttonIcon}
+        onClick={handleSubmit}
+        color={isSuccess ? 'green' : undefined}
+        variant={isSuccess ? 'filled' : undefined}
+        disabled={buttonDisabled}
+      >
+        {loading ? 'Loading...' : isSuccess ? 'Loaded!' : buttonLabel}
+      </Button>
       {warningMessage && (
         <Alert
           icon={<IconAlertCircle size={16} />}

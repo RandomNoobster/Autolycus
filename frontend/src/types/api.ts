@@ -12,14 +12,10 @@ export interface ApiError {
   error: string;
   message: string;
   code: string;
+  /** HTTP status of the failed response; 0 when none arrived. Absent on errors built in the browser. */
+  status?: number;
   /** Seconds from the `Retry-After` header, when the server sent one (e.g. 429 RATE_LIMITED). */
   retryAfterSeconds?: number;
-}
-
-export interface ApiResponse<T> {
-  data: T | null;
-  error: ApiError | null;
-  isLoading: boolean;
 }
 
 // ============================================================================
@@ -522,7 +518,6 @@ export interface BuildConfiguration {
   continent: Continent;
   military: MilitaryBuildings;
   projects: string[];
-  policies: string[];
   useLiveMarket: boolean;
   includeMilitaryUpkeep: boolean;
   disablePopulationIncome: boolean;
@@ -533,7 +528,6 @@ export interface BuildConfiguration {
 export interface ContinentResources {
   continent: Continent;
   resources: string[];
-  invalid: string[];
 }
 
 // ============================================================================
@@ -663,9 +657,6 @@ export interface DamageLinkedWarPreset {
   enemy_resistance?: number;
   /** Your Military Action Points remaining (max 12). */
   your_maps?: number;
-  /** Older API responses used these names (same semantics as enemy_resistance / your_maps). */
-  linked_resistance?: number;
-  linked_maps?: number;
   war: DamageWarInput;
 }
 
@@ -728,18 +719,3 @@ export type ResourceType =
   | 'uranium'
   | 'credits';
 
-export const RESOURCE_ICONS: Record<ResourceType, string> = {
-  aluminum: '/assets/resources/aluminum.png',
-  bauxite: '/assets/resources/bauxite.png',
-  coal: '/assets/resources/coal.png',
-  food: '/assets/resources/food.png',
-  gasoline: '/assets/resources/gasoline.png',
-  iron: '/assets/resources/iron.png',
-  lead: '/assets/resources/lead.png',
-  money: '/assets/resources/money.png',
-  munitions: '/assets/resources/munitions.png',
-  oil: '/assets/resources/oil.png',
-  steel: '/assets/resources/steel.png',
-  uranium: '/assets/resources/uranium.png',
-  credits: '/assets/resources/credits.png',
-};

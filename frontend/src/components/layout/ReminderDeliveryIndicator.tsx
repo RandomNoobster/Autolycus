@@ -17,7 +17,11 @@ interface ReminderDeliveryIndicatorProps {
 export function ReminderDeliveryIndicator({ session, onNavigate }: ReminderDeliveryIndicatorProps) {
   const navigate = useNavigate();
   const signedIn = session.status === 'signed_in';
-  const { data: delivery } = useReminderDelivery({ enabled: signedIn, poll: false });
+  const { data: delivery } = useReminderDelivery({
+    enabled: signedIn,
+    poll: false,
+    focusRefresh: 'whenNeedsAttention',
+  });
 
   if (!signedIn || !delivery?.needsAttention) return null;
 

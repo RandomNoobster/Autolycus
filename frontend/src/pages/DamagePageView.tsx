@@ -43,7 +43,7 @@ import {
   IconSword,
   IconTarget,
 } from "@tabler/icons-react";
-import { useDebouncedValue, useMediaQuery } from "@mantine/hooks";
+import { useDebouncedValue } from "@mantine/hooks";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -53,10 +53,11 @@ import {
   fetchLinkedActiveWars,
   searchNations,
 } from "@/api";
-import { getDiscordLoginUrl, getLinkedNation } from "@/api/auth";
+import { getDiscordLoginUrl } from "@/api/auth";
 import { toApiError } from "@/api/errors";
 import { DamageDashboard, DamagePageSkeleton } from "@/components/damage";
 import { ErrorState } from "@/components/common";
+import { parseNationId } from "@/utils/nationId";
 import type {
   ApiError,
   DamageCalculationInput,
@@ -65,6 +66,8 @@ import type {
   DamageResponse,
   DamageWarType,
 } from "@/types";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useLinkedNation } from "@/hooks/useLinkedNation";
 
 // Per PWPedia "War-Policy" article.
 const WAR_POLICY_OPTIONS = [
@@ -735,11 +738,8 @@ const buildDefaultInputs = (
   },
 });
 
-const parseNationIdInput = (value: string): number => {
-  if (!value) return 0;
-  const match = value.trim().match(/\d{1,10}/);
-  return match ? Number(match[0]) : 0;
-};
+/** Nation id from an id, link or search label; 0 when the input is a name to search for. */
+const parseNationIdInput = (value: string): number => Number(parseNationId(value ?? "") ?? 0);
 
 const resolveNationId = async (value: string): Promise<number> => {
   const parsed = parseNationIdInput(value);
@@ -770,9 +770,9 @@ const NationAutocompleteField = memo(function NationAutocompleteField({
 
   const { data: options = [] } = useQuery({
     queryKey: ["nation-search", debouncedInput],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       debouncedInput.length >= 2
-        ? searchNations(debouncedInput, 10)
+        ? searchNations(debouncedInput, 10, signal)
         : Promise.resolve([]),
     enabled: debouncedInput.length >= 2,
   });
@@ -1222,18 +1222,14 @@ function DamageNationColumnHeader({
 
 /**
  * Metrics from GET /api/damage/linked-active-wars.
- * Supports renamed JSON keys; returns NaN when missing or non-numeric (never pretend 0 is real).
+ * Returns NaN when missing or non-numeric (never pretend 0 is real).
  */
 function linkedWarPresetProgress(w: DamageLinkedWarPreset): {
   enemyRes: number;
   yourMaps: number;
 } {
-  const legacy = w as DamageLinkedWarPreset & {
-    linked_resistance?: number;
-    linked_maps?: number;
-  };
-  const rawRes = w.enemy_resistance ?? legacy.linked_resistance;
-  const rawMaps = w.your_maps ?? legacy.linked_maps;
+  const rawRes = w.enemy_resistance;
+  const rawMaps = w.your_maps;
   const toClampedOrNaN = (raw: unknown, cap: number): number => {
     if (raw === undefined || raw === null || raw === "") return Number.NaN;
     const n = Number(raw);
@@ -1516,38 +1512,26 @@ export function DamagePage() {
   const [debouncedInputNation1] = useDebouncedValue(inputNation1, 300);
   const [debouncedInputNation2] = useDebouncedValue(inputNation2, 300);
 
-  const isNarrowWarForm = useMediaQuery("(max-width: 48em)", false, {
-    getInitialValueInEffect: false,
-  });
+  const isNarrowWarForm = useIsMobile();
 
   const { data: inputNation1Options = [] } = useQuery({
     queryKey: ["nation-search", debouncedInputNation1],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       debouncedInputNation1.length >= 1
-        ? searchNations(debouncedInputNation1, 15)
+        ? searchNations(debouncedInputNation1, 15, signal)
         : Promise.resolve([]),
     enabled: debouncedInputNation1.length >= 1,
   });
 
   const { data: inputNation2Options = [] } = useQuery({
     queryKey: ["nation-search", debouncedInputNation2],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       debouncedInputNation2.length >= 1
-        ? searchNations(debouncedInputNation2, 15)
+        ? searchNations(debouncedInputNation2, 15, signal)
         : Promise.resolve([]),
     enabled: debouncedInputNation2.length >= 1,
   });
-  const { data: linkedNationData, isFetched: linkedNationFetched } = useQuery({
-    queryKey: ["linkedNation"],
-    queryFn: async () => {
-      try {
-        return await getLinkedNation();
-      } catch {
-        return null;
-      }
-    },
-    retry: false,
-  });
+  const { data: linkedNationData, isFetched: linkedNationFetched } = useLinkedNation();
 
   const showLinkedWarPresets = Boolean(
     linkedNationData?.linked && linkedNationData?.nation_id,

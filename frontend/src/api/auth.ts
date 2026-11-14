@@ -1,5 +1,5 @@
 /**
- * Auth API Functions
+ * Auth API Functions (Discord OAuth session cookie)
  */
 
 import { apiGet, apiPost } from './client';
@@ -9,63 +9,15 @@ import type {
   LinkedNationResponse,
 } from '@/types';
 
-interface TokenGenerateResponse {
-  token: string;
-  expires_at: number;
-  data_type: string;
-  message: string;
-}
-
-interface TokenVerifyRequest {
-  token: string;
-}
-
-interface TokenVerifyResponse {
-  valid: boolean;
-  /** Decoded token payload: `user_id`, `timestamp`, plus any extra fields the token was signed with. */
-  payload?: { user_id?: number; timestamp?: number; [key: string]: unknown };
-  error?: string;
-  code?: string;
-  message?: string;
-}
-
-interface TokenExchangeRequest {
-  code: string;
-}
-
 export interface DiscordSessionResponse {
   authenticated: boolean;
+  /** Discord snowflake. Above 2^53, so JSON parsing rounds it: don't use it as an id. */
   discord_user_id?: number;
   username?: string;
   global_name?: string;
   avatar?: string;
   avatar_url?: string;
   authenticated_at?: number;
-}
-
-/**
- * Exchange a bot-issued authorization code for a signed access token.
- *
- * @param data - Token exchange request data
- * @returns Token response with token string and expiration
- */
-export function exchangeToken(
-  data: TokenExchangeRequest
-): Promise<TokenGenerateResponse> {
-  return apiPost<TokenGenerateResponse, TokenExchangeRequest>('/api/auth/token/exchange', data);
-}
-
-/**
- * Verify if a token is valid.
- *
- * @param token - The token to verify
- * @returns Verification response
- */
-export function verifyToken(token: string): Promise<TokenVerifyResponse> {
-  return apiPost<TokenVerifyResponse, TokenVerifyRequest>(
-    '/api/auth/token/verify',
-    { token }
-  );
 }
 
 export function getDiscordSession(): Promise<DiscordSessionResponse> {

@@ -6,31 +6,18 @@
  * Alliance, beige, infra, and similar filters are applied client-side.
  */
 
-import { apiGet } from './client';
+import { apiGet, withQuery } from './client';
+import type { RaidFilterParams } from './raids';
 import type { NukeTargetsResponse } from '@/types';
 
-export interface NukeTargetFilterParams {
-  attackerNationId?: number;
-  minScore?: number;
-  maxScore?: number;
-  vmode?: boolean;
+export type NukeTargetFilterParams = RaidFilterParams & {
   /** When set, force Guiding Satellite on/off for damage math (+20% nuke/missile infra). */
   guidingSatellite?: boolean;
-}
+};
 
 export function fetchNukeTargets(
-  filters: NukeTargetFilterParams = {}
+  filters: NukeTargetFilterParams = {},
+  signal?: AbortSignal
 ): Promise<NukeTargetsResponse> {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value === undefined || value === null) return;
-    if (typeof value === 'boolean') {
-      params.set(key, value ? 'true' : 'false');
-    } else {
-      params.set(key, String(value));
-    }
-  });
-  const qs = params.toString();
-  const endpoint = qs ? `/api/nuke-targets/?${qs}` : '/api/nuke-targets/';
-  return apiGet<NukeTargetsResponse>(endpoint);
+  return apiGet<NukeTargetsResponse>(withQuery('/api/nuke-targets/', filters), signal);
 }

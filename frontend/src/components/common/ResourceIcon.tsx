@@ -74,30 +74,3 @@ export function ResourceIcon({
     </Tooltip>
   );
 }
-
-interface ResourceGridProps {
-  resources: Partial<Record<ResourceType, number>>;
-  size?: number;
-}
-
-/**
- * Display a grid of resource icons with values.
- */
-export function ResourceGrid({ resources, size = 18 }: ResourceGridProps) {
-  const entries = Object.entries(resources).filter(
-    ([, value]) => value !== undefined && value !== 0
-  );
-
-  return (
-    <Group gap="xs" wrap="wrap">
-      {entries.map(([resource, value]) => (
-        <ResourceIcon
-          key={resource}
-          resource={resource as ResourceType}
-          value={value}
-          size={size}
-        />
-      ))}
-    </Group>
-  );
-}

@@ -26,7 +26,6 @@ import {
   Skeleton,
   TextInput,
 } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { IconX, IconBrandDiscord, IconDownload, IconInfoCircle } from '@tabler/icons-react';
@@ -38,7 +37,7 @@ import type {
 } from 'mantine-react-table';
 
 import { fetchLiveNationScore, fetchRaids, type RaidFilterParams } from '@/api';
-import { getDiscordLoginUrl, getLinkedNation } from '@/api/auth';
+import { getDiscordLoginUrl } from '@/api/auth';
 import {
   useUrlParams,
   useNationId,
@@ -73,6 +72,8 @@ import {
   serializeRaidsFiltersStorageV3,
 } from '@/lib/raidsFiltersStorage';
 import { warRangeQueryBounds } from '@/lib/warRange';
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { useLinkedNation } from '@/hooks/useLinkedNation';
 
 type TableSettings = {
   columnVisibility: MRT_VisibilityState;
@@ -155,6 +156,24 @@ const RAIDS_TABLE_PERSISTENCE_DEFAULTS = {
   density: DEFAULT_TABLE_SETTINGS.density,
 };
 
+/** Hidden by default until 63f4157 (2026-04-03); older saved settings still froze them hidden. */
+const RAIDS_TABLE_PERSISTENCE_OPTIONS = {
+  legacyHiddenByDefault: [
+    'id',
+    'leaderName',
+    'monetaryNetIncome',
+    'netCashIncome',
+    'taxable',
+    'treasures',
+    'soldiers',
+    'tanks',
+    'aircraft',
+    'ships',
+    'missiles',
+    'nukes',
+  ],
+};
+
 const MAPPED_COLUMN_IDS = RAIDS_MAPPED_FILTER_COLUMN_IDS;
 
 
@@ -209,17 +228,7 @@ export function RaidsPage() {
   const [searchParams, setSearchParams] = useRaidsSearchParams();
 
   const attackerNationIdParam = searchParams.get('attackerNationId') || undefined;
-  const { data: linkedNationData, isFetched: linkedNationFetched, refetch: refetchLinkedNation } = useQuery({
-    queryKey: ['linkedNation'],
-    queryFn: async () => {
-      try {
-        return await getLinkedNation();
-      } catch {
-        return null;
-      }
-    },
-    retry: false,
-  });
+  const { data: linkedNationData, isFetched: linkedNationFetched, refetch: refetchLinkedNation } = useLinkedNation();
   const linkedNationId = linkedNationData?.linked
     ? linkedNationData.nation_id
       ? String(linkedNationData.nation_id)
@@ -230,9 +239,7 @@ export function RaidsPage() {
   const [appliedNationId, setAppliedNationId] = useState(resolvedNationId);
   const [draftNationId, setDraftNationId] = useState(resolvedNationId);
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
-  const isNarrowNationCard = useMediaQuery('(max-width: 48em)', false, {
-    getInitialValueInEffect: false,
-  });
+  const isNarrowNationCard = useIsMobile();
 
   const draftNationIdRef = useRef(draftNationId);
   draftNationIdRef.current = draftNationId;
@@ -355,7 +362,7 @@ export function RaidsPage() {
     setColumnVisibility,
     columnOrder,
     setColumnOrder,
-  } = useTablePersistence('raids', RAIDS_TABLE_PERSISTENCE_DEFAULTS);
+  } = useTablePersistence('raids', RAIDS_TABLE_PERSISTENCE_DEFAULTS, RAIDS_TABLE_PERSISTENCE_OPTIONS);
 
   const [columnFilters, setColumnFilters] = useState<MRT_ColumnFiltersState>(
     () => [...DEFAULT_TABLE_SETTINGS.columnFilters]
@@ -439,7 +446,7 @@ export function RaidsPage() {
       apiScoreBounds.minScore,
       apiScoreBounds.maxScore,
     ],
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       const filters: RaidFilterParams = {
         minScore: apiScoreBounds.minScore,
         vmode: false,
@@ -450,7 +457,7 @@ export function RaidsPage() {
       if (appliedNationId) {
         filters.attackerNationId = parseInt(appliedNationId, 10);
       }
-      return fetchRaids(filters);
+      return fetchRaids(filters, signal);
     },
     enabled: !waitingForScoreBounds,
     retry: false,

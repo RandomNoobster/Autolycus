@@ -4,7 +4,19 @@
 
 import type { BuildsResponse, NationData, BuildConfiguration } from '@/types';
 import type { GameDataResponse } from '@/types/gameData';
-import { apiGet } from './client';
+import { formatMMR } from '@/utils/format';
+import { apiGet, withQuery } from './client';
+
+/** The API parses these with int(): send whole numbers (form inputs allow decimals and blanks). */
+function wholeNumber(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : Number.NaN;
+}
+
+function buildingCount(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+}
 
 /**
  * Fetch city builds data.
@@ -13,31 +25,28 @@ import { apiGet } from './client';
  * @returns BuildsResponse with build templates
  */
 export async function fetchBuilds(config: BuildConfiguration): Promise<BuildsResponse> {
-  const params = new URLSearchParams();
-
-  if (config.nationId) {
-    params.set('nation_id', config.nationId.toString());
-  }
-
-  params.set('infra', config.infrastructure.toString());
-  params.set('land', config.land.toString());
-  params.set('continent', config.continent);
-  params.set('use_live_prices', config.useLiveMarket.toString());
-  params.set('include_military_upkeep', config.includeMilitaryUpkeep.toString());
-  params.set('disable_population_income', config.disablePopulationIncome.toString());
-  if (config.militaryUpkeepMode) {
-    params.set('military_upkeep_mode', config.militaryUpkeepMode);
-  }
-
-  // Always send projects/policy so cleared form values override the nation profile.
-  params.set('projects', (config.projects ?? []).join(','));
-  params.set('domestic_policy', config.domesticPolicy ?? '');
-
-  // Format MMR
-  const mmr = `${config.military.barracks}/${config.military.factory}/${config.military.airforcebase}/${config.military.drydock}`;
-  params.set('mmr', mmr);
-
-  return apiGet<BuildsResponse>(`/api/builds/?${params.toString()}`);
+  const { military } = config;
+  return apiGet<BuildsResponse>(
+    withQuery('/api/builds/', {
+      nation_id: config.nationId || undefined,
+      infra: wholeNumber(config.infrastructure),
+      land: wholeNumber(config.land),
+      continent: config.continent,
+      use_live_prices: config.useLiveMarket,
+      include_military_upkeep: config.includeMilitaryUpkeep,
+      disable_population_income: config.disablePopulationIncome,
+      military_upkeep_mode: config.militaryUpkeepMode || undefined,
+      // Always send projects/policy so cleared form values override the nation profile.
+      projects: (config.projects ?? []).join(','),
+      domestic_policy: config.domesticPolicy ?? '',
+      mmr: formatMMR(
+        buildingCount(military.barracks),
+        buildingCount(military.factory),
+        buildingCount(military.airforcebase),
+        buildingCount(military.drydock)
+      ),
+    })
+  );
 }
 
 /**
@@ -51,9 +60,9 @@ export async function fetchNationData(nationId: number): Promise<NationData> {
 }
 
 /**
- * Fetch game data (projects and policies).
+ * Fetch game data (projects and domestic policies).
  *
- * @returns GameDataResponse with projects, war policies, and domestic policies
+ * @returns GameDataResponse with projects and domestic policies
  */
 export async function fetchGameData(): Promise<GameDataResponse> {
   return apiGet<GameDataResponse>('/api/builds/game-data');

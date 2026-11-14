@@ -33,6 +33,22 @@
     <meta name="twitter:image" content="__SITE_ORIGIN__/splash.webp" />
     <meta name="twitter:image:alt" content="Autolycus Politics and War raid tools" />
     <title>Autolycus</title>
+    <script>
+      // Apply the saved color scheme before the bundle loads, so dark mode (the default)
+      // doesn't flash the light theme. Same key and default as MantineProvider in main.tsx.
+      (function () {
+        var scheme = 'dark';
+        try {
+          var saved = localStorage.getItem('mantine-color-scheme-value');
+          if (saved === 'light' || saved === 'dark') scheme = saved;
+          else if (saved === 'auto')
+            scheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        } catch (e) {
+          /* storage unavailable: keep the default */
+        }
+        document.documentElement.setAttribute('data-mantine-color-scheme', scheme);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

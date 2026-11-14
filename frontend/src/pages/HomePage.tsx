@@ -17,7 +17,7 @@ import {
   Skeleton,
   useMantineColorScheme,
 } from '@mantine/core';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   IconSword,
   IconBuildingFactory2,
@@ -179,7 +179,7 @@ function HomeRemindersGuestCard() {
                 <Text size="xs" tt="uppercase" fw={700} c="dimmed" lts={1.2}>
                   Discord perk
                 </Text>
-                <Title order={4} style={{ lineHeight: 1.25 }}>
+                <Title order={2} size="h4" style={{ lineHeight: 1.25 }}>
                   Reminders
                 </Title>
               </div>
@@ -223,7 +223,6 @@ function HomeRemindersGuestCard() {
 }
 
 export function HomePage() {
-  const navigate = useNavigate();
   const location = useLocation();
   const { colorScheme } = useMantineColorScheme();
   const isLightMode = colorScheme === 'light';
@@ -240,10 +239,6 @@ export function HomePage() {
   });
   const registeredUsers = publicStatsQuery.data?.registered_users ?? null;
   const isLoadingPublicStats = publicStatsQuery.isLoading;
-
-  const handleNavigate = (path: string) => {
-    navigate(internalNavPath(path, location.search));
-  };
 
   return (
     <Container size="lg" py="xl">
@@ -265,12 +260,10 @@ export function HomePage() {
           >
             Welcome to
           </Text>
-          <Image
-            src="/splash.webp"
-            alt="Autolycus"
-            maw={620}
-            w="100%"
-          />
+          {/* The logo is the page heading. */}
+          <Title order={1} w="100%" maw={620} style={{ lineHeight: 0 }}>
+            <Image src="/splash.webp" alt="Autolycus" w="100%" />
+          </Title>
           <Text size="lg" c="dimmed" maw={600}>
             Your comprehensive toolkit for Politics & War. Access raid targets,
             city builds, and damage calculations.
@@ -290,19 +283,21 @@ export function HomePage() {
             return (
               <Card
                 key={feature.path}
+                component={Link}
+                to={internalNavPath(feature.path, location.search)}
                 shadow="sm"
                 padding="lg"
                 radius="md"
                 withBorder
-                style={{ cursor: 'pointer' }}
-                onClick={() => handleNavigate(feature.path)}
+                // A link for keyboard and new-tab use; keep the card's own colors.
+                style={{ cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}
               >
                 <Stack gap="md">
                   <ThemeIcon size={48} radius="md" variant="light" color={feature.color}>
                     <feature.icon size={28} />
                   </ThemeIcon>
                   <Stack gap="xs">
-                    <Title order={3}>{feature.title}</Title>
+                    <Title order={2} size="h3">{feature.title}</Title>
                     <Text size="sm" c="dimmed">
                       {feature.description}
                     </Text>

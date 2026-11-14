@@ -2,7 +2,7 @@
  * Damage API Functions
  */
 
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, withQuery } from './client';
 import type {
   DamageCalculationInput,
   DamageLinkedActiveWarsResponse,
@@ -17,7 +17,7 @@ import type {
  * @returns DamageResponse with attack analysis
  */
 export function fetchDamage(nation1Id: number, nation2Id: number): Promise<DamageResponse> {
-  return apiGet<DamageResponse>(`/api/damage/?nation1=${nation1Id}&nation2=${nation2Id}`);
+  return apiGet<DamageResponse>(withQuery('/api/damage/', { nation1: nation1Id, nation2: nation2Id }));
 }
 
 /**
@@ -44,10 +44,11 @@ export interface NationSearchResult {
 
 export function searchNations(
   query: string,
-  limit: number = 10
+  limit: number = 10,
+  signal?: AbortSignal
 ): Promise<NationSearchResult[]> {
-  const params = new URLSearchParams();
-  params.set('q', query);
-  params.set('limit', String(limit));
-  return apiGet<NationSearchResult[]>(`/api/damage/nations/search?${params.toString()}`);
+  return apiGet<NationSearchResult[]>(
+    withQuery('/api/damage/nations/search', { q: query, limit }),
+    signal
+  );
 }

@@ -1,249 +1,239 @@
 /**
  * useTablePersistence Hook
  *
- * This hook provides persistence for Mantine React Table UI preferences
- * using localStorage. It saves:
- * - Column visibility
- * - Column order
- * - Density setting
+ * Persists Mantine React Table preferences in localStorage: column visibility, column order
+ * and density. Only what the user changed is stored, so later changes to a table's defaults
+ * (new columns, columns made visible) still reach returning users.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type {
   MRT_ColumnOrderState,
   MRT_DensityState,
+  MRT_Updater,
   MRT_VisibilityState,
 } from 'mantine-react-table';
 
-interface TablePreferences {
-  columnVisibility: MRT_VisibilityState;
-  columnOrder: MRT_ColumnOrderState;
-  density: MRT_DensityState;
-}
-
-/** App defaults for a table; used to merge with localStorage and for reset. */
 export interface TablePersistenceDefaults {
   columnVisibility: MRT_VisibilityState;
   columnOrder: MRT_ColumnOrderState;
   density: MRT_DensityState;
 }
 
-interface UseTablePersistenceReturn {
-  // Current state values
-  columnVisibility: MRT_VisibilityState;
-  columnOrder: MRT_ColumnOrderState;
-  density: MRT_DensityState;
+type TablePreferences = TablePersistenceDefaults;
 
-  // State setters (also persist to localStorage)
-  setColumnVisibility: (
-    updater:
-      | MRT_VisibilityState
-      | ((prev: MRT_VisibilityState) => MRT_VisibilityState)
-  ) => void;
-  setColumnOrder: (
-    updater:
-      | MRT_ColumnOrderState
-      | ((prev: MRT_ColumnOrderState) => MRT_ColumnOrderState)
-  ) => void;
-  setDensity: (
-    updater: MRT_DensityState | ((prev: MRT_DensityState) => MRT_DensityState)
-  ) => void;
-
-  // Reset to defaults
-  resetPreferences: () => void;
+export interface TablePersistenceOptions {
+  /**
+   * Columns that older versions hid by default. Version 1 storage saved the whole state on
+   * the first visit, so a stored `false` for these most likely just froze the old default.
+   */
+  legacyHiddenByDefault?: readonly string[];
 }
 
-const DEFAULT_PREFERENCES: TablePreferences = {
-  columnVisibility: {},
-  columnOrder: [],
-  density: 'md',
-};
+const STORAGE_VERSION = 2;
+/** MRT's trailing display column; it can't be dragged, so it is always last. */
+const SPACER_COLUMN_ID = 'mrt-row-spacer';
+const DENSITIES: readonly MRT_DensityState[] = ['xs', 'md', 'xl'];
 
-function cloneDefaults(defaults: TablePersistenceDefaults): TablePreferences {
-  return {
-    columnVisibility: { ...defaults.columnVisibility },
-    columnOrder: [...defaults.columnOrder],
-    density: defaults.density,
-  };
+/** What localStorage holds (version 2): only the user's changes from the defaults. */
+interface StoredPreferences {
+  v: typeof STORAGE_VERSION;
+  columnVisibility?: MRT_VisibilityState;
+  columnOrder?: MRT_ColumnOrderState;
+  density?: MRT_DensityState;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sameOrder(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+/**
+ * The stored order with unknown ids dropped and missing ones inserted after their default
+ * predecessor. Ids stored after the spacer were appended by the version 1 merge, not placed
+ * by the user, so they get their default position back.
+ */
 function mergeColumnOrder(
   defaultOrder: MRT_ColumnOrderState,
   storedOrder: unknown
 ): MRT_ColumnOrderState {
-  if (!Array.isArray(storedOrder) || storedOrder.length === 0) {
-    return [...defaultOrder];
-  }
-  const valid = new Set(defaultOrder);
-  const seen = new Set<string>();
+  if (!Array.isArray(storedOrder) || storedOrder.length === 0) return [...defaultOrder];
+  const known = new Set(defaultOrder);
+  const spacerAt = storedOrder.indexOf(SPACER_COLUMN_ID);
+  const placed = spacerAt >= 0 ? storedOrder.slice(0, spacerAt + 1) : storedOrder;
   const out: string[] = [];
-  for (const id of storedOrder) {
-    if (typeof id !== 'string') continue;
-    if (valid.has(id) && !seen.has(id)) {
-      out.push(id);
-      seen.add(id);
-    }
+  for (const id of placed) {
+    if (typeof id === 'string' && known.has(id) && !out.includes(id)) out.push(id);
   }
-  for (const id of defaultOrder) {
-    if (!seen.has(id)) {
-      out.push(id);
-      seen.add(id);
-    }
-  }
+  defaultOrder.forEach((id, index) => {
+    if (out.includes(id)) return;
+    const predecessor = defaultOrder
+      .slice(0, index)
+      .reverse()
+      .find((prev) => out.includes(prev));
+    out.splice(predecessor === undefined ? 0 : out.indexOf(predecessor) + 1, 0, id);
+  });
   return out;
 }
 
-function mergeWithDefaults(
-  defaults: TablePersistenceDefaults,
-  parsed: Partial<TablePreferences>
-): TablePreferences {
-  const storedVis = parsed.columnVisibility;
-  return {
-    columnVisibility: {
-      ...defaults.columnVisibility,
-      ...(storedVis && typeof storedVis === 'object' ? storedVis : {}),
-    },
-    columnOrder: mergeColumnOrder(
-      defaults.columnOrder,
-      parsed.columnOrder
-    ),
-    density:
-      parsed.density !== undefined && parsed.density !== null
-        ? parsed.density
-        : defaults.density,
-  };
-}
-
-/**
- * Load preferences from localStorage.
- */
 function loadPreferences(
   key: string,
-  defaults?: TablePersistenceDefaults
+  defaults: TablePersistenceDefaults,
+  legacyHiddenByDefault: readonly string[]
 ): TablePreferences {
+  let stored: unknown = null;
   try {
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      const parsed = JSON.parse(stored) as Partial<TablePreferences>;
-      if (defaults) {
-        return mergeWithDefaults(defaults, parsed);
-      }
-      return {
-        ...DEFAULT_PREFERENCES,
-        ...parsed,
-      };
-    }
+    const raw = localStorage.getItem(key);
+    stored = raw ? JSON.parse(raw) : null;
   } catch (error) {
     console.warn(`Failed to load table preferences for ${key}:`, error);
   }
-  if (defaults) {
-    return cloneDefaults(defaults);
+  if (!isPlainObject(stored)) {
+    return {
+      columnVisibility: { ...defaults.columnVisibility },
+      columnOrder: [...defaults.columnOrder],
+      density: defaults.density,
+    };
   }
-  return DEFAULT_PREFERENCES;
+
+  const visibility: MRT_VisibilityState = {};
+  if (isPlainObject(stored.columnVisibility)) {
+    for (const [id, visible] of Object.entries(stored.columnVisibility)) {
+      if (typeof visible === 'boolean') visibility[id] = visible;
+    }
+  }
+  if (stored.v !== STORAGE_VERSION) {
+    for (const id of legacyHiddenByDefault) {
+      if (visibility[id] === false && defaults.columnVisibility[id] !== false) delete visibility[id];
+    }
+  }
+
+  return {
+    columnVisibility: { ...defaults.columnVisibility, ...visibility },
+    columnOrder: mergeColumnOrder(defaults.columnOrder, stored.columnOrder),
+    density: DENSITIES.includes(stored.density as MRT_DensityState)
+      ? (stored.density as MRT_DensityState)
+      : defaults.density,
+  };
 }
 
-/**
- * Save preferences to localStorage.
- */
-function savePreferences(key: string, preferences: TablePreferences): void {
+function savePreferences(
+  key: string,
+  preferences: TablePreferences,
+  defaults: TablePersistenceDefaults
+): void {
+  const columnVisibility = Object.fromEntries(
+    Object.entries(preferences.columnVisibility).filter(
+      ([id, visible]) => visible !== (defaults.columnVisibility[id] ?? true)
+    )
+  );
+  const changes: StoredPreferences = {
+    v: STORAGE_VERSION,
+    ...(Object.keys(columnVisibility).length > 0 ? { columnVisibility } : {}),
+    ...(sameOrder(preferences.columnOrder, defaults.columnOrder)
+      ? {}
+      : { columnOrder: preferences.columnOrder }),
+    ...(preferences.density !== defaults.density ? { density: preferences.density } : {}),
+  };
   try {
-    localStorage.setItem(key, JSON.stringify(preferences));
+    if (Object.keys(changes).length === 1) {
+      // Back to the defaults: nothing worth keeping.
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, JSON.stringify(changes));
+    }
   } catch (error) {
     console.warn(`Failed to save table preferences for ${key}:`, error);
   }
+}
+
+function applyUpdater<T>(updater: MRT_Updater<T>, previous: T): T {
+  return typeof updater === 'function' ? (updater as (old: T) => T)(previous) : updater;
+}
+
+interface PersistedState {
+  key: string;
+  preferences: TablePreferences;
+  /** Set by the user's changes; loading never writes storage. */
+  changed: boolean;
 }
 
 /**
  * Hook for persisting table preferences.
  *
  * @param tableId - Unique identifier for the table (e.g., 'raids')
- * @param defaults - Optional app defaults; merged with stored prefs and used on reset
+ * @param defaults - App defaults; merged with the user's stored changes
+ * @param options - See TablePersistenceOptions
  * @returns State values and setters for table preferences
  */
 export function useTablePersistence(
   tableId: string,
-  defaults?: TablePersistenceDefaults
-): UseTablePersistenceReturn {
+  defaults: TablePersistenceDefaults,
+  options: TablePersistenceOptions = {}
+) {
   const storageKey = `autolycus-table-${tableId}`;
-  const defaultsRef = useRef(defaults);
-  defaultsRef.current = defaults;
+  const legacyHidden = options.legacyHiddenByDefault ?? [];
 
-  // Initialize state from localStorage
-  const [preferences, setPreferences] = useState<TablePreferences>(() =>
-    loadPreferences(storageKey, defaults)
-  );
+  const [state, setState] = useState<PersistedState>(() => ({
+    key: storageKey,
+    preferences: loadPreferences(storageKey, defaults, legacyHidden),
+    changed: false,
+  }));
 
-  // Save to localStorage whenever preferences change
+  // A different table on the same mounted component (e.g. a new damage matchup): load its
+  // own preferences instead of writing this table's over them.
+  let current = state;
+  if (state.key !== storageKey) {
+    current = {
+      key: storageKey,
+      preferences: loadPreferences(storageKey, defaults, legacyHidden),
+      changed: false,
+    };
+    setState(current);
+  }
+
   useEffect(() => {
-    savePreferences(storageKey, preferences);
-  }, [storageKey, preferences]);
+    if (state.changed) savePreferences(state.key, state.preferences, defaults);
+    // `defaults` is constant per table; saving only follows the user's changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
-  // Column visibility setter
+  const update = useCallback(
+    <K extends keyof TablePreferences>(field: K, updater: MRT_Updater<TablePreferences[K]>) => {
+      setState((prev) => ({
+        ...prev,
+        changed: true,
+        preferences: {
+          ...prev.preferences,
+          [field]: applyUpdater(updater, prev.preferences[field]),
+        },
+      }));
+    },
+    []
+  );
+
   const setColumnVisibility = useCallback(
-    (
-      updater:
-        | MRT_VisibilityState
-        | ((prev: MRT_VisibilityState) => MRT_VisibilityState)
-    ) => {
-      setPreferences((prev) => ({
-        ...prev,
-        columnVisibility:
-          typeof updater === 'function'
-            ? updater(prev.columnVisibility)
-            : updater,
-      }));
-    },
-    []
+    (updater: MRT_Updater<MRT_VisibilityState>) => update('columnVisibility', updater),
+    [update]
   );
-
-  // Column order setter
   const setColumnOrder = useCallback(
-    (
-      updater:
-        | MRT_ColumnOrderState
-        | ((prev: MRT_ColumnOrderState) => MRT_ColumnOrderState)
-    ) => {
-      setPreferences((prev) => ({
-        ...prev,
-        columnOrder:
-          typeof updater === 'function' ? updater(prev.columnOrder) : updater,
-      }));
-    },
-    []
+    (updater: MRT_Updater<MRT_ColumnOrderState>) => update('columnOrder', updater),
+    [update]
   );
-
-  // Density setter
   const setDensity = useCallback(
-    (
-      updater: MRT_DensityState | ((prev: MRT_DensityState) => MRT_DensityState)
-    ) => {
-      setPreferences((prev) => ({
-        ...prev,
-        density:
-          typeof updater === 'function' ? updater(prev.density) : updater,
-      }));
-    },
-    []
+    (updater: MRT_Updater<MRT_DensityState>) => update('density', updater),
+    [update]
   );
-
-  // Reset to defaults
-  const resetPreferences = useCallback(() => {
-    const d = defaultsRef.current;
-    if (d) {
-      setPreferences(cloneDefaults(d));
-    } else {
-      setPreferences(DEFAULT_PREFERENCES);
-    }
-    localStorage.removeItem(storageKey);
-  }, [storageKey]);
 
   return {
-    columnVisibility: preferences.columnVisibility,
-    columnOrder: preferences.columnOrder,
-    density: preferences.density,
+    columnVisibility: current.preferences.columnVisibility,
+    columnOrder: current.preferences.columnOrder,
+    density: current.preferences.density,
     setColumnVisibility,
     setColumnOrder,
     setDensity,
-    resetPreferences,
   };
 }

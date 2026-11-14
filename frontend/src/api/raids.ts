@@ -5,7 +5,7 @@
  * Alliance, beige, wars, inactivity, and similar filters are applied client-side on the raids page.
  */
 
-import { apiGet, apiPost, apiDelete, apiPut } from './client';
+import { apiGet, apiPost, apiDelete, apiPut, withQuery } from './client';
 import type {
   RaidsResponse,
   ReminderRequest,
@@ -20,30 +20,20 @@ import type {
 } from '@/types';
 
 /** Query params supported by GET /api/raids/ */
-export interface RaidFilterParams {
+export type RaidFilterParams = {
   attackerNationId?: number;
   minScore?: number;
   maxScore?: number;
   /** When false (default), exclude vacation-mode nations */
   vmode?: boolean;
-}
+};
 
 /** Fetch raid targets from the cached nations database. */
 export function fetchRaids(
-  filters: RaidFilterParams = {}
+  filters: RaidFilterParams = {},
+  signal?: AbortSignal
 ): Promise<RaidsResponse> {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value === undefined || value === null) return;
-    if (typeof value === 'boolean') {
-      params.set(key, value ? 'true' : 'false');
-    } else {
-      params.set(key, String(value));
-    }
-  });
-  const qs = params.toString();
-  const endpoint = qs ? `/api/raids/?${qs}` : '/api/raids/';
-  return apiGet<RaidsResponse>(endpoint);
+  return apiGet<RaidsResponse>(withQuery('/api/raids/', filters), signal);
 }
 
 /** Nation score for war-range autofill (live PnW, with SQLite fallback). */
@@ -106,22 +96,4 @@ export function updateReminderChannels(
   channels: ReminderChannelsRequest
 ): Promise<ReminderChannelsResponse> {
   return apiPut<ReminderChannelsResponse, ReminderChannelsRequest>('/api/raids/reminders/channels', channels);
-}
-
-export interface AllianceSearchResult {
-  value: string;
-  label: string;
-  id: string;
-  acronym: string;
-}
-
-/** Search alliances by name, acronym, or ID (fuzzy match). */
-export function searchAlliances(
-  query: string,
-  limit: number = 10
-): Promise<AllianceSearchResult[]> {
-  const params = new URLSearchParams();
-  params.set('q', query);
-  params.set('limit', String(limit));
-  return apiGet<AllianceSearchResult[]>(`/api/raids/alliances/search?${params.toString()}`);
 }

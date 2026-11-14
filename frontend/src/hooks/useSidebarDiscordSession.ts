@@ -1,10 +1,14 @@
 /**
- * Resolves Discord OAuth web session state for sidebar.
+ * Discord OAuth web session state, shared by the sidebar and pages through the query cache.
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { getDiscordSession } from '@/api/auth';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+import { getDiscordSession, type DiscordSessionResponse } from '@/api/auth';
+import { isTransientApiError } from '@/api/errors';
+
+export const DISCORD_SESSION_QUERY_KEY = ['auth', 'session'] as const;
 
 const DISCORD_SESSION_HINT_KEY = 'autolycus.discord_session_hint';
 
@@ -35,66 +39,42 @@ export type SidebarDiscordSession =
   | { status: 'guest' }
   | {
       status: 'signed_in';
-      discordUserId: number;
       username?: string;
       displayName?: string;
       avatarUrl?: string;
-      expiresAtSec: number;
     };
+
+function toSidebarSession(v: DiscordSessionResponse): SidebarDiscordSession {
+  if (!v.authenticated) return { status: 'guest' };
+  return {
+    status: 'signed_in',
+    username: typeof v.username === 'string' ? v.username : undefined,
+    displayName: typeof v.global_name === 'string' ? v.global_name : undefined,
+    // The API always sends avatar_url for a signed-in session (custom or default avatar).
+    avatarUrl: typeof v.avatar_url === 'string' && v.avatar_url ? v.avatar_url : undefined,
+  };
+}
 
 export function useSidebarDiscordSession(): SidebarDiscordSession {
-  const location = useLocation();
-  const [state, setState] = useState<SidebarDiscordSession>({ status: 'loading' });
-  const hasResolvedRef = useRef(false);
+  const { data, isError } = useQuery({
+    queryKey: DISCORD_SESSION_QUERY_KEY,
+    queryFn: getDiscordSession,
+    select: toSidebarSession,
+    staleTime: 5 * 60_000,
+    // Picks up a logout or expiry from another tab when the user comes back.
+    refetchOnWindowFocus: true,
+    retry: (failureCount, error) => failureCount < 2 && isTransientApiError(error),
+  });
 
+  const resolvedStatus = data?.status;
   useEffect(() => {
-    let cancelled = false;
-
-    async function refresh() {
-      // Keep the previously resolved state during route changes.
-      // This avoids sidebar skeleton flashes while still refreshing in background.
-      if (!cancelled && !hasResolvedRef.current) {
-        setState({ status: 'loading' });
-      }
-      try {
-        const v = await getDiscordSession();
-        if (cancelled) return;
-        if (!v.authenticated || !v.discord_user_id) {
-          persistDiscordSessionHint('guest');
-          setState({ status: 'guest' });
-          hasResolvedRef.current = true;
-          return;
-        }
-        const ts = typeof v.authenticated_at === 'number' ? v.authenticated_at : Math.floor(Date.now() / 1000);
-        persistDiscordSessionHint('signed_in');
-        setState({
-          status: 'signed_in',
-          discordUserId: v.discord_user_id,
-          username: typeof v.username === 'string' ? v.username : undefined,
-          displayName: typeof v.global_name === 'string' ? v.global_name : undefined,
-          avatarUrl:
-            typeof v.avatar_url === 'string' && v.avatar_url
-              ? v.avatar_url
-              : typeof v.avatar === 'string' && v.avatar
-              ? `https://cdn.discordapp.com/avatars/${v.discord_user_id}/${v.avatar}.png?size=128`
-              : undefined,
-          expiresAtSec: ts + 7 * 24 * 3600,
-        });
-        hasResolvedRef.current = true;
-      } catch {
-        if (!cancelled) {
-          persistDiscordSessionHint('guest');
-          setState({ status: 'guest' });
-          hasResolvedRef.current = true;
-        }
-      }
+    if (resolvedStatus === 'guest' || resolvedStatus === 'signed_in') {
+      persistDiscordSessionHint(resolvedStatus);
     }
+  }, [resolvedStatus]);
 
-    void refresh();
-    return () => {
-      cancelled = true;
-    };
-  }, [location.key]);
-
-  return state;
+  // A failed background refresh keeps the last answer. /api/auth/me only fails when the
+  // API can't be reached, so with no answer at all the sign-in button is still the right UI.
+  if (data) return data;
+  return isError ? { status: 'guest' } : { status: 'loading' };
 }

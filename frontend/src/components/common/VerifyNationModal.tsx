@@ -5,11 +5,15 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { getDiscordLoginUrl, verifyDiscordLink } from '@/api/auth';
+import { ApiRequestError, toApiError } from '@/api/errors';
 import { internalNavPath } from '@/lib/internalNavPath';
-import type { ApiError } from '@/types';
+import { parseNationId } from '@/utils/nationId';
 
-/** Backend code for a Discord sign-in too old to confirm the current username. */
-const REAUTH_REQUIRED_CODE = 'REAUTH_REQUIRED';
+/**
+ * Backend codes a Discord sign-in fixes: the session is gone (AUTH_REQUIRED), or the
+ * sign-in is too old to confirm the current username (REAUTH_REQUIRED).
+ */
+const SIGN_IN_CODES = new Set(['AUTH_REQUIRED', 'REAUTH_REQUIRED']);
 
 interface VerifyNationModalProps {
   opened: boolean;
@@ -17,65 +21,40 @@ interface VerifyNationModalProps {
   onVerified?: () => void;
 }
 
-function parseNationId(input: string): string | null {
-  const trimmed = input.trim();
-  const urlMatch = trimmed.match(/(?:nation\/id=|nation_id=)(\d+)/i);
-  if (urlMatch) return urlMatch[1];
-  if (/^\d+$/.test(trimmed)) return trimmed;
-  return null;
-}
-
 export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationModalProps) {
   const [nationInput, setNationInput] = useState('');
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
   const location = useLocation();
-  const needsReauth = errorCode === REAUTH_REQUIRED_CODE;
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
       const parsed = parseNationId(nationInput);
       if (!parsed) {
-        throw { message: 'Please provide a valid nation ID or nation link.' } as ApiError;
+        throw new ApiRequestError({
+          error: 'Invalid nation',
+          message: 'Please provide a valid nation ID or nation link.',
+          code: 'VALIDATION_ERROR',
+        });
       }
       return verifyDiscordLink({ nationId: parsed });
     },
-    onSuccess: (result) => {
-      setErrorMessage(null);
-      setErrorCode(null);
-      setSuccessMessage(
-        result.relinked
-          ? 'Verification updated. Your Discord account is now linked to the new nation.'
-          : 'Verification successful. Your nation is now linked to your Discord account.'
-      );
-      onVerified?.();
-    },
-    onError: (error: unknown) => {
-      const apiError = error as ApiError;
-      setSuccessMessage(null);
-      setErrorMessage(apiError.message || 'Verification failed. Please try again.');
-      setErrorCode(apiError.code || null);
-    },
+    // Runs even if the modal closed meanwhile: the link changed either way.
+    onSuccess: () => onVerified?.(),
   });
+  const { reset: resetVerify } = verifyMutation;
 
-  // Only depend on `opened`. The mutation object from useMutation is a new reference whenever
-  // mutation state changes (e.g. after reset()), so listing it here caused an infinite loop.
+  // Messages come from the mutation's own state, which reset() detaches: a request that
+  // settles after the modal closed can't leave its result behind for the next opening.
+  const result = verifyMutation.isSuccess ? verifyMutation.data : null;
+  const apiError = verifyMutation.isError ? toApiError(verifyMutation.error) : null;
+  const signInCode = apiError && SIGN_IN_CODES.has(apiError.code) ? apiError.code : null;
+
   useEffect(() => {
-    if (!opened) {
-      setSuccessMessage(null);
-      setErrorMessage(null);
-      setErrorCode(null);
-      verifyMutation.reset();
-    }
-  }, [opened, verifyMutation.reset]);
+    if (!opened) resetVerify();
+  }, [opened, resetVerify]);
 
   function submitVerify(event?: React.FormEvent) {
     event?.preventDefault();
     if (verifyMutation.isPending) return;
-    setSuccessMessage(null);
-    setErrorMessage(null);
-    setErrorCode(null);
     verifyMutation.mutate();
   }
 
@@ -98,20 +77,28 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
             </Button>
           </Stack>
         </form>
-        {successMessage && (
+        {result && (
           <Alert color="green" variant="light" title="Verified">
-            {successMessage}
+            {result.relinked
+              ? 'Verification updated. Your Discord account is now linked to the new nation.'
+              : 'Verification successful. Your nation is now linked to your Discord account.'}
           </Alert>
         )}
-        {errorMessage && (
+        {apiError && (
           <Alert
             color="red"
             variant="light"
-            title={needsReauth ? 'Sign in again to verify' : 'Verification failed'}
+            title={
+              signInCode === 'REAUTH_REQUIRED'
+                ? 'Sign in again to verify'
+                : signInCode
+                  ? 'Sign in to verify'
+                  : 'Verification failed'
+            }
           >
             <Stack gap="sm">
-              <Text size="sm">{errorMessage}</Text>
-              {needsReauth && (
+              <Text size="sm">{apiError.message || 'Verification failed. Please try again.'}</Text>
+              {signInCode && (
                 <Button
                   component="a"
                   href={getDiscordLoginUrl(internalNavPath(location.pathname, location.search))}
@@ -120,7 +107,7 @@ export function VerifyNationModal({ opened, onClose, onVerified }: VerifyNationM
                   variant="filled"
                   leftSection={<IconBrandDiscord size={18} />}
                 >
-                  Sign in again
+                  {signInCode === 'REAUTH_REQUIRED' ? 'Sign in again' : 'Sign in with Discord'}
                 </Button>
               )}
             </Stack>

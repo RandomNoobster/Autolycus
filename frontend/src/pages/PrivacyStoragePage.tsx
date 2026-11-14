@@ -7,7 +7,7 @@ export function PrivacyStoragePage() {
         <div>
           <Title order={1}>Privacy & Storage</Title>
           <Text c="dimmed" size="sm" mt={4}>
-            Last updated: September 14, 2026
+            Last updated: November 14, 2026
           </Text>
         </div>
 
@@ -29,13 +29,26 @@ export function PrivacyStoragePage() {
               and view settings.
             </List.Item>
             <List.Item>
-              <Code>autolycus-table-&lt;tableId&gt;</Code> - stores table preferences such
-              as column visibility, column order, and density.
+              <Code>autolycus-nuke-targets-filters-v1</Code> - stores your selected nuke
+              target filters.
             </List.Item>
             <List.Item>
-              <Code>autolycus-access-token-v1-&lt;dataType&gt;</Code> - stores short-lived
-              access tokens used to access protected app data ({' '}
-              <Code>raids</Code>, <Code>builds</Code>, <Code>damage</Code> ).
+              <Code>autolycus-builds-disable-pop-income-v1</Code> - remembers the City Builds
+              population income setting.
+            </List.Item>
+            <List.Item>
+              <Code>autolycus-table-&lt;tableId&gt;</Code> - stores the table preferences you
+              change, such as column visibility, column order, and density (one entry per
+              table; the Damage Calculator keeps one per matchup).
+            </List.Item>
+            <List.Item>
+              <Code>mantine-color-scheme-value</Code> - remembers light or dark mode once you
+              switch it.
+            </List.Item>
+            <List.Item>
+              <Code>autolycus.discord_session_hint</Code> (session storage, cleared when the tab
+              closes) - whether you were signed in, so pages can show the right layout before
+              the sign-in check finishes.
             </List.Item>
             <List.Item>
               Service worker registration (<Code>/sw.js</Code>) - added only when you turn on
@@ -48,6 +61,11 @@ export function PrivacyStoragePage() {
               browser's push service uses to deliver notifications to that device.
             </List.Item>
           </List>
+          <Text size="sm" c="dimmed">
+            Older versions also stored <Code>autolycus-access-token-v1-&lt;dataType&gt;</Code>{' '}
+            access tokens from Discord bot links. The site no longer reads or writes them;
+            clearing this site's data removes any that are left.
+          </Text>
         </Stack>
 
         <Stack gap="xs">
@@ -87,6 +105,17 @@ export function PrivacyStoragePage() {
 
         <Stack gap="xs">
           <Title order={3}>Cookies</Title>
+          <Text>
+            When you log in with Discord, Autolycus sets one essential cookie,{' '}
+            <Code>session</Code>. It is HttpOnly and SameSite=Lax (and Secure on the live
+            site), lasts up to 90 days, and is cleared when you log out. It holds your Discord
+            user ID, username, display name and avatar, when you signed in, and the Discord
+            access token from that login (the <Code>identify</Code> scope only) with its
+            expiry, which lets the server confirm your current Discord username when you
+            verify a nation. During login it also briefly holds a random check value and the
+            page to return to. The cookie is signed, so it can't be altered, but it is not
+            encrypted.
+          </Text>
           <Text>
             Autolycus does not currently set non-essential analytics or advertising
             cookies. If this changes, we will update this notice and, where required by

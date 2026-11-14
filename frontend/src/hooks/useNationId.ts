@@ -3,6 +3,8 @@
  */
 import { useState, useCallback } from 'react';
 
+import { parseNationId } from '@/utils/nationId';
+
 const NATION_ID_KEY = 'autolycus_nation_id';
 
 export function useNationId() {
@@ -16,51 +18,19 @@ export function useNationId() {
   });
 
   const setNationId = useCallback((id: string) => {
+    const trimmed = id.trim();
+    // Keep the id for this visit even when storage is unavailable (private mode, quota).
+    setNationIdState(trimmed);
     try {
-      const trimmed = id.trim();
       localStorage.setItem(NATION_ID_KEY, trimmed);
-      setNationIdState(trimmed);
     } catch (error) {
       console.error('Failed to save nation ID to localStorage:', error);
     }
   }, []);
 
-  const clearNationId = useCallback(() => {
-    try {
-      localStorage.removeItem(NATION_ID_KEY);
-      setNationIdState('');
-    } catch (error) {
-      console.error('Failed to clear nation ID from localStorage:', error);
-    }
-  }, []);
-
-  /**
-   * Extract nation ID from a Politics & War nation link or return the ID as-is
-   * Supports formats like:
-   * - https://politicsandwar.com/nation/id=123456
-   * - 123456
-   */
-  const parseNationId = useCallback((input: string): string | null => {
-    const trimmed = input.trim();
-
-    // Try to extract from URL
-    const urlMatch = trimmed.match(/(?:nation\/id=|nation_id=)(\d+)/i);
-    if (urlMatch) {
-      return urlMatch[1];
-    }
-
-    // Check if it's just a number
-    if (/^\d+$/.test(trimmed)) {
-      return trimmed;
-    }
-
-    return null;
-  }, []);
-
   return {
     nationId,
     setNationId,
-    clearNationId,
     parseNationId,
   };
 }

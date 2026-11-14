@@ -35,6 +35,7 @@ export function AppFooter() {
                 <Anchor
                   component={Link}
                   to={item.to}
+                  aria-current={location.pathname === item.to ? 'page' : undefined}
                   size="xs"
                   c={location.pathname === item.to ? 'autolycusOrange.4' : 'dimmed'}
                   td="none"
@@ -44,10 +45,11 @@ export function AppFooter() {
                 </Anchor>
               </Group>
             ))}
-            <Text size="xs" c="dimmed">
+            {/* The footer is a fixed 44px bar: below md this line would wrap out of view. */}
+            <Text size="xs" c="dimmed" visibleFrom="md">
               •
             </Text>
-            <Text size="xs" c="dimmed">
+            <Text size="xs" c="dimmed" visibleFrom="md">
               Contact: randomnoobster on Discord
             </Text>
           </Group>

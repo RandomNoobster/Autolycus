@@ -4,7 +4,6 @@
  */
 
 import { ActionIcon, Button, Group, Menu, Tooltip } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
 import { IconDownload } from '@tabler/icons-react';
 import {
   MRT_ShowHideColumnsButton,
@@ -17,6 +16,7 @@ import {
   type MRT_RowData,
   type MRT_TableInstance,
 } from 'mantine-react-table';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 const DENSITY_NEXT: Record<MRT_DensityState, MRT_DensityState> = {
   md: 'xs',
@@ -38,9 +38,7 @@ export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
   table,
   onExportCsv,
 }: MrtTableToolbarInternalActionsProps<TData>) {
-  const isMobile = useMediaQuery('(max-width: 48em)', false, {
-    getInitialValueInEffect: false,
-  });
+  const isMobile = useIsMobile();
   const showLabels = !isMobile;
   const canExportCsv = table.getPrePaginationRowModel().rows.length > 0;
 

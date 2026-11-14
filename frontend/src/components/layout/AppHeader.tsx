@@ -20,16 +20,22 @@ export function AppHeader({ mobileOpened, toggleMobile }: AppHeaderProps) {
   return (
     <Group h="100%" px="xs" justify="space-between" wrap="nowrap">
       <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-        <Burger opened={mobileOpened} onClick={toggleMobile} size="sm" aria-label="Toggle navigation" />
+        <Burger
+          opened={mobileOpened}
+          onClick={toggleMobile}
+          size="sm"
+          aria-label="Toggle navigation"
+          aria-expanded={mobileOpened}
+          aria-controls="app-navbar"
+        />
         <Box style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
           <Image
-            src="/splash.webp"
+            src="/logo.webp"
             alt="Autolycus"
             h={36}
             w="auto"
             maw={180}
             fit="contain"
-            fallbackSrc="/splash.webp"
             style={{
               objectPosition: 'left center',
               filter: isLightMode

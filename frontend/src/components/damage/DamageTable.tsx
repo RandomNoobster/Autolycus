@@ -13,7 +13,6 @@ import {
   type MRT_VisibilityState,
 } from 'mantine-react-table';
 import { Box, Center, Group, Text, UnstyledButton } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 
 import type { AttackStats, ResourceType } from '@/types';
@@ -26,6 +25,7 @@ import {
   headTintForSlot,
   nationSlotForId,
 } from './damageNationTheme';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface DamageTableProps {
   attackerName: string;
@@ -599,9 +599,7 @@ export function DamageTable({
   const [attackerBreakdownOpen, setAttackerBreakdownOpen] = useState(false);
   const [defenderBreakdownOpen, setDefenderBreakdownOpen] = useState(false);
 
-  const isNarrowViewport = useMediaQuery('(max-width: 48em)', false, {
-    getInitialValueInEffect: true,
-  });
+  const isNarrowViewport = useIsMobile();
 
   const [columnPinning, setColumnPinning] = useState<MRT_ColumnPinningState>({
     left: ['label'],

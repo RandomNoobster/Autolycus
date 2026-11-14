@@ -6,9 +6,9 @@
 
 import { Paper, Text, Title } from '@mantine/core';
 import { BarChart } from '@mantine/charts';
-import { useMediaQuery } from '@mantine/hooks';
 
 import type { ChartConfig } from '@/types';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 const usdAxisTicks = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -31,9 +31,7 @@ const MOBILE_LEGEND_BASE = 44;
 const MOBILE_LEGEND_PER_ROW = 30;
 
 export function DamageChart({ data, title = 'Net Damage Comparison' }: DamageChartProps) {
-  const isMobile = useMediaQuery('(max-width: 48em)', false, {
-    getInitialValueInEffect: false,
-  });
+  const isMobile = useIsMobile();
 
   const seriesCount = data.series.length;
   const mobileLegendHeight = isMobile

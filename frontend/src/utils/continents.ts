@@ -23,11 +23,6 @@ const CONTINENT_RESOURCE_MAP: Record<Continent, string[]> = {
 };
 
 /**
- * All possible raw resources in the game.
- */
-const ALL_RAW_RESOURCES = ['coal', 'oil', 'uranium', 'lead', 'iron', 'bauxite'];
-
-/**
  * Manufactured resources (available on all continents).
  */
 const MANUFACTURED_RESOURCES = ['gasoline', 'munitions', 'steel', 'aluminum'];
@@ -38,19 +33,15 @@ const MANUFACTURED_RESOURCES = ['gasoline', 'munitions', 'steel', 'aluminum'];
 const UNIVERSAL_RESOURCES = ['food', 'net income', 'money'];
 
 /**
- * Get valid and invalid resources for a continent.
+ * Get the resources a continent can produce.
  *
  * @param continent - The continent code
- * @returns Object with valid and invalid resource lists
+ * @returns The continent and its producible resources
  */
 export function getContinentResources(continent: Continent): ContinentResources {
-  const validRaw = CONTINENT_RESOURCE_MAP[continent] || [];
-  const invalidRaw = ALL_RAW_RESOURCES.filter((r) => !validRaw.includes(r));
-  
   return {
     continent,
-    resources: [...validRaw, ...MANUFACTURED_RESOURCES, ...UNIVERSAL_RESOURCES],
-    invalid: invalidRaw,
+    resources: [...getContinentRawResources(continent), ...MANUFACTURED_RESOURCES, ...UNIVERSAL_RESOURCES],
   };
 }
 
@@ -74,25 +65,6 @@ export function getContinentRawResources(continent: Continent): string[] {
 export function isResourceValid(resource: string, continent: Continent): boolean {
   const { resources } = getContinentResources(continent);
   return resources.includes(resource);
-}
-
-/**
- * Get continent display name.
- *
- * @param continent - The continent code
- * @returns Full continent name
- */
-export function getContinentName(continent: Continent): string {
-  const names: Record<Continent, string> = {
-    na: 'North America',
-    sa: 'South America',
-    eu: 'Europe',
-    af: 'Africa',
-    as: 'Asia',
-    au: 'Australia',
-    an: 'Antarctica',
-  };
-  return names[continent];
 }
 
 /**

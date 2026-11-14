@@ -31,7 +31,6 @@ import type {
 
 import { fetchNukeTargets } from '@/api/nukeTargets';
 import { fetchLiveNationScore } from '@/api/raids';
-import { getLinkedNation } from '@/api/auth';
 import { ErrorState, JumpToTableButton, NationIdField } from '@/components/common';
 import { NukeTargetsTable } from '@/components/nukeTargets/NukeTargetsTable';
 import { useNationId, useNukeTargetsSearchParams, useTablePersistence } from '@/hooks';
@@ -48,13 +47,8 @@ import { NUKE_TARGET_FILTER_DOCS, NUKE_TARGETS_PAGE_GUIDE } from '@/lib/nukeTarg
 import { parseNumericValue } from '@/lib/raidFilterParsing';
 import { warRangeQueryBounds } from '@/lib/warRange';
 import type { ApiError, NukeTarget } from '@/types';
-
-function parseNationId(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (/^\d+$/.test(trimmed)) return trimmed;
-  const match = trimmed.match(/id=(\d+)/i);
-  return match ? match[1] : null;
-}
+import { parseNationId } from '@/utils/nationId';
+import { useLinkedNation } from '@/hooks/useLinkedNation';
 
 function parseOptionalBoolParam(sp: URLSearchParams, key: string): boolean | null {
   const val = sp.get(key);
@@ -221,17 +215,7 @@ export function NukeTargetsPage() {
   const { nationId: savedNationId, setNationId } = useNationId();
   const isNarrowNationCard = useMediaQuery('(max-width: 36em)');
 
-  const { data: linkedNationData, isFetched: linkedNationFetched } = useQuery({
-    queryKey: ['linkedNation'],
-    queryFn: async () => {
-      try {
-        return await getLinkedNation();
-      } catch {
-        return null;
-      }
-    },
-    retry: false,
-  });
+  const { data: linkedNationData, isFetched: linkedNationFetched } = useLinkedNation();
   const linkedNationId = linkedNationData?.linked
     ? linkedNationData.nation_id
       ? String(linkedNationData.nation_id)
@@ -472,16 +456,19 @@ export function NukeTargetsPage() {
       apiScoreBounds.maxScore,
       guidingSatelliteOverride,
     ],
-    queryFn: () =>
-      fetchNukeTargets({
-        attackerNationId: appliedNationId ? Number(appliedNationId) : undefined,
-        minScore: apiScoreBounds.minScore,
-        maxScore: apiScoreBounds.maxScore,
-        vmode: false,
-        ...(guidingSatelliteOverride !== null
-          ? { guidingSatellite: guidingSatelliteOverride }
-          : {}),
-      }),
+    queryFn: ({ signal }) =>
+      fetchNukeTargets(
+        {
+          attackerNationId: appliedNationId ? Number(appliedNationId) : undefined,
+          minScore: apiScoreBounds.minScore,
+          maxScore: apiScoreBounds.maxScore,
+          vmode: false,
+          ...(guidingSatelliteOverride !== null
+            ? { guidingSatellite: guidingSatelliteOverride }
+            : {}),
+        },
+        signal
+      ),
     enabled: targetsQueryEnabled,
     retry: false,
   });

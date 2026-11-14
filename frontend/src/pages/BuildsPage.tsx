@@ -39,10 +39,8 @@ import {
 } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 
 import { fetchNationData, fetchBuilds, fetchGameData } from '@/api/builds';
-import { getLinkedNation } from '@/api/auth';
 import { BuildsGrid } from '@/components/builds';
 import { ResourceIcon, NationIdField } from '@/components/common';
 import type { BuildConfiguration, BuildsResponse, ResourceType, Continent } from '@/types';
@@ -50,6 +48,7 @@ import type { GameDataResponse } from '@/types/gameData';
 import { CONTINENTS, getContinentRawResources, isResourceValid } from '@/utils/continents';
 import { formatNumber } from '@/utils';
 import { useNationId } from '@/hooks';
+import { useLinkedNation } from '@/hooks/useLinkedNation';
 
 const DISABLE_POPULATION_INCOME_STORAGE_KEY = 'autolycus-builds-disable-pop-income-v1';
 
@@ -66,17 +65,7 @@ export function BuildsPage() {
   const [gameData, setGameData] = useState<GameDataResponse | null>(null);
   const [autoLoadNation, setAutoLoadNation] = useState(Boolean(savedNationId));
   const [hasManualNationInput, setHasManualNationInput] = useState(false);
-  const { data: linkedNationData } = useQuery({
-    queryKey: ['linkedNation'],
-    queryFn: async () => {
-      try {
-        return await getLinkedNation();
-      } catch {
-        return null;
-      }
-    },
-    retry: false,
-  });
+  const { data: linkedNationData } = useLinkedNation();
   const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || undefined : undefined;
 
   // Load projects and policies on mount
@@ -106,7 +95,6 @@ export function BuildsPage() {
         drydock: 1,
       },
       projects: [],
-      policies: [],
       useLiveMarket: true,
       includeMilitaryUpkeep: false,
       disablePopulationIncome: false,
@@ -224,7 +212,6 @@ export function BuildsPage() {
           drydock: firstCity.drydock,
         },
         projects: data.projects,
-        policies: Object.values(data.policies ?? {}),
         domesticPolicy: sanitizeDomesticPolicy(data.policies?.dompolicy),
       });
       setNationError(null);

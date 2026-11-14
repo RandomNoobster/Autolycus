@@ -6,6 +6,7 @@
  */
 
 import {
+  Alert,
   Box,
   Button,
   Divider,
@@ -19,13 +20,12 @@ import {
   Switch,
   Text,
   Tooltip,
-  Badge,
   useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   IconHome,
   IconSword,
@@ -39,8 +39,9 @@ import {
   IconUnlink,
   IconReplace,
 } from '@tabler/icons-react';
-import { useDelayedFlag, useSidebarDiscordSession } from '@/hooks';
-import { getLinkedNation, unlinkDiscordNation } from '@/api/auth';
+import { LINKED_NATION_QUERY_KEY, useDelayedFlag, useLinkedNation, useSidebarDiscordSession } from '@/hooks';
+import { unlinkDiscordNation } from '@/api/auth';
+import { toApiError } from '@/api/errors';
 import { VerifyNationModal } from '@/components/common';
 import { DiscordSidebarCard } from '@/components/layout/DiscordSidebarCard';
 import { ReminderDeliveryIndicator } from '@/components/layout/ReminderDeliveryIndicator';
@@ -51,8 +52,6 @@ interface NavItem {
   path: string;
   icon: React.ReactNode;
   description?: string;
-  external?: boolean;
-  badge?: string;
 }
 
 const navItems: NavItem[] = [
@@ -99,13 +98,11 @@ const externalLinks: NavItem[] = [
     label: 'Politics & War',
     path: 'https://politicsandwar.com',
     icon: <IconExternalLink size={16} stroke={1.5} />,
-    external: true,
   },
   {
     label: 'Import Template',
     path: 'https://politicsandwar.com/city/improvements/bulk-import/',
     icon: <IconExternalLink size={16} stroke={1.5} />,
-    external: true,
   },
 ];
 
@@ -137,13 +134,12 @@ function SectionDivider({ label }: { label?: string }) {
 
 export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps) {
   const location = useLocation();
-  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const discordSession = useSidebarDiscordSession();
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
   const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false);
   const [linkedNationHover, setLinkedNationHover] = useState(false);
-  const [unlinkingNation, setUnlinkingNation] = useState(false);
 
   const isCompactHeight = useMediaQuery('(max-height: 880px)', false, {
     getInitialValueInEffect: false,
@@ -159,33 +155,28 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
     data: linkedNationData,
     isFetched: linkedNationFetched,
     isLoading: linkedNationLoading,
+    isError: linkedNationFailed,
     refetch: refetchLinkedNation,
-  } = useQuery({
-    queryKey: ['linkedNation'],
-    queryFn: async () => {
-      try {
-        return await getLinkedNation();
-      } catch {
-        return null;
-      }
-    },
-    retry: false,
-  });
+  } = useLinkedNation();
   const linkedNationId = linkedNationData?.linked ? linkedNationData.nation_id || '' : '';
   const showLinkedNationLoading = useDelayedFlag(linkedNationLoading, 150);
   const isLightMode = colorScheme === 'light';
   const isDiscordSignedIn = discordSession.status === 'signed_in';
 
-  const handleExternalNav = (item: NavItem) => {
-    window.open(item.path, '_blank', 'noopener,noreferrer');
-    onNavigate?.();
-  };
+  /** The link changed: refresh the sidebar and pages that show link-dependent UI (Raids reminders). */
+  const refreshLinkedState = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: LINKED_NATION_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: ['raids'] }),
+    ]);
 
-  const handleInternalNav = (event: React.MouseEvent, item: NavItem) => {
-    event.preventDefault();
-    navigate(internalNavPath(item.path, location.search));
-    onNavigate?.();
-  };
+  const unlinkMutation = useMutation({
+    mutationFn: unlinkDiscordNation,
+    onSuccess: async () => {
+      await refreshLinkedState();
+      setUnlinkConfirmOpen(false);
+    },
+  });
 
   const navLinkLightStyles = isLightMode
     ? {
@@ -198,36 +189,27 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
   const mainNav = (
     <Stack gap={2}>
       {navItems.map((item) => {
+        const active = location.pathname === item.path;
         const link = (
           <NavLink
             key={item.path}
+            component={Link}
+            to={internalNavPath(item.path, location.search)}
+            aria-current={active ? 'page' : undefined}
             label={
-              <Group gap="xs" wrap="nowrap">
-                <Text size="sm" lh={1.2}>
-                  {item.label}
-                </Text>
-                {item.badge ? (
-                  <Badge size="xs" variant="light" color="green">
-                    {item.badge}
-                  </Badge>
-                ) : null}
-              </Group>
+              <Text size="sm" lh={1.2}>
+                {item.label}
+              </Text>
             }
             description={showNavDescriptions ? item.description : undefined}
             leftSection={item.icon}
-            active={location.pathname === item.path}
-            onClick={(e) => handleInternalNav(e, item)}
+            active={active}
+            onClick={() => onNavigate?.()}
             variant="light"
             style={{
               ...navLinkRootStyle,
-              backgroundColor:
-                isLightMode && location.pathname === item.path
-                  ? 'var(--mantine-color-orange-0)'
-                  : undefined,
-              border:
-                isLightMode && location.pathname === item.path
-                  ? '1px solid var(--mantine-color-orange-2)'
-                  : undefined,
+              backgroundColor: isLightMode && active ? 'var(--mantine-color-orange-0)' : undefined,
+              border: isLightMode && active ? '1px solid var(--mantine-color-orange-2)' : undefined,
             }}
             styles={navLinkLightStyles}
           />
@@ -250,9 +232,13 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
       {externalLinks.map((item) => (
         <NavLink
           key={item.path}
+          component="a"
+          href={item.path}
+          target="_blank"
+          rel="noopener noreferrer"
           label={<Text size="sm" lh={1.2}>{item.label}</Text>}
           leftSection={item.icon}
-          onClick={() => handleExternalNav(item)}
+          onClick={() => onNavigate?.()}
           variant="subtle"
           style={navLinkRootStyle}
           styles={
@@ -285,6 +271,15 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
           ) : (
             <div style={{ height: 24 }} />
           )
+        ) : linkedNationFailed && !linkedNationData ? (
+          <>
+            <Text size="xs" c="dimmed" ta="center" lh={1.3}>
+              Couldn't check your linked nation.
+            </Text>
+            <Button size="xs" variant="light" onClick={() => void refetchLinkedNation()}>
+              Try again
+            </Button>
+          </>
         ) : linkedNationId ? (
           <>
             <a
@@ -317,11 +312,7 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
             >
               <Image
                 src={linkedNationData?.flag_url || undefined}
-                alt={
-                  linkedNationData?.nation_name
-                    ? `${linkedNationData.nation_name} flag background`
-                    : 'Nation flag background'
-                }
+                alt=""
                 fallbackSrc="https://politicsandwar.com/img/flags/defaultflag.svg"
                 style={{
                   position: 'absolute',
@@ -359,11 +350,7 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
               >
                 <Image
                   src={linkedNationData?.flag_url || undefined}
-                  alt={
-                    linkedNationData?.nation_name
-                      ? `${linkedNationData.nation_name} flag`
-                      : 'Nation flag'
-                  }
+                  alt=""
                   w={18}
                   h={18}
                   radius="sm"
@@ -427,7 +414,7 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
       <Switch
         checked={colorScheme === 'dark'}
         onChange={toggleColorScheme}
-        label={colorScheme === 'dark' ? 'Dark mode' : 'Light mode'}
+        label="Dark mode"
         size="sm"
         onLabel={<IconMoon size={14} stroke={1.5} />}
         offLabel={<IconSun size={14} stroke={1.5} />}
@@ -439,11 +426,10 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
     <Box style={{ flexShrink: 0 }}>
       <Group gap="xs" py={isCompactHeight ? 2 : 4} justify="center">
         <Image
-          src="/splash.webp"
+          src="/logo.webp"
           alt="Autolycus"
           maw={logoMaxWidth}
           w="100%"
-          fallbackSrc="/splash.webp"
           style={{
             filter: isLightMode
               ? 'contrast(1.16) saturate(1.08) drop-shadow(0 1px 2px rgba(124, 45, 18, 0.35))'
@@ -468,7 +454,9 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
       <Modal
         opened={unlinkConfirmOpen}
         onClose={() => {
-          if (!unlinkingNation) setUnlinkConfirmOpen(false);
+          if (unlinkMutation.isPending) return;
+          setUnlinkConfirmOpen(false);
+          unlinkMutation.reset();
         }}
         title="Remove nation link"
         centered
@@ -478,27 +466,27 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
             Remove the link between your Discord account and this nation? You can link again later
             with Verify Nation.
           </Text>
+          {unlinkMutation.isError && (
+            <Alert color="red" variant="light" title="Couldn't remove the link">
+              {toApiError(unlinkMutation.error).message}
+            </Alert>
+          )}
           <Group justify="flex-end" gap="xs">
             <Button
               variant="default"
-              disabled={unlinkingNation}
-              onClick={() => setUnlinkConfirmOpen(false)}
+              disabled={unlinkMutation.isPending}
+              onClick={() => {
+                setUnlinkConfirmOpen(false);
+                unlinkMutation.reset();
+              }}
             >
               Cancel
             </Button>
             <Button
               color="red"
-              loading={unlinkingNation}
-              onClick={async () => {
-                if (unlinkingNation) return;
-                setUnlinkingNation(true);
-                try {
-                  await unlinkDiscordNation();
-                  await refetchLinkedNation();
-                  setUnlinkConfirmOpen(false);
-                } finally {
-                  setUnlinkingNation(false);
-                }
+              loading={unlinkMutation.isPending}
+              onClick={() => {
+                if (!unlinkMutation.isPending) unlinkMutation.mutate();
               }}
             >
               Remove link
@@ -511,7 +499,7 @@ export function AppNavbar({ onNavigate, isMobileLayout = false }: AppNavbarProps
         opened={verifyModalOpen}
         onClose={() => setVerifyModalOpen(false)}
         onVerified={() => {
-          void refetchLinkedNation();
+          void refreshLinkedState();
         }}
       />
     </>

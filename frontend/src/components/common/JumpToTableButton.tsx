@@ -1,9 +1,9 @@
 import { Affix, Button, Transition } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
 import { IconArrowDown } from '@tabler/icons-react';
 import { useEffect, useState, type RefObject } from 'react';
 
 import { useMobileNavOpen } from '@/components/layout/MobileNavOpenContext';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 type JumpToTableButtonProps = {
   targetRef: RefObject<HTMLElement | null>;
@@ -11,9 +11,7 @@ type JumpToTableButtonProps = {
 
 /** Mobile-only floating control that scrolls to the results table. */
 export function JumpToTableButton({ targetRef }: JumpToTableButtonProps) {
-  const isMobile = useMediaQuery('(max-width: 48em)', false, {
-    getInitialValueInEffect: false,
-  });
+  const isMobile = useIsMobile();
   const mobileNavOpen = useMobileNavOpen();
   // Only when the table is still below the fold — not in view, and not scrolled past.
   const [tableBelowFold, setTableBelowFold] = useState(false);
