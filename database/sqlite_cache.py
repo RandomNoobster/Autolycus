@@ -147,15 +147,35 @@ def get_metadata(conn: sqlite3.Connection, key: str) -> Any:
     return None
 
 
-def prune_missing_ids(conn: sqlite3.Connection, table: str, keep_ids: List[int]) -> None:
-    """Delete rows whose id is not in keep_ids. No-op if keep_ids is empty."""
+def prune_missing_ids(
+    conn: sqlite3.Connection,
+    table: str,
+    keep_ids: List[int],
+    *,
+    written_before: Optional[int] = None,
+) -> None:
+    """Delete rows whose id is not in keep_ids. No-op if keep_ids is empty.
+
+    With ``written_before`` (epoch seconds), rows whose ``_created_at`` (last write)
+    is at or after it are kept too, so rows another writer refreshed while the
+    caller was collecting ``keep_ids`` survive.
+    """
     if not keep_ids:
         return
     placeholders = ",".join(["?"] * len(keep_ids))
     sql = f"DELETE FROM {table} WHERE id NOT IN ({placeholders})"
+    params: List[Any] = list(keep_ids)
+    if written_before is not None:
+        sql += " AND (_created_at IS NULL OR _created_at < ?)"
+        params.append(written_before)
     cur = conn.cursor()
-    cur.execute(sql, keep_ids)
+    cur.execute(sql, params)
     conn.commit()
+
+
+def _has_table(cur: sqlite3.Cursor, table: str) -> bool:
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,))
+    return cur.fetchone() is not None
 
 
 def get_all_nations(db_path: Path) -> Dict[str, Any]:
@@ -194,6 +214,11 @@ def get_all_nations_filtered(
     with sqlite3.connect(str(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+
+        if not _has_table(cur, "nations"):
+            # The scanner has not written anything yet: an empty cache, not an error.
+            ensure_metadata_table(conn)
+            return {'nations': [], 'last_fetched': get_metadata(conn, 'last_fetched')}
 
         where_clauses: List[str] = []
         params: List[Any] = []

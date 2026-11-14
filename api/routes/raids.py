@@ -8,23 +8,24 @@ on the web client; GET / only applies score bounds and vacation-mode exclusion.
 import logging
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Optional
 
 from flask import Blueprint, current_app, jsonify, request
 
 from api.rate_limit import try_acquire_rate_limit
-from api.request_utils import get_json_object
+from api.request_utils import get_json_object, optional_session_profile
 from api.security import optional_discord_session, require_discord_session, require_same_origin
 from database.mongo import get_sync_db
-from database.sqlite_cache import (get_all_alliances, get_all_nations_filtered,
-                                   get_nation_by_id)
+from database.sqlite_cache import (get_alliances_db_path, get_all_alliances,
+                                   get_all_nations_filtered, get_nation_by_id,
+                                   get_nations_db_path)
+from database.users import linked_nation_id
 from infra.async_bridge import run_sync
 from logic import api_client
 from logic.common import normalize_alliance_position
 from logic.military import calculate_win_chance_raw
 from logic.raids import (calculate_days_inactive,
-                         is_in_vacation_mode)
+                         is_in_vacation_mode, stored_time_since_war)
 from api.routes.reminder_views import delivery_view, test_dm_view, upcoming_by_nation
 from database import reminders as reminder_db
 from infra.webpush import get_push_sender
@@ -35,18 +36,31 @@ logger = logging.getLogger(__name__)
 
 raids_bp = Blueprint('raids', __name__, url_prefix='/api/raids')
 
-DEFAULT_REMINDER_MINUTES = list(reminder_rules.DEFAULT_REMINDER_OFFSETS)
 MAX_REMINDER_OFFSETS = reminder_rules.MAX_REMINDER_OFFSETS
 MAX_REMINDER_OFFSET_MINUTES = reminder_rules.MAX_REMINDER_OFFSET_MINUTES
 
-# Scalar only — never pull cities/wars blobs on the request path.
-# Income / def_slots / treasure_count are precomputed by the nation scanner (and a one-time backfill).
+# The live score falls back to the cache rather than holding a request thread while
+# the API client waits out Politics & War rate limits.
+LIVE_SCORE_TIMEOUT_SECONDS = 10
+# nations(id:) is a 32-bit Int in the GraphQL schema.
+MAX_NATION_ID = reminder_rules.MAX_NATION_ID
+MAX_ALLIANCE_SEARCH_RESULTS = 50
+
+# Alliance positions that pay no alliance taxes: applicants aren't in a tax bracket
+# yet, and gray nations are never taxed (PWPedia tax-brackets).
+_UNTAXED_POSITIONS = frozenset({'APPLICANT', 'NOALLIANCE'})
+_UNTAXED_COLORS = frozenset({'gray', 'grey'})
+
+# Scalar only — never pull cities/wars blobs on the request path (the small
+# `alliance` object is the fallback for alliances missing from alliances.db).
+# Income / def_slots / treasure_count are precomputed by the nation scanner.
 _RAIDS_SELECT_COLUMNS = [
     'id',
     'nation_name',
     'leader_name',
     'alliance_id',
     'alliance_position',
+    'alliance',
     'num_cities',
     'score',
     'color',
@@ -100,6 +114,49 @@ def _normalize_nation_id(value: Any) -> Optional[str]:
 
 def _sanitize_reminder_offsets(raw_offsets: Any) -> Optional[list[int]]:
     return reminder_rules.sanitize_offsets(raw_offsets)
+
+
+def _num(value: Any) -> float:
+    """A stored count as a number; NULL or junk (rows a partial update created) is 0."""
+    try:
+        return float(value) if value is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _int_or(value: Any, default: Any) -> Any:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _money_int(value: Any) -> int:
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _alliance_meta(nation: dict[str, Any], alliances_by_id: dict[str, dict[str, Any]], alliance_id: str) -> dict[str, Any]:
+    """alliances.db row for the nation's alliance, else the nation's own alliance data."""
+    meta = alliances_by_id.get(alliance_id)
+    if meta:
+        return meta
+    own = nation.get('alliance')
+    if isinstance(own, dict) and str(own.get('id') or alliance_id) == alliance_id:
+        return own
+    return {}
+
+
+def _is_taxable(nation_color: Any, alliance_color: Any, alliance_position: Any) -> bool:
+    """Whether the nation's alliance taxes its income: a member on the alliance's color."""
+    if alliance_position in _UNTAXED_POSITIONS:
+        return False
+    if not nation_color or not alliance_color:
+        return False
+    color = str(nation_color).lower()
+    return color not in _UNTAXED_COLORS and color == str(alliance_color).lower()
 
 
 def _db_unavailable() -> tuple[Any, int]:
@@ -160,15 +217,14 @@ def get_raids() -> tuple[Any, int]:
             vmode_param,
         )
 
-        data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
+        data_path = get_nations_db_path()
         load_t0 = time.perf_counter()
         nations_data = get_all_nations_filtered(
             data_path,
             min_score=min_score,
             max_score=max_score,
             columns=_RAIDS_SELECT_COLUMNS,
-            # Only parse wars/treasures when precomputed columns are absent (handled per row).
-            json_fields=set(),
+            json_fields={'alliance'},
         )
         nations = nations_data['nations']
         last_fetched = nations_data.get('last_fetched')
@@ -187,7 +243,7 @@ def get_raids() -> tuple[Any, int]:
 
         # Load alliances (for alliance colors/name — avoids parsing nation.alliance JSON)
         alliances_by_id: dict[str, dict[str, Any]] = {}
-        alliances_path = Path(current_app.root_path).parent / 'data' / 'alliances.db'
+        alliances_path = get_alliances_db_path()
         if alliances_path.exists():
             try:
                 alliances_data = get_all_alliances(alliances_path)
@@ -204,24 +260,12 @@ def get_raids() -> tuple[Any, int]:
             except Exception as exc:
                 logger.warning(f"[raids] failed to load alliances db: {exc}")
 
-        # Fetch user profile from Mongo (sync) to resolve attacker and reminders
-        mongo_db = get_sync_db()
-        user_profile = None
-        discord_linked = False
-        if mongo_db is not None and user_id is not None:
-            try:
-                uid = int(user_id)
-                user_profile = mongo_db.global_users.find_one({'user': uid})
-                # Match /api/auth/linked-nation: reminder-only stubs have no PnW nation id.
-                nation_id_text = (
-                    str(user_profile.get("id")).strip()
-                    if user_profile and user_profile.get("id") is not None
-                    else ""
-                )
-                discord_linked = bool(nation_id_text)
-            except (TypeError, ValueError):
-                user_profile = None
-                discord_linked = False
+        # The profile only adds the linked attacker and reminder flags, so a Mongo
+        # outage leaves it None instead of failing the list.
+        user_profile = optional_session_profile()
+        # Same rule as /api/auth/linked-nation: reminder-only stubs have no nation id.
+        linked_id = linked_nation_id(user_profile)
+        discord_linked = linked_id is not None
 
         attacker = None
         requested_attacker_missing = False
@@ -241,12 +285,11 @@ def get_raids() -> tuple[Any, int]:
             else:
                 requested_attacker_missing = True
                 logger.warning(f"Nation {attacker_nation_id} not found in database")
-        if attacker is None and user_profile:
-            attacker_id = str(user_profile.get('id', ''))
-            attacker = nations_by_id.get(attacker_id)
-            if attacker is None and attacker_id:
+        if attacker is None and linked_id:
+            attacker = nations_by_id.get(linked_id)
+            if attacker is None:
                 try:
-                    attacker_data = get_nation_by_id(data_path, attacker_id)
+                    attacker_data = get_nation_by_id(data_path, linked_id)
                     attacker = attacker_data.get('nation')
                 except Exception:
                     pass
@@ -269,19 +312,20 @@ def get_raids() -> tuple[Any, int]:
                     "No fallback nation available for calculations."
                 )
 
-        beige_alerts = user_profile.get('beige_alerts', []) if user_profile else []
-        # Pre-compute set for O(1) membership checks in the loop
-        beige_alert_set: set[str] = {str(x) for x in beige_alerts}
+        # Normalized like the reminder endpoints' lists (canonical digit strings).
+        beige_alerts = reminder_db.watched_nation_ids(user_profile)
+        beige_alert_set: set[str] = set(beige_alerts)
 
         targets: list[dict[str, Any]] = []
 
         # Pre-compute attacker combat values (constant across all targets)
         if attacker:
-            _att_ground = attacker.get('soldiers', 0) * 1.75 + attacker.get('tanks', 0) * 40
-            _att_air = attacker.get('aircraft', 0) * 3
-            _att_naval = attacker.get('ships', 0) * 4
+            _att_ground = _num(attacker.get('soldiers')) * 1.75 + _num(attacker.get('tanks')) * 40
+            _att_air = _num(attacker.get('aircraft')) * 3
+            _att_naval = _num(attacker.get('ships')) * 4
         # Compute current time once for all inactivity calculations
         now_utc = datetime.now(timezone.utc)
+        fallback_updated_at = _int_or(last_fetched, None) if last_fetched else None
 
         loop_t0 = time.perf_counter()
         for nation in nations:
@@ -293,27 +337,23 @@ def get_raids() -> tuple[Any, int]:
                 continue
 
             alliance_id = str(nation.get('alliance_id', '') or '0')
-            alliance_meta = alliances_by_id.get(alliance_id, {}) or {}
+            alliance_meta = _alliance_meta(nation, alliances_by_id, alliance_id)
 
             # Prefer scanner-precomputed war fields; default when mid-scan / old rows.
-            def_slots = nation.get('def_slots')
-            time_since_war = nation.get('time_since_war')
-            if def_slots is None:
-                def_slots = 0
-            if time_since_war is None:
-                time_since_war = '14+'
-            try:
-                def_slots = int(def_slots)
-            except (TypeError, ValueError):
-                def_slots = 0
+            def_slots = _int_or(nation.get('def_slots'), 0)
+            time_since_war = stored_time_since_war(nation.get('time_since_war'))
 
             days_inactive = calculate_days_inactive(nation.get('last_active'), now_utc)
 
             # Win chances (attacker values pre-computed above the loop)
             if attacker:
-                ground_def = nation.get('soldiers', 0) * 1.75 + nation.get('tanks', 0) * 40 + nation.get('population', 0) * 0.0025
-                air_def = nation.get('aircraft', 0) * 3
-                naval_def = nation.get('ships', 0) * 4
+                ground_def = (
+                    _num(nation.get('soldiers')) * 1.75
+                    + _num(nation.get('tanks')) * 40
+                    + _num(nation.get('population')) * 0.0025
+                )
+                air_def = _num(nation.get('aircraft')) * 3
+                naval_def = _num(nation.get('ships')) * 4
                 ground_win = round(calculate_win_chance_raw(_att_ground, ground_def) * 100, 1)
                 air_win = round(calculate_win_chance_raw(_att_air, air_def) * 100, 1)
                 naval_win = round(calculate_win_chance_raw(_att_naval, naval_def) * 100, 1)
@@ -321,30 +361,10 @@ def get_raids() -> tuple[Any, int]:
             else:
                 ground_win = air_win = naval_win = total_win = 50.0
 
-            monetary_net_income = nation.get('monetary_net_num') or 0
-            net_cash_income = nation.get('net_cash_num') or 0
-            try:
-                monetary_net_income = int(round(float(monetary_net_income)))
-            except (TypeError, ValueError):
-                monetary_net_income = 0
-            try:
-                net_cash_income = int(round(float(net_cash_income)))
-            except (TypeError, ValueError):
-                net_cash_income = 0
-
-            nation_loot_value = 0
-            try:
-                nation_loot_value = int(nation.get('nation_loot_value', 0) or 0)
-            except (TypeError, ValueError):
-                nation_loot_value = 0
-
-            treasure_count = nation.get('treasure_count')
-            if treasure_count is None:
-                treasure_count = 0
-            try:
-                treasure_count = int(treasure_count)
-            except (TypeError, ValueError):
-                treasure_count = 0
+            monetary_net_income = _money_int(nation.get('monetary_net_num'))
+            net_cash_income = _money_int(nation.get('net_cash_num'))
+            nation_loot_value = _int_or(nation.get('nation_loot_value') or 0, 0)
+            treasure_count = _int_or(nation.get('treasure_count'), 0)
 
             alliance_color = alliance_meta.get('color')
             raw_alliance_name = alliance_meta.get('name')
@@ -352,28 +372,17 @@ def get_raids() -> tuple[Any, int]:
                 str(raw_alliance_name).strip() if raw_alliance_name not in (None, '') else 'None'
             )
             nation_color = nation.get('color', '')
-            taxable = bool(
-                nation_color
-                and alliance_color
-                and str(nation_color).lower() == str(alliance_color).lower()
-            )
+            taxable = _is_taxable(nation_color, alliance_color, alliance_position)
 
-            updated_at = None
-            try:
-                updated_at = int(nation.get('_created_at')) if nation.get('_created_at') is not None else None
-            except (TypeError, ValueError):
-                updated_at = None
-            if updated_at is None and last_fetched:
-                try:
-                    updated_at = int(last_fetched)
-                except (TypeError, ValueError):
-                    updated_at = None
+            updated_at = _int_or(nation.get('_created_at'), None)
+            if updated_at is None:
+                updated_at = fallback_updated_at
 
             targets.append({
                 'id': int(nation.get('id', 0)),
                 'nationName': nation.get('nation_name', 'Unknown'),
                 'leaderName': nation.get('leader_name', 'Unknown'),
-                'allianceId': alliance_id or '0',
+                'allianceId': alliance_id,
                 'allianceName': alliance_name,
                 'alliancePosition': (alliance_position or 'Unknown'),
                 'numCities': nation.get('num_cities', 0),
@@ -408,10 +417,10 @@ def get_raids() -> tuple[Any, int]:
                 'id': attacker.get('id') if attacker else None,
                 'nation_name': attacker.get('nation_name') if attacker else None,
                 'leader_name': attacker.get('leader_name') if attacker else None,
-                'score': float(attacker.get('score', 0)) if attacker else None,
+                'score': _num(attacker.get('score')) if attacker else None,
             },
             'targets': targets,
-            'beigeAlerts': [str(x) for x in beige_alerts],
+            'beigeAlerts': beige_alerts,
             'generatedAt': datetime.fromtimestamp(last_fetched, tz=timezone.utc).isoformat() if last_fetched else datetime.now(timezone.utc).isoformat(),
             'discordAuthenticated': user_id is not None,
             'discordLinked': discord_linked,
@@ -550,7 +559,7 @@ def get_reminders() -> tuple[Any, int]:
             reminder_db.upcoming_jobs_for_user_sync(mongo_db, uid, reminder_rules.utcnow())
         )
         reminders: list[dict[str, Any]] = []
-        data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
+        data_path = get_nations_db_path()
 
         for nation_id in reminder_ids:
             nation_data = get_nation_by_id(data_path, nation_id)
@@ -780,8 +789,7 @@ def request_test_dm() -> tuple[Any, int]:
 
 def _nation_score_from_sqlite(nation_id: int) -> tuple[Any, int] | None:
     """Return (response, status) from nations.db, or None if the nation is missing."""
-    data_path = Path(current_app.root_path).parent / 'data' / 'nations.db'
-    cached = get_nation_by_id(data_path, nation_id)
+    cached = get_nation_by_id(get_nations_db_path(), nation_id)
     nation = cached.get('nation')
     if not nation:
         return None
@@ -812,6 +820,14 @@ def get_live_nation_score(nation_id: int) -> tuple[Any, int]:
     payload, response parse error) falls back to the SQLite nations cache.
     """
     nid = int(nation_id)
+    if not 0 < nid <= MAX_NATION_ID:
+        # Not a nation id the game can have (and too big for the API or SQLite).
+        return _error_response(
+            'Not found',
+            f'Nation {nid} not found.',
+            'NATION_NOT_FOUND',
+            404,
+        )
 
     api_key = current_app.config.get("API_KEY") or None
     try:
@@ -834,7 +850,7 @@ def get_live_nation_score(nation_id: int) -> tuple[Any, int]:
                 "{data{id nation_name leader_name score}}"
                 "}"
             )
-            response = run_sync(api_client.call(query, api_key))
+            response = run_sync(api_client.call(query, api_key), timeout=LIVE_SCORE_TIMEOUT_SECONDS)
 
             nations = (
                 (response or {}).get('data', {}).get('nations', {}).get('data', [])
@@ -855,10 +871,12 @@ def get_live_nation_score(nation_id: int) -> tuple[Any, int]:
                 nid,
             )
         except Exception as exc:
+            # aiohttp errors can repeat the request URL, which carries the API key.
             logger.warning(
-                "[raids] live nation %s fetch failed (%s); falling back to sqlite",
+                "[raids] live nation %s fetch failed (%s: %s); falling back to sqlite",
                 nid,
-                exc,
+                type(exc).__name__,
+                str(exc).replace(api_key, "***"),
             )
     elif api_key:
         logger.info(
@@ -908,11 +926,14 @@ def search_alliances():
         if not query:
             return jsonify([]), 200
         
-        limit = int(request.args.get('limit', 10))
-        limit = min(limit, 50)  # Cap at 50 results
+        # A missing or non-numeric limit means the default; clamp to 1..50.
+        limit = request.args.get('limit', default=10, type=int)
+        if limit is None:
+            limit = 10
+        limit = max(1, min(limit, MAX_ALLIANCE_SEARCH_RESULTS))
 
         # Load cached alliances from SQLite
-        alliances_path = Path(current_app.root_path).parent / 'data' / 'alliances.db'
+        alliances_path = get_alliances_db_path()
         if not alliances_path.exists():
             logger.warning("[alliances/search] alliances.db not found")
             return jsonify([]), 200

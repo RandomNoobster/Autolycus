@@ -9,6 +9,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from logic.economy import infra_cost, infra_rebuild_cost
 from logic.nuke_targets import (
+    _attacker_war_infra_mod,
+    _policy_modifiers,
+    defender_summary,
     DEFENDER_STARTING_RESISTANCE,
     IRON_DOME_INTERCEPT_CHANCE,
     MISSILE_RESISTANCE_ON_HIT,
@@ -122,7 +125,8 @@ class TestNukeMissileMetrics:
         assert with_dome.missile_damage < without_dome.missile_damage
 
     def test_guiding_satellite_boosts_nuke_and_missile_infra(self):
-        defender = _nation(2, cities=[_city(2000, 600)])
+        # Low density: the boosted strikes stay under the city's infra cap.
+        defender = _nation(2, cities=[_city(4000, 4000)])
         base_attacker = _nation(1, cities=[_city(1000)], warpolicy="None")
         gs_attacker = _nation(
             1, cities=[_city(1000)], warpolicy="None", guiding_satellite=True
@@ -142,7 +146,7 @@ class TestNukeMissileMetrics:
         assert with_gs.missile_damage > without_gs.missile_damage
 
     def test_guiding_satellite_stacks_with_attrition(self):
-        defender = _nation(2, cities=[_city(2000, 600)])
+        defender = _nation(2, cities=[_city(4000, 4000)])
         base = compute_nuke_missile_metrics(
             _nation(1, cities=[_city(1000)], warpolicy="None"), defender
         )
@@ -213,3 +217,62 @@ class TestSimulatedWar:
 
     def test_starting_resistance_is_pwpedia_default(self):
         assert DEFENDER_STARTING_RESISTANCE == 100
+
+
+class TestWarModifiers:
+    @staticmethod
+    def _attacker(war: dict) -> dict:
+        return {"id": 1, "wars": [war]}
+
+    def test_raid_declared_by_the_attacker_deals_a_quarter(self):
+        war = {"attid": "1", "defid": "2", "turnsleft": 10, "war_type": "RAID"}
+        assert _attacker_war_infra_mod(self._attacker(war), "2") == 0.25
+
+    def test_war_the_target_declared_uses_the_defender_share(self):
+        war = {"attid": "2", "defid": "1", "turnsleft": 10, "war_type": "ORDINARY"}
+        assert _attacker_war_infra_mod(self._attacker(war), "2") == 0.5
+        war["war_type"] = "RAID"
+        assert _attacker_war_infra_mod(self._attacker(war), "2") == 0.5
+
+    def test_current_field_names_and_ordinals_are_read(self):
+        # Subscription rows carry att_id/def_id/turns_left; pnwkit-era rows ordinals.
+        war = {"att_id": "1", "def_id": "2", "turns_left": 3, "war_type": 1}
+        assert _attacker_war_infra_mod(self._attacker(war), "2") == 1.0
+        war["war_type"] = "raid"
+        assert _attacker_war_infra_mod(self._attacker(war), "2") == 0.25
+
+    def test_ended_or_unknown_turns_count_as_no_war(self):
+        for turns in (0, None):
+            war = {"attid": "1", "defid": "2", "turnsleft": turns, "war_type": "RAID"}
+            assert _attacker_war_infra_mod(self._attacker(war), "2") == 1.0
+
+    def test_war_policy_enum_names_apply(self):
+        assert _policy_modifiers({"war_policy": "ATTRITION"})["policy_infra_dealt"] == 1.1
+        assert _policy_modifiers({"warpolicy": "Turtle"})["policy_infra_lost"] == 0.9
+        assert _policy_modifiers({"war_policy": "MONEYBAGS"})["policy_infra_lost"] == 1.05
+
+
+class TestInfraCap:
+    def test_strikes_never_destroy_more_infra_than_the_city_has(self):
+        attacker = _nation(1, cities=[_city(1000)], warpolicy="Attrition", guiding_satellite=True)
+        defender = _nation(2, cities=[_city(100, 500)])
+        metrics = compute_nuke_missile_metrics(attacker, defender)
+        assert metrics is not None
+        assert metrics.nuke_infra_lost == pytest.approx(100.0)
+        assert metrics.missile_infra_lost == pytest.approx(100.0)
+        assert metrics.nuke_damage == pytest.approx(infra_rebuild_cost(100, 100))
+
+    def test_defender_summary_reads_both_field_spellings(self):
+        summary = defender_summary(
+            {"cities": [_city(1234.567), _city(800)], "vital_defense_system": True,
+             "iron_dome": True, "war_policy": "TURTLE"}
+        )
+        assert summary == {
+            "maxInfra": 1234.57,
+            "avgInfra": 1017.28,
+            "vds": True,
+            "ironDome": True,
+            "falloutShelter": False,
+            "defenderWarPolicy": "TURTLE",
+        }
+        assert defender_summary({"cities": []}) is None

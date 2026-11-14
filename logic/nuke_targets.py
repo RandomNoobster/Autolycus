@@ -34,11 +34,13 @@ Dollar damage uses ``infra_rebuild_cost`` (buy/rebuild price), not sell value.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
+from logic.common import _normalize_war_policy, _war_field
+from logic.damage import war_infra_share
 from logic.economy import infra_rebuild_cost
+from logic.raids import war_turns_left
 
 Weapon = Literal["nuke", "missile"]
 
@@ -122,6 +124,7 @@ class ExpectedLaunchOutcome:
     hit_probability: float
     infra_destroyed_if_hit: float
     expected_infra_destroyed: float
+    rebuild_damage_if_hit: float
     expected_rebuild_damage: float
     expected_resistance_reduction: float
     launch_cost: float
@@ -162,6 +165,23 @@ def _project_bool(nation: dict[str, Any], *keys: str) -> bool:
     return False
 
 
+def _has_vds(nation: dict[str, Any]) -> bool:
+    return _project_bool(nation, "vds", "vital_defense_system")
+
+
+def _has_iron_dome(nation: dict[str, Any]) -> bool:
+    return _project_bool(nation, "irond", "iron_dome")
+
+
+def _has_fallout_shelter(nation: dict[str, Any]) -> bool:
+    return _project_bool(nation, "fallout_shelter", "falloutShelter")
+
+
+def _war_policy_label(nation: dict[str, Any]) -> str:
+    """The war policy as stored: "Turtle" from scans, "TURTLE" from subscription rows."""
+    return str(nation.get("warpolicy") or nation.get("war_policy") or "")
+
+
 def _policy_modifiers(nation: dict[str, Any]) -> dict[str, float]:
     mods = {
         "policy_infra_dealt": 1.0,
@@ -169,16 +189,15 @@ def _policy_modifiers(nation: dict[str, Any]) -> dict[str, float]:
         "fallout_shelter_mod": 1.0,
         "guiding_satellite_mod": 1.0,
     }
-    policy = nation.get("warpolicy") or nation.get("war_policy") or ""
-    if policy == "Attrition":
+    # Scans store "Attrition", subscription rows the enum name "ATTRITION".
+    policy = _normalize_war_policy(nation.get("warpolicy") or nation.get("war_policy"))
+    if policy == "ATTRITION":
         mods["policy_infra_dealt"] = 1.1
-    elif policy == "Turtle":
+    elif policy == "TURTLE":
         mods["policy_infra_lost"] = 0.9
-    elif policy == "Moneybags":
+    elif policy in ("MONEYBAGS", "COVERT", "ARCANE"):
         mods["policy_infra_lost"] = 1.05
-    elif policy in ("Covert", "Arcane"):
-        mods["policy_infra_lost"] = 1.05
-    if _project_bool(nation, "fallout_shelter", "falloutShelter"):
+    if _has_fallout_shelter(nation):
         mods["fallout_shelter_mod"] = 0.9
     if _project_bool(nation, "guiding_satellite", "guidingSatellite"):
         mods["guiding_satellite_mod"] = GUIDING_SATELLITE_INFRA_MOD
@@ -186,21 +205,42 @@ def _policy_modifiers(nation: dict[str, Any]) -> dict[str, float]:
 
 
 def _attacker_war_infra_mod(attacker: dict[str, Any], defender_id: str) -> float:
-    """Default attrition attacker infra mod; override if already at war."""
+    """Infra share the attacker deals the defender.
+
+    From an active war between the two, by its war type and by which side declared
+    it (a defender deals 50% in a raid war, the declarer 25%). With no such war, 1.0:
+    the page assumes the attacker declares an attrition war.
+    """
+    attacker_id = str(attacker.get("id"))
     defender_id = str(defender_id)
     for war in attacker.get("wars") or []:
-        att_id = str(war.get("attid", ""))
-        def_id = str(war.get("defid", ""))
-        if war.get("turnsleft", 0) <= 0:
+        if not isinstance(war, dict) or war_turns_left(war) <= 0:
             continue
-        if att_id == str(attacker.get("id")) and def_id == defender_id:
-            war_type = war.get("war_type") or war.get("warType") or "ORDINARY"
-            if war_type == "RAID":
-                return 0.5
-            if war_type == "ATTRITION":
-                return 1.0
-            return 0.5
+        att_id = str(_war_field(war, "attid", "att_id"))
+        def_id = str(_war_field(war, "defid", "def_id"))
+        if att_id == attacker_id and def_id == defender_id:
+            declarer = True
+        elif att_id == defender_id and def_id == attacker_id:
+            declarer = False
+        else:
+            continue
+        share = war_infra_share(_war_field(war, "war_type", "warType"), declarer=declarer)
+        # An unknown war type counts as ordinary, the game's default.
+        return share if share is not None else 0.5
     return 1.0
+
+
+def _strike_mods(attacker: dict[str, Any], defender: dict[str, Any]) -> dict[str, float]:
+    """Keyword arguments for :func:`compute_expected_launch_outcome` for this pair."""
+    att_mods = _policy_modifiers(attacker)
+    def_mods = _policy_modifiers(defender)
+    return {
+        "war_infra_mod": _attacker_war_infra_mod(attacker, str(defender.get("id", ""))),
+        "policy_infra_dealt": att_mods["policy_infra_dealt"],
+        "policy_infra_lost": def_mods["policy_infra_lost"],
+        "fallout_shelter_mod": def_mods["fallout_shelter_mod"],
+        "guiding_satellite_mod": att_mods["guiding_satellite_mod"],
+    }
 
 
 def _parse_cities(nation: dict[str, Any]) -> list[CityState]:
@@ -283,18 +323,6 @@ def _raw_missile_infra(
     )
 
 
-def _expected_rebuild_damage(
-    city: CityState,
-    infra_lost_on_hit: float,
-    hit_probability: float,
-    nation: Optional[dict[str, Any]] = None,
-) -> float:
-    if infra_lost_on_hit <= 0 or hit_probability <= 0:
-        return 0.0
-    rebuild_on_hit = infra_rebuild_cost(city.infrastructure, infra_lost_on_hit, nation)
-    return rebuild_on_hit * hit_probability
-
-
 def _infra_destroyed_if_hit(
     strike: InterceptStrikeEV,
     city: CityState,
@@ -306,7 +334,7 @@ def _infra_destroyed_if_hit(
     guiding_satellite_mod: float = 1.0,
 ) -> float:
     if strike.weapon == "nuke":
-        return _raw_nuke_infra(
+        raw = _raw_nuke_infra(
             city,
             war_infra_mod=war_infra_mod,
             policy_infra_dealt=policy_infra_dealt,
@@ -314,13 +342,17 @@ def _infra_destroyed_if_hit(
             fallout_shelter_mod=fallout_shelter_mod,
             guiding_satellite_mod=guiding_satellite_mod,
         )
-    return _raw_missile_infra(
-        city,
-        war_infra_mod=war_infra_mod,
-        policy_infra_dealt=policy_infra_dealt,
-        policy_infra_lost=policy_infra_lost,
-        guiding_satellite_mod=guiding_satellite_mod,
-    )
+    else:
+        raw = _raw_missile_infra(
+            city,
+            war_infra_mod=war_infra_mod,
+            policy_infra_dealt=policy_infra_dealt,
+            policy_infra_lost=policy_infra_lost,
+            guiding_satellite_mod=guiding_satellite_mod,
+        )
+    # A strike can't destroy more than the city has (Fandom War Formulas:
+    # min(..., Total City Infra)).
+    return min(raw, max(city.infrastructure, 0.0))
 
 
 def compute_expected_launch_outcome(
@@ -350,15 +382,60 @@ def compute_expected_launch_outcome(
         fallout_shelter_mod=fallout_shelter_mod,
         guiding_satellite_mod=guiding_satellite_mod,
     )
+    rebuild_if_hit = (
+        infra_rebuild_cost(city.infrastructure, infra_if_hit, defender) if infra_if_hit > 0 else 0.0
+    )
     return ExpectedLaunchOutcome(
         hit_probability=p_hit,
         infra_destroyed_if_hit=infra_if_hit,
         expected_infra_destroyed=infra_if_hit * p_hit,
-        expected_rebuild_damage=_expected_rebuild_damage(
-            city, infra_if_hit, p_hit, defender
-        ),
+        rebuild_damage_if_hit=rebuild_if_hit,
+        expected_rebuild_damage=rebuild_if_hit * p_hit if p_hit > 0 else 0.0,
         expected_resistance_reduction=strike.expected_resistance_reduction,
         launch_cost=strike.launch_cost,
+    )
+
+
+def _simulate_war(
+    strike: InterceptStrikeEV,
+    cities: list[CityState],
+    defender: dict[str, Any],
+    mods: dict[str, float],
+    starting_resistance: float,
+) -> tuple[float, int, float, float]:
+    resistance = float(starting_resistance)
+    total_defender_damage = 0.0
+    total_attacker_cost = 0.0
+    shots = 0
+    # The simulation lowers infra as it goes, so work on copies.
+    city_states = [CityState(c.infrastructure, c.land) for c in cities]
+
+    while resistance > 0 and shots < MAX_SIMULATION_SHOTS:
+        city = _highest_city(city_states)
+        if city is None:
+            break
+
+        # Depleted cities still exist in-game; use a floor so resistance can reach 0.
+        strike_city = CityState(
+            infrastructure=max(city.infrastructure, 1.0),
+            land=max(city.land, 1.0),
+        )
+
+        outcome = compute_expected_launch_outcome(strike, strike_city, defender, **mods)
+
+        total_defender_damage += outcome.expected_rebuild_damage
+        total_attacker_cost += outcome.launch_cost
+        resistance -= outcome.expected_resistance_reduction
+        city.infrastructure = max(
+            0.0, city.infrastructure - outcome.expected_infra_destroyed
+        )
+        shots += 1
+
+    return (
+        total_defender_damage - total_attacker_cost,
+        shots,
+        total_defender_damage,
+        total_attacker_cost,
     )
 
 
@@ -380,56 +457,9 @@ def simulate_war_net_damage(
     cities = _parse_cities(defender)
     if not cities:
         return 0.0, 0, 0.0, 0.0
-
-    att_mods = _policy_modifiers(attacker)
-    def_mods = _policy_modifiers(defender)
-    war_infra_mod = _attacker_war_infra_mod(attacker, str(defender.get("id", "")))
-
-    vds = _project_bool(defender, "vds", "vital_defense_system")
-    iron_dome = _project_bool(defender, "irond", "iron_dome")
-    strike = InterceptStrikeEV(weapon, vds=vds, iron_dome=iron_dome)
-
-    resistance = float(starting_resistance)
-    total_defender_damage = 0.0
-    total_attacker_cost = 0.0
-    shots = 0
-    city_states = copy.deepcopy(cities)
-
-    while resistance > 0 and shots < MAX_SIMULATION_SHOTS:
-        city = _highest_city(city_states)
-        if city is None:
-            break
-
-        # Depleted cities still exist in-game; use a floor so resistance can reach 0.
-        strike_city = CityState(
-            infrastructure=max(city.infrastructure, 1.0),
-            land=max(city.land, 1.0),
-        )
-
-        outcome = compute_expected_launch_outcome(
-            strike,
-            strike_city,
-            defender,
-            war_infra_mod=war_infra_mod,
-            policy_infra_dealt=att_mods["policy_infra_dealt"],
-            policy_infra_lost=def_mods["policy_infra_lost"],
-            fallout_shelter_mod=def_mods["fallout_shelter_mod"],
-            guiding_satellite_mod=att_mods["guiding_satellite_mod"],
-        )
-
-        total_defender_damage += outcome.expected_rebuild_damage
-        total_attacker_cost += outcome.launch_cost
-        resistance -= outcome.expected_resistance_reduction
-        city.infrastructure = max(
-            0.0, city.infrastructure - outcome.expected_infra_destroyed
-        )
-        shots += 1
-
-    return (
-        total_defender_damage - total_attacker_cost,
-        shots,
-        total_defender_damage,
-        total_attacker_cost,
+    strike = InterceptStrikeEV(weapon, vds=_has_vds(defender), iron_dome=_has_iron_dome(defender))
+    return _simulate_war(
+        strike, cities, defender, _strike_mods(attacker, defender), starting_resistance
     )
 
 
@@ -441,66 +471,23 @@ def compute_nuke_missile_metrics(
     if not cities:
         return None
 
-    att_mods = _policy_modifiers(attacker)
-    def_mods = _policy_modifiers(defender)
-    war_infra_mod = _attacker_war_infra_mod(attacker, str(defender.get("id", "")))
-
-    vds = _project_bool(defender, "vds", "vital_defense_system")
-    iron_dome = _project_bool(defender, "irond", "iron_dome")
-    fallout_shelter = _project_bool(defender, "fallout_shelter", "falloutShelter")
+    mods = _strike_mods(attacker, defender)
+    vds = _has_vds(defender)
+    iron_dome = _has_iron_dome(defender)
 
     city = _highest_city(cities)
     assert city is not None
 
     nuke_strike = InterceptStrikeEV("nuke", vds=vds, iron_dome=False)
     missile_strike = InterceptStrikeEV("missile", vds=False, iron_dome=iron_dome)
-    nuke_no_vds = InterceptStrikeEV("nuke", vds=False, iron_dome=False)
-    missile_no_dome = InterceptStrikeEV("missile", vds=False, iron_dome=False)
+    nuke_outcome = compute_expected_launch_outcome(nuke_strike, city, defender, **mods)
+    missile_outcome = compute_expected_launch_outcome(missile_strike, city, defender, **mods)
 
-    nuke_outcome = compute_expected_launch_outcome(
-        nuke_strike,
-        city,
-        defender,
-        war_infra_mod=war_infra_mod,
-        policy_infra_dealt=att_mods["policy_infra_dealt"],
-        policy_infra_lost=def_mods["policy_infra_lost"],
-        fallout_shelter_mod=def_mods["fallout_shelter_mod"],
-        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
+    sim_nuke_net, sim_nuke_shots, _, _ = _simulate_war(
+        nuke_strike, cities, defender, mods, DEFENDER_STARTING_RESISTANCE
     )
-    nuke_baseline_outcome = compute_expected_launch_outcome(
-        nuke_no_vds,
-        city,
-        defender,
-        war_infra_mod=war_infra_mod,
-        policy_infra_dealt=att_mods["policy_infra_dealt"],
-        policy_infra_lost=def_mods["policy_infra_lost"],
-        fallout_shelter_mod=def_mods["fallout_shelter_mod"],
-        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
-    )
-    missile_outcome = compute_expected_launch_outcome(
-        missile_strike,
-        city,
-        defender,
-        war_infra_mod=war_infra_mod,
-        policy_infra_dealt=att_mods["policy_infra_dealt"],
-        policy_infra_lost=def_mods["policy_infra_lost"],
-        fallout_shelter_mod=def_mods["fallout_shelter_mod"],
-        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
-    )
-    missile_baseline_outcome = compute_expected_launch_outcome(
-        missile_no_dome,
-        city,
-        defender,
-        war_infra_mod=war_infra_mod,
-        policy_infra_dealt=att_mods["policy_infra_dealt"],
-        policy_infra_lost=def_mods["policy_infra_lost"],
-        fallout_shelter_mod=def_mods["fallout_shelter_mod"],
-        guiding_satellite_mod=att_mods["guiding_satellite_mod"],
-    )
-
-    sim_nuke_net, sim_nuke_shots, _, _ = simulate_war_net_damage(attacker, defender, "nuke")
-    sim_missile_net, sim_missile_shots, _, _ = simulate_war_net_damage(
-        attacker, defender, "missile"
+    sim_missile_net, sim_missile_shots, _, _ = _simulate_war(
+        missile_strike, cities, defender, mods, DEFENDER_STARTING_RESISTANCE
     )
 
     max_infra, avg_infra = _infra_stats(cities)
@@ -510,11 +497,12 @@ def compute_nuke_missile_metrics(
         avg_infra=avg_infra,
         nuke_infra_lost=nuke_outcome.expected_infra_destroyed,
         nuke_damage=nuke_outcome.expected_rebuild_damage,
-        nuke_damage_without_vds=nuke_baseline_outcome.expected_rebuild_damage,
+        # Without the defender's VDS / Iron Dome every launch hits.
+        nuke_damage_without_vds=nuke_outcome.rebuild_damage_if_hit,
         nuke_net=nuke_outcome.expected_rebuild_damage - NUKE_LAUNCH_COST,
         missile_infra_lost=missile_outcome.expected_infra_destroyed,
         missile_damage=missile_outcome.expected_rebuild_damage,
-        missile_damage_without_iron_dome=missile_baseline_outcome.expected_rebuild_damage,
+        missile_damage_without_iron_dome=missile_outcome.rebuild_damage_if_hit,
         missile_net=missile_outcome.expected_rebuild_damage - MISSILE_LAUNCH_COST,
         sim_nuke_net=sim_nuke_net,
         sim_nuke_shots=sim_nuke_shots,
@@ -522,9 +510,28 @@ def compute_nuke_missile_metrics(
         sim_missile_shots=sim_missile_shots,
         vds=vds,
         iron_dome=iron_dome,
-        fallout_shelter=fallout_shelter,
-        defender_war_policy=str(defender.get("warpolicy") or defender.get("war_policy") or ""),
+        fallout_shelter=_has_fallout_shelter(defender),
+        defender_war_policy=_war_policy_label(defender),
     )
+
+
+def defender_summary(defender: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Infra and defensive fields for a target when no attacker is known.
+
+    Same keys and rounding as :func:`metrics_to_dict`; None when it has no cities.
+    """
+    cities = _parse_cities(defender)
+    if not cities:
+        return None
+    max_infra, avg_infra = _infra_stats(cities)
+    return {
+        "maxInfra": round(max_infra, 2),
+        "avgInfra": round(avg_infra, 2),
+        "vds": _has_vds(defender),
+        "ironDome": _has_iron_dome(defender),
+        "falloutShelter": _has_fallout_shelter(defender),
+        "defenderWarPolicy": _war_policy_label(defender),
+    }
 
 
 def metrics_to_dict(metrics: NukeMissileMetrics) -> dict[str, Any]:

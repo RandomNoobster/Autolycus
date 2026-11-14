@@ -77,10 +77,14 @@ def parse_war_date(date_str: Optional[str]) -> datetime:
         return datetime.fromtimestamp(0, tz=timezone.utc)
     try:
         if "T" in date_str:
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            parsed = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        else:
+            parsed = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
     except Exception:
         return datetime.fromtimestamp(0, tz=timezone.utc)
+    # P&W dates without an offset are UTC; subscription rows store them as
+    # offset-less ISO ("2026-11-01T10:20:30"), which must not compare as naive.
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
 def _price_for(prices: dict[str, float], resource: str) -> float:

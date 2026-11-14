@@ -149,8 +149,9 @@ class PnwSubscription:
         """Request a channel, open the socket and subscribe to the channel.
 
         Raises:
-            SubscriptionError: If any step is refused or times out.
-            aiohttp.ClientError: If an HTTP request or the websocket handshake fails.
+            SubscriptionError: If any step is refused, times out, or its HTTP request
+                fails (with the API key redacted from the message).
+            aiohttp.ClientError: If the websocket handshake fails.
         """
         if self._ws is not None:
             raise RuntimeError("subscription is already connected")
@@ -213,19 +214,32 @@ class PnwSubscription:
     async def close(self) -> None:
         """Close the socket and, if this subscription created it, the session."""
         ws, self._ws = self._ws, None
-        if ws is not None and not ws.closed:
-            with contextlib.suppress(Exception):
-                await ws.close()
-        if self._owns_session and self._session is not None:
-            session, self._session = self._session, None
-            await session.close()
+        try:
+            if ws is not None and not ws.closed:
+                with contextlib.suppress(Exception):
+                    await ws.close()
+        finally:
+            # Also when cancelled while the socket closes, or the session leaks.
+            if self._owns_session and self._session is not None:
+                session, self._session = self._session, None
+                await session.close()
+
+    def _redact(self, text: str) -> str:
+        return text.replace(self._api_key, "***") if self._api_key else text
 
     async def _request_channel(self) -> str:
         assert self._session is not None
         url = self._subscribe_url.format(model=self.model, event=self.event)
         params = {"api_key": self._api_key, **_filters_param(self._filters)}
-        async with self._session.get(url, params=params, timeout=HTTP_TIMEOUT) as response:
-            payload = await self._read_json(response, "subscribe")
+        try:
+            async with self._session.get(url, params=params, timeout=HTTP_TIMEOUT) as response:
+                payload = await self._read_json(response, "subscribe")
+        except aiohttp.ClientError as exc:
+            # aiohttp's messages can include the request URL, which carries the API key;
+            # `from None` keeps the original (and its URL) out of logged tracebacks.
+            raise SubscriptionError(
+                f"subscribe request failed: {type(exc).__name__}: {self._redact(str(exc))}"
+            ) from None
         if payload.get("error") is not None:
             raise SubscriptionError(f"subscribe refused: {payload['error']}")
         channel = payload.get("channel")
@@ -236,10 +250,15 @@ class PnwSubscription:
     async def _authorize(self) -> str:
         assert self._session is not None
         form = {"socket_id": self.socket_id, "channel_name": self.channel}
-        async with self._session.post(self._auth_url, data=form, timeout=HTTP_TIMEOUT) as response:
-            if response.status != 200:
-                raise SubscriptionError(f"channel auth refused (status={response.status})")
-            payload = await self._read_json(response, "auth")
+        try:
+            async with self._session.post(self._auth_url, data=form, timeout=HTTP_TIMEOUT) as response:
+                if response.status != 200:
+                    raise SubscriptionError(f"channel auth refused (status={response.status})")
+                payload = await self._read_json(response, "auth")
+        except aiohttp.ClientError as exc:
+            raise SubscriptionError(
+                f"channel auth request failed: {type(exc).__name__}: {self._redact(str(exc))}"
+            ) from None
         errors = payload.get("errors") or payload.get("error")
         if errors:
             raise SubscriptionError(f"channel auth refused: {errors}")
@@ -284,7 +303,8 @@ class PnwSubscription:
                         )
                     logger.debug("ignoring %s while waiting for %s", event, expected)
         except TimeoutError:
-            raise SubscriptionError(f"no {expected} within {timeout:g}s") from None
+            reason = f" after pusher:error {self._last_error}" if self._last_error else ""
+            raise SubscriptionError(f"no {expected} within {timeout:g}s{reason}") from None
 
     async def _next_frame(self) -> dict[str, Any]:
         """Return the next frame that is not keepalive traffic, answering pings on the way."""

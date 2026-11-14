@@ -27,6 +27,18 @@ _WAR_TYPE_MODS: Dict[str, Dict[str, tuple[float, float]]] = {
     "ATTRITION": {"infra": (1.0, 1.0), "loot": (0.25, 0.5)},
 }
 
+
+def war_infra_share(war_type: Any, *, declarer: bool) -> Optional[float]:
+    """Share of the potential infra damage one side deals in a war of ``war_type``.
+
+    ``declarer`` is True for the side that declared the war. Returns None for an
+    unknown war type. Accepts enum names in any case, ``WarType.X`` and ordinals.
+    """
+    mods = _WAR_TYPE_MODS.get(normalize_war_type(war_type))
+    if mods is None:
+        return None
+    return mods["infra"][0 if declarer else 1]
+
 # Market prices used to value resources in the damage totals.
 _PRICES = {"aluminum": 2971, "steel": 3990, "gasoline": 3340, "munitions": 1960, "uranium": 3039}
 _TOTAL_RESOURCES = (("alum", "aluminum"), ("steel", "steel"), ("gas", "gasoline"), ("mun", "munitions"), ("uranium", "uranium"))

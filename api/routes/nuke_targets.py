@@ -12,11 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, jsonify, request
 
+from api.request_utils import optional_session_profile
 from api.security import optional_discord_session
-from database.mongo import get_sync_db
-from database.sqlite_cache import get_all_alliances, get_all_nations_filtered, get_nation_by_id
+from database.sqlite_cache import (get_alliances_db_path, get_all_alliances,
+                                   get_all_nations_filtered, get_nation_by_id,
+                                   get_nations_db_path)
+from database.users import linked_nation_id
 from logic.common import normalize_alliance_position
 from logic.nuke_targets import (
     IRON_DOME_INTERCEPT_CHANCE,
@@ -24,17 +27,32 @@ from logic.nuke_targets import (
     NUKE_RESISTANCE_ON_HIT,
     VDS_INTERCEPT_CHANCE,
     compute_nuke_missile_metrics,
+    defender_summary,
     metrics_to_dict,
 )
-from logic.raids import (
-    calculate_days_inactive,
-    derive_def_slots_and_time_since_war,
-    is_in_vacation_mode,
-)
+from logic.raids import calculate_days_inactive, is_in_vacation_mode, stored_time_since_war
 
 logger = logging.getLogger(__name__)
 
 nuke_targets_bp = Blueprint("nuke_targets", __name__, url_prefix="/api/nuke-targets")
+
+# What the table and the per-target metrics read. Wars and other blobs stay unread:
+# defensive slots and time since war are precomputed by the scanner, and only the
+# attacker's own row (loaded in full) needs its wars.
+_NUKE_SELECT_COLUMNS = [
+    "id", "nation_name", "leader_name", "alliance_id", "alliance_position", "alliance",
+    "num_cities", "score", "color", "beige_turns", "last_active",
+    "vacation_mode_turns", "vmode",
+    "soldiers", "tanks", "aircraft", "ships", "missiles", "nukes",
+    "def_slots", "time_since_war", "cities",
+    "warpolicy", "war_policy", "vds", "vital_defense_system", "irond", "iron_dome",
+    "fallout_shelter",
+    # infra_rebuild_cost discounts (logic/economy.py)
+    "dompolicy", "domestic_policy", "government_support_agency",
+    "bureau_of_domestic_affairs", "center_for_civil_engineering",
+    "advanced_engineering_corps",
+]
+_NUKE_JSON_FIELDS = {"cities", "alliance"}
 
 
 def _parse_optional_bool(raw: Optional[str]) -> Optional[bool]:
@@ -64,6 +82,35 @@ def apply_attacker_damage_overrides(
     return out
 
 
+def _load_nation(data_path: Path, nation_id: Any) -> Optional[dict[str, Any]]:
+    """The full cached row for ``nation_id`` (wars included), or None."""
+    try:
+        return get_nation_by_id(data_path, nation_id).get("nation")
+    except Exception as exc:  # noqa: BLE001 - a missing attacker falls back
+        logger.warning("[nuke-targets] could not load nation %s: %s", nation_id, exc)
+        return None
+
+
+def _alliance_name(nation: dict[str, Any], alliances_by_id: dict[str, dict[str, Any]]) -> str:
+    """alliances.db first (kept current hourly), then the nation's own alliance data."""
+    alliance_id = str(nation.get("alliance_id") or "0")
+    candidates = [(alliances_by_id.get(alliance_id) or {}).get("name")]
+    alliance_obj = nation.get("alliance")
+    if isinstance(alliance_obj, dict):
+        candidates.append(alliance_obj.get("name"))
+    for name in candidates:
+        if name not in (None, ""):
+            return str(name).strip()
+    return "None"
+
+
+def _int_or(value: Any, default: Any) -> Any:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @nuke_targets_bp.route("/", methods=["GET"])
 @optional_discord_session
 def get_nuke_targets() -> tuple[Any, int]:
@@ -77,26 +124,23 @@ def get_nuke_targets() -> tuple[Any, int]:
             request.args.get("guidingSatellite")
         )
         req_min_score = request.args.get("minScore", type=float)
-        min_score = 15 if req_min_score is None else max(15, float(req_min_score))
+        min_score = 15 if req_min_score is None else max(15, req_min_score)
         max_score = request.args.get("maxScore", type=float)
-        vmode_param = request.args.get("vmode", default="false")
-        if isinstance(vmode_param, str):
-            vmode_param = vmode_param.lower() in ("true", "1", "yes")
+        vmode_param = _parse_optional_bool(request.args.get("vmode", default="false"))
 
-        data_path = Path(current_app.root_path).parent / "data" / "nations.db"
+        data_path = get_nations_db_path()
         nations_data = get_all_nations_filtered(
             data_path,
             min_score=min_score,
             max_score=max_score,
+            columns=_NUKE_SELECT_COLUMNS,
+            json_fields=_NUKE_JSON_FIELDS,
         )
         nations = nations_data["nations"]
         last_fetched = nations_data.get("last_fetched")
-        nations_by_id: dict[str, dict[str, Any]] = {
-            str(n.get("id")): n for n in nations
-        }
 
         alliances_by_id: dict[str, dict[str, Any]] = {}
-        alliances_path = Path(current_app.root_path).parent / "data" / "alliances.db"
+        alliances_path = get_alliances_db_path()
         if alliances_path.exists():
             try:
                 alliances_data = get_all_alliances(alliances_path)
@@ -108,44 +152,17 @@ def get_nuke_targets() -> tuple[Any, int]:
             except Exception as exc:
                 logger.warning("[nuke-targets] failed to load alliances db: %s", exc)
 
-        mongo_db = get_sync_db()
-        user_profile = None
-        discord_linked = False
-        if mongo_db is not None and user_id is not None:
-            try:
-                uid = int(user_id)
-                user_profile = mongo_db.global_users.find_one({"user": uid})
-                nation_id_text = (
-                    str(user_profile.get("id")).strip()
-                    if user_profile and user_profile.get("id") is not None
-                    else ""
-                )
-                discord_linked = bool(nation_id_text)
-            except (TypeError, ValueError):
-                user_profile = None
-                discord_linked = False
+        linked_id = linked_nation_id(optional_session_profile())
+        discord_linked = linked_id is not None
 
         attacker = None
         requested_attacker_missing = False
         if attacker_nation_id:
-            attacker = nations_by_id.get(str(attacker_nation_id))
-            if attacker is None:
-                try:
-                    attacker_data = get_nation_by_id(data_path, str(attacker_nation_id))
-                    attacker = attacker_data.get("nation")
-                except Exception:
-                    attacker = None
+            attacker = _load_nation(data_path, attacker_nation_id)
             if attacker is None:
                 requested_attacker_missing = True
-        if attacker is None and user_profile:
-            attacker_id = str(user_profile.get("id", ""))
-            attacker = nations_by_id.get(attacker_id)
-            if attacker is None and attacker_id:
-                try:
-                    attacker_data = get_nation_by_id(data_path, attacker_id)
-                    attacker = attacker_data.get("nation")
-                except Exception:
-                    pass
+        if attacker is None and linked_id:
+            attacker = _load_nation(data_path, linked_id)
 
         nation_warning = None
         if requested_attacker_missing:
@@ -177,36 +194,36 @@ def get_nuke_targets() -> tuple[Any, int]:
             if attacker and str(nation.get("id")) == str(attacker.get("id")):
                 continue
 
-            in_vm = is_in_vacation_mode(nation)
-            if vmode_param is False and in_vm:
-                continue
-            if vmode_param is True and not in_vm:
+            if is_in_vacation_mode(nation) != vmode_param:
                 continue
 
-            alliance_position = normalize_alliance_position(nation.get("alliance_position"))
-            alliance_id = str(nation.get("alliance_id", ""))
-            alliance_obj = nation.get("alliance", {}) or {}
-            alliance_name = alliance_obj.get("name", "None") or (
-                alliances_by_id.get(alliance_id, {}) or {}
-            ).get("name", "None")
-
-            def_slots, time_since_war = derive_def_slots_and_time_since_war(nation, now_utc)
-            days_inactive = calculate_days_inactive(nation.get("last_active"), now_utc)
+            try:
+                if attacker_for_calc:
+                    metrics = compute_nuke_missile_metrics(attacker_for_calc, nation)
+                    summary = metrics_to_dict(metrics) if metrics is not None else None
+                else:
+                    summary = defender_summary(nation)
+            except Exception as exc:  # noqa: BLE001 - one bad row must not fail the list
+                logger.warning("[nuke-targets] skipping nation %s: %s", nation.get("id"), exc)
+                continue
+            if summary is None:
+                continue
 
             row: dict[str, Any] = {
                 "id": int(nation.get("id", 0)),
                 "nationName": nation.get("nation_name", "Unknown"),
                 "leaderName": nation.get("leader_name", "Unknown"),
-                "allianceId": alliance_id or "0",
-                "allianceName": alliance_name,
-                "alliancePosition": alliance_position or "Unknown",
+                "allianceId": str(nation.get("alliance_id") or "0"),
+                "allianceName": _alliance_name(nation, alliances_by_id),
+                "alliancePosition": normalize_alliance_position(nation.get("alliance_position")) or "Unknown",
                 "numCities": nation.get("num_cities", 0),
                 "score": float(nation.get("score", 0) or 0),
                 "color": nation.get("color", ""),
                 "beigeTurns": nation.get("beige_turns", 0),
-                "daysInactive": days_inactive,
-                "defSlots": def_slots,
-                "timeSinceWar": time_since_war,
+                "daysInactive": calculate_days_inactive(nation.get("last_active"), now_utc),
+                # Precomputed by the scanner (as on the raids page).
+                "defSlots": _int_or(nation.get("def_slots"), 0),
+                "timeSinceWar": stored_time_since_war(nation.get("time_since_war")),
                 "soldiers": nation.get("soldiers", 0),
                 "tanks": nation.get("tanks", 0),
                 "aircraft": nation.get("aircraft", 0),
@@ -214,38 +231,11 @@ def get_nuke_targets() -> tuple[Any, int]:
                 "missiles": nation.get("missiles", 0),
                 "nukes": nation.get("nukes", 0),
             }
-
-            if attacker_for_calc:
-                metrics = compute_nuke_missile_metrics(attacker_for_calc, nation)
-                if metrics is None:
-                    continue
-                row.update(metrics_to_dict(metrics))
-            else:
-                cities = nation.get("cities") or []
-                if not cities:
-                    continue
-                infra_values = [
-                    float(c.get("infrastructure") or c.get("infra") or 0)
-                    for c in cities
-                    if isinstance(c, dict)
-                ]
-                if not infra_values:
-                    continue
-                row.update(
-                    {
-                        "maxInfra": max(infra_values),
-                        "avgInfra": sum(infra_values) / len(infra_values),
-                        "vds": bool(nation.get("vds")),
-                        "ironDome": bool(nation.get("irond")),
-                        "falloutShelter": bool(nation.get("fallout_shelter")),
-                        "defenderWarPolicy": str(nation.get("warpolicy") or ""),
-                    }
-                )
-
+            row.update(summary)
             targets.append(row)
 
         attacker_payload = None
-        if attacker and attacker_for_calc:
+        if attacker_for_calc:
             nation_policy = str(attacker.get("warpolicy") or "")
             nation_gs = bool(attacker.get("guiding_satellite"))
             effective_policy = str(attacker_for_calc.get("warpolicy") or "")
@@ -280,14 +270,10 @@ def get_nuke_targets() -> tuple[Any, int]:
                 "interceptChance": {"vds": VDS_INTERCEPT_CHANCE, "ironDome": IRON_DOME_INTERCEPT_CHANCE},
                 "dollarDamage": "infra_rebuild_cost",
                 "attackerAttrition": (
-                    (attacker_for_calc or {}).get("warpolicy") == "Attrition"
-                    if attacker_for_calc
-                    else None
+                    attacker_for_calc.get("warpolicy") == "Attrition" if attacker_for_calc else None
                 ),
                 "attackerGuidingSatellite": (
-                    bool((attacker_for_calc or {}).get("guiding_satellite"))
-                    if attacker_for_calc
-                    else None
+                    bool(attacker_for_calc.get("guiding_satellite")) if attacker_for_calc else None
                 ),
             },
             "warning": nation_warning,

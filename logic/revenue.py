@@ -593,12 +593,21 @@ def calculate_treasure_bonus(nation: dict[str, Any], treasures: list[dict[str, A
     nation_treasure_bonus = 1.0
     alliance_treasures = 0
     
+    # GraphQL sends ids as strings; subscription rows and SQLite hold ints.
+    nation_id = str(nation.get('id'))
+    alliance_id = str(nation.get('alliance_id'))
     for treasure in treasures:
         if treasure.get('nation') is None:
             continue
-        if treasure['nation'].get('id') == nation.get('id'):
+        holder_id = treasure['nation'].get('id')
+        if holder_id is not None and str(holder_id) == nation_id:
             nation_treasure_bonus += treasure.get('bonus', 0) / 100
-        if nation.get('alliance') and treasure['nation'].get('alliance_id') == nation.get('alliance_id'):
+        holder_alliance = treasure['nation'].get('alliance_id')
+        if (
+            nation.get('alliance')
+            and holder_alliance is not None
+            and str(holder_alliance) == alliance_id
+        ):
             alliance_treasures += 1
     
     if alliance_treasures > 0:
