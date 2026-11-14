@@ -167,14 +167,14 @@ class Background(commands.Cog):
             db_nation = await helpers.find_nation_plus(self.bot, target, guild=ctx.guild)
             if not db_nation:
                 if person:
-                    await ctx.edit(content="I could not find the specified person!", attachments=[])
+                    await ctx.edit(content="I could not find the specified person!", embed=None, attachments=[])
                 else:
-                    await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, attachments=[])
+                    await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, embed=None, attachments=[])
                 return
 
             infra_level = str_to_int(infra)
             if infra_level % 50 != 0:
-                await ctx.edit(content="The amount of infra must be a multiple of 50!", attachments=[])
+                await ctx.edit(content="The amount of infra must be a multiple of 50!", embed=None, attachments=[])
                 return
 
             land_amount = str_to_int(land)
@@ -303,9 +303,9 @@ class Background(commands.Cog):
             db_nation = await helpers.find_nation_plus(self.bot, person, guild=ctx.guild)
             if not db_nation:
                 if self_lookup:
-                    await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, attachments=[])
+                    await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, embed=None, attachments=[])
                 else:
-                    await ctx.edit(content='I could not find that person!', attachments=[])
+                    await ctx.edit(content='I could not find that person!', embed=None, attachments=[])
                 return
 
             nation, colors, prices, treasures, radiation, seasonal_mod = await pre_revenue_calc(
@@ -425,7 +425,8 @@ class Background(commands.Cog):
                         pass
             
             if len(nations) == 0:
-                await ctx.respond(f"They have no valid members!")
+                await loading.clear()
+                await ctx.edit(content="They have no valid members!", embed=None, attachments=[])
                 return
                 
             embed = discord.Embed(title=f"{nations[0]['alliance']['name']}'s daily revenue:", url=f"https://politicsandwar.com/alliance/id={alliance_id}", description="", color=0xff5100)

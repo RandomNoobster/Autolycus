@@ -716,7 +716,7 @@ class TargetFinding(commands.Cog):
             attacker = await helpers.find_nation_plus(self.bot, ctx.author.id, guild=ctx.guild)
             if not attacker:
                 await loading.clear()
-                await ctx.edit(content=_RAIDS_NOT_VERIFIED_MESSAGE, attachments=[])
+                await ctx.edit(content=_RAIDS_NOT_VERIFIED_MESSAGE, embed=None, attachments=[])
                 return
             # Prefer cached nation data from SQLite to avoid extra P&W API latency.
             atck_ntn = attacker
@@ -730,7 +730,7 @@ class TargetFinding(commands.Cog):
                 atck_ntn = attacker_data[0] if attacker_data else None
                 if atck_ntn is None:
                     await loading.clear()
-                    await ctx.edit(content='I did not find that person!', attachments=[])
+                    await ctx.edit(content='I did not find that person!', embed=None, attachments=[])
                     return
 
             minscore, maxscore = military_logic.war_range_query_bounds(score if score else _num(atck_ntn.get("score")))
@@ -803,7 +803,7 @@ class TargetFinding(commands.Cog):
 
             if len(target_list) == 0:
                 await loading.clear()
-                await ctx.edit(content="No targets matched your criteria!", attachments=[])
+                await ctx.edit(content="No targets matched your criteria!", embed=None, attachments=[])
                 return
 
             filter_list = []
@@ -1368,7 +1368,7 @@ class TargetFinding(commands.Cog):
             user = await helpers.find_nation_plus(self.bot, ctx.author.id, guild=ctx.guild)
             if not user:
                 await loading.clear()
-                await ctx.edit(content="Make sure that you are verified with `/verify`!", attachments=[])
+                await ctx.edit(content="Make sure that you are verified with `/verify`!", embed=None, attachments=[])
                 return
 
             config = await db.guild_configs.find_one({"guild_id": ctx.guild.id}) or {}

@@ -205,3 +205,36 @@ def test_command_errors_reply_before_posting_the_trace(monkeypatch):
     asyncio.run(errors.handle_command_exception(None, None, ValueError("x"), MagicMock(), command_name="t"))
     assert [step for step, _ in order] == ["reply", "report"]
     assert order[0][1] == order[1][1]
+
+
+def test_loading_gifs_are_linked_from_the_website_not_uploaded():
+    from bot.discord_utils.loading_display import LoadingDisplay, loading_gif_urls
+
+    urls = loading_gif_urls("https://autolycus.example/")
+    assert urls and all(url.startswith("https://autolycus.example/loading/") for url in urls)
+    # Discord can't fetch from a developer's machine.
+    assert loading_gif_urls("http://localhost:5173") == []
+
+    async def scenario():
+        ctx = MagicMock(spec=discord.ApplicationContext)
+        ctx.edit = AsyncMock()
+        loading = LoadingDisplay(ctx, gif_urls=urls)
+        await loading.start("Working...")
+        shown = ctx.edit.await_args.kwargs
+        await loading.update("Still working...")
+        updated = ctx.edit.await_args.kwargs
+        await loading.clear()
+        return shown, updated, ctx.edit.await_args.kwargs
+
+    shown, updated, cleared = asyncio.run(scenario())
+    assert "files" not in shown
+    assert shown["embed"].image.url in urls
+    assert updated["embed"] is shown["embed"]  # text updates keep the same GIF
+    assert cleared["embed"] is None
+
+
+def test_frontend_serves_every_loading_gif():
+    from bot.discord_utils.loading_display import LOADING_GIFS
+
+    root = os.path.join(os.path.dirname(__file__), "..", "frontend", "public", "loading")
+    assert sorted(os.listdir(root)) == sorted(LOADING_GIFS)
