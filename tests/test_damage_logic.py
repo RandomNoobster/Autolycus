@@ -214,3 +214,18 @@ def test_null_data_counts_as_not_found():
 
     with pytest.raises(damage.NationsNotFoundError):
         asyncio.run(damage.calculate_damage(call_pnw=fetch_null, nation1_id="1", nation2_id="2"))
+
+
+def test_battle_only_war_policies_leave_missiles_and_nukes_alone():
+    # PWPedia War-Policy: Attrition, Turtle, Covert and Arcane change Ground Battle,
+    # Airstrike and Naval Battle damage; Moneybags' +5% damage taken covers every attack.
+    base = _calc(_nation(1), _nation(2))
+    policies = _calc(_nation(1, warpolicy="Attrition"), _nation(2, warpolicy="Turtle"))
+    moneybags = _calc(_nation(1), _nation(2, warpolicy="Moneybags"))
+
+    for strike in ("nuke", "missile"):
+        key = f"nation1_{strike}_nation2_lost_infra_avg"
+        assert policies[key] == pytest.approx(base[key])
+        assert moneybags[key] == pytest.approx(base[key] * 1.05)
+    ground = "nation1_ground_nation2_lost_infra_avg"
+    assert policies[ground] == pytest.approx(base[ground] * 1.1 * 0.9)

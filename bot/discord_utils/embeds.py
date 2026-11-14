@@ -48,15 +48,6 @@ def verification_unlinked_embed() -> discord.Embed:
     return embed
 
 
-def embed_pager(title: str, fields: list[dict[str, str]], description: str = "", color: int = EMBED_COLOR, inline: bool = True) -> list[discord.Embed]:
-    num_pages = max(1, (len(fields) + 23) // 24)
-    embeds = [discord.Embed(title=f"{title} page {i+1}", description=description, color=color) for i in range(num_pages)]
-    for idx, field in enumerate(fields):
-        page_idx = idx // 24
-        embeds[page_idx].add_field(name=field['name'], value=field['value'], inline=inline)
-    return embeds
-
-
 def nation_overview_embed(nation: dict, discord_info: str, alliance_info: str, military_info: str, military_info_2: str) -> discord.Embed:
     embed = discord.Embed(title=nation['nation_name'], url=f"https://politicsandwar.com/nation/id={nation['id']}", color=EMBED_COLOR)
     embed.add_field(name="Discord Info", value=discord_info, inline=False)

@@ -2,23 +2,44 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Optional
 
 import discord
 
-logger = logging.getLogger(__name__)
-
-from bot.discord_utils import errors as err_util
 from bot.discord_utils.interaction_framework import encode_custom_id
 from bot.discord_utils.modals import SimpleModal
 from database import interaction_sessions
+from database import reminders as reminder_db
 from database.mongo import get_db
 from services import reminders as reminder_service
 
+logger = logging.getLogger(__name__)
+
 # Discord UI components only. No business logic here.
+
+# A prompt's answer is picked up by the slash command, which then edits its own
+# reply. That interaction token stops working after 15 minutes, so prompts close
+# before it does.
+PROMPT_TTL_SECONDS = 14 * 60
+# Tabs and pagers are edited through each click's own interaction and can stay
+# usable for longer.
+PAGER_TTL_SECONDS = interaction_sessions.DEFAULT_TTL_SECONDS
+# Handlers wake the waiting command directly; this re-read only covers a missed wake.
+_POLL_FALLBACK_SECONDS = 1.0
+
 _RAIDS_PAGER_CACHE: dict[str, dict[str, Any]] = {}
-_RAIDS_PAGER_CACHE_ORDER: list[str] = []
-_RAIDS_PAGER_CACHE_MAX = 256
+_RAIDS_PAGER_CACHE_MAX = 64
+
+# Commands waiting on a prompt, woken when a click completes its session.
+_session_events: dict[str, asyncio.Event] = {}
+
+
+def _prune_raids_pager_cache(now: float) -> None:
+    for session_id in [sid for sid, entry in _RAIDS_PAGER_CACHE.items() if entry["expires_at"] <= now]:
+        _RAIDS_PAGER_CACHE.pop(session_id, None)
+    while len(_RAIDS_PAGER_CACHE) > _RAIDS_PAGER_CACHE_MAX:
+        _RAIDS_PAGER_CACHE.pop(next(iter(_RAIDS_PAGER_CACHE)))
 
 
 def _set_raids_pager_cache(
@@ -27,87 +48,79 @@ def _set_raids_pager_cache(
     embeds: list[dict[str, Any]],
     target_ids: list[str],
     beige_turns: list[int],
+    ttl_seconds: float = PAGER_TTL_SECONDS,
 ) -> None:
+    now = time.monotonic()
     _RAIDS_PAGER_CACHE[session_id] = {
         "embeds": embeds,
         "target_ids": target_ids,
         "beige_turns": beige_turns,
+        "expires_at": now + ttl_seconds,
     }
-    _RAIDS_PAGER_CACHE_ORDER.append(session_id)
-    while len(_RAIDS_PAGER_CACHE_ORDER) > _RAIDS_PAGER_CACHE_MAX:
-        old_session_id = _RAIDS_PAGER_CACHE_ORDER.pop(0)
-        _RAIDS_PAGER_CACHE.pop(old_session_id, None)
+    _prune_raids_pager_cache(now)
 
 
-async def run_timeout(ctx, view: Optional[discord.ui.View]) -> None:
+def _get_raids_pager_cache(session_id: str) -> dict[str, Any]:
+    _prune_raids_pager_cache(time.monotonic())
+    return _RAIDS_PAGER_CACHE.get(session_id) or {}
+
+
+def _session_changed(session_id: str) -> None:
+    event = _session_events.get(session_id)
+    if event is not None:
+        event.set()
+
+
+async def _respond_ephemeral(interaction: discord.Interaction, content: str) -> None:
     try:
-        ref = err_util.new_error_reference()
-        embed = err_util.error_embed(
-            "Timed out",
-            f"<@{ctx.author.id}> You didn't respond in time, so this command closed.",
-            reference=ref,
-        )
-        if view:
-            for x in view.children:
-                x.disabled = True
-            await ctx.edit(content="", embed=embed, view=view)
+        if interaction.response.is_done():
+            await interaction.followup.send(content, ephemeral=True)
         else:
-            await ctx.edit(content="", embed=embed)
-    except Exception:
-        # Swallow timeout errors silently; logging handled by caller
-        pass
+            await interaction.response.send_message(content, ephemeral=True)
+    except discord.HTTPException:
+        logger.debug("Could not send ephemeral reply", exc_info=True)
 
-class YesOrNoView(discord.ui.View):
-    def __init__(self, ctx, positive: str = "Yes", negative: str = "No", positive_style: discord.ButtonStyle = discord.ButtonStyle.green, negative_style: discord.ButtonStyle = discord.ButtonStyle.red, timeout: int = 600, author_check: bool = True):
-        super().__init__(timeout=timeout)
-        self.ctx = ctx
-        self.author_check = author_check
-        self.result: Optional[bool] = None
-        positive_button = discord.ui.Button(label=positive, style=positive_style)
-        positive_button.callback = self.primary_callback
-        self.add_item(positive_button)
-        negative_button = discord.ui.Button(label=negative, style=negative_style)
-        negative_button.callback = self.secondary_callback
-        self.add_item(negative_button)
 
-    async def primary_callback(self, i: discord.Interaction):
-        self.result = True
-        await i.response.edit_message()
-        self.stop()
-    
-    async def secondary_callback(self, i: discord.Interaction):
-        self.result = False
-        await i.response.edit_message()
+async def _edit_message(interaction: discord.Interaction, **kwargs: Any) -> None:
+    if interaction.response.is_done():
+        await interaction.edit_original_response(**kwargs)
+    else:
+        await interaction.response.edit_message(**kwargs)
+
+
+class _RoutedView(discord.ui.View):
+    """A view whose buttons InteractionRegistry routes by custom ID.
+
+    Stopped as soon as it is built: py-cord keeps every unfinished view it sends,
+    and these never need its callbacks, so each prompt, tab and page would otherwise
+    stay in memory for the life of the process.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
         self.stop()
 
-    async def interaction_check(self, interaction) -> bool:
-        if interaction.user != self.ctx.author and self.author_check:
-            await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
-            return False
-        return True
-    
-    async def on_timeout(self):
-        await run_timeout(self.ctx, self)
 
-
-class PersistentYesNoView(discord.ui.View):
+class PersistentYesNoView(_RoutedView):
     """Generalized persisted yes/no interaction view."""
 
     def __init__(self, session_id: str, *, positive: str = "Yes", negative: str = "No"):
-        super().__init__(timeout=None)
+        super().__init__()
         self.session_id = session_id
-        positive_button = discord.ui.Button(
-            label=positive,
-            style=discord.ButtonStyle.green,
-            custom_id=encode_custom_id("yesno", session_id, "yes"),
+        self.add_item(
+            discord.ui.Button(
+                label=positive,
+                style=discord.ButtonStyle.green,
+                custom_id=encode_custom_id("yesno", session_id, "yes"),
+            )
         )
-        negative_button = discord.ui.Button(
-            label=negative,
-            style=discord.ButtonStyle.red,
-            custom_id=encode_custom_id("yesno", session_id, "no"),
+        self.add_item(
+            discord.ui.Button(
+                label=negative,
+                style=discord.ButtonStyle.red,
+                custom_id=encode_custom_id("yesno", session_id, "no"),
+            )
         )
-        self.add_item(positive_button)
-        self.add_item(negative_button)
 
 
 def _disabled_yesno_view(session_id: str, positive: str, negative: str) -> discord.ui.View:
@@ -124,7 +137,7 @@ async def create_persistent_yesno_prompt(
     positive: str = "Yes",
     negative: str = "No",
     disable_on_submit: bool = True,
-    ttl_seconds: int = interaction_sessions.DEFAULT_TTL_SECONDS,
+    ttl_seconds: int = PROMPT_TTL_SECONDS,
 ) -> tuple[PersistentYesNoView, str]:
     session = await interaction_sessions.create_session(
         command=command,
@@ -145,22 +158,25 @@ async def create_persistent_yesno_prompt(
     return PersistentYesNoView(session["session_id"], positive=positive, negative=negative), session["session_id"]
 
 
-class PersistentChoiceView(discord.ui.View):
-    """Generalized persisted multi-button choice view."""
+class PersistentChoiceView(_RoutedView):
+    """Generalized persisted multi-button choice view.
+
+    A choice with a ``modal`` spec opens a text modal before it counts as chosen.
+    """
 
     def __init__(self, session_id: str, choices: list[dict]):
-        super().__init__(timeout=None)
+        super().__init__()
         self.session_id = session_id
         for choice in choices:
             style_value = int(choice.get("style", int(discord.ButtonStyle.primary)))
-            style = discord.ButtonStyle(style_value)
-            action = str(choice["action"])
-            button = discord.ui.Button(
-                label=str(choice["label"]),
-                style=style,
-                custom_id=encode_custom_id("choice", session_id, action),
+            handler_key = "choice_modal" if choice.get("modal") else "choice"
+            self.add_item(
+                discord.ui.Button(
+                    label=str(choice["label"]),
+                    style=discord.ButtonStyle(style_value),
+                    custom_id=encode_custom_id(handler_key, session_id, str(choice["action"])),
+                )
             )
-            self.add_item(button)
 
 
 def _disabled_choice_view(session_id: str, choices: list[dict]) -> discord.ui.View:
@@ -176,12 +192,21 @@ async def create_persistent_choice_prompt(
     ctx: discord.ApplicationContext,
     choices: list[tuple[str, str, discord.ButtonStyle]],
     disable_on_submit: bool = True,
-    ttl_seconds: int = interaction_sessions.DEFAULT_TTL_SECONDS,
+    ttl_seconds: int = PROMPT_TTL_SECONDS,
+    modals: Optional[dict[str, dict[str, str]]] = None,
 ) -> tuple[PersistentChoiceView, str]:
-    stored_choices = [
-        {"action": action, "label": label, "style": int(style)}
-        for action, label, style in choices
-    ]
+    """A button prompt; ``modals`` maps an action to ``{title, label, placeholder}``.
+
+    The text typed into a choice's modal is returned by
+    :func:`wait_for_persistent_choice` with the action.
+    """
+    modals = modals or {}
+    stored_choices = []
+    for action, label, style in choices:
+        choice: dict[str, Any] = {"action": action, "label": label, "style": int(style)}
+        if action in modals:
+            choice["modal"] = dict(modals[action])
+        stored_choices.append(choice)
     session = await interaction_sessions.create_session(
         command=command,
         handler_key="choice",
@@ -200,7 +225,7 @@ async def create_persistent_choice_prompt(
     return PersistentChoiceView(session["session_id"], stored_choices), session["session_id"]
 
 
-class PersistentTabsView(discord.ui.View):
+class PersistentTabsView(_RoutedView):
     """Persisted tab-switching view for pre-rendered embeds."""
 
     def __init__(
@@ -211,16 +236,17 @@ class PersistentTabsView(discord.ui.View):
         link_label: Optional[str] = None,
         link_url: Optional[str] = None,
     ):
-        super().__init__(timeout=None)
+        super().__init__()
         self.session_id = session_id
         for idx, tab in enumerate(tabs):
-            btn = discord.ui.Button(
-                label=str(tab["label"]),
-                style=discord.ButtonStyle.primary,
-                custom_id=encode_custom_id("tabs", session_id, f"t{idx}"),
-                disabled=idx == active_index,
+            self.add_item(
+                discord.ui.Button(
+                    label=str(tab["label"]),
+                    style=discord.ButtonStyle.primary,
+                    custom_id=encode_custom_id("tabs", session_id, f"t{idx}"),
+                    disabled=idx == active_index,
+                )
             )
-            self.add_item(btn)
         if link_label and link_url:
             self.add_item(
                 discord.ui.Button(
@@ -237,7 +263,7 @@ async def create_persistent_tabs_prompt(
     ctx: discord.ApplicationContext,
     tabs: list[tuple[str, discord.Embed]],
     initial_index: int = 0,
-    ttl_seconds: int = interaction_sessions.DEFAULT_TTL_SECONDS,
+    ttl_seconds: int = PAGER_TTL_SECONDS,
     link_label: Optional[str] = None,
     link_url: Optional[str] = None,
 ) -> tuple[PersistentTabsView, str, discord.Embed]:
@@ -273,37 +299,17 @@ async def create_persistent_tabs_prompt(
     )
 
 
-class PersistentRaidsPagerView(discord.ui.View):
+class PersistentRaidsPagerView(_RoutedView):
     def __init__(self, session_id: str, beige_enabled: bool):
-        super().__init__(timeout=None)
-        self.add_item(
-            discord.ui.Button(
-                label="<<",
-                style=discord.ButtonStyle.primary,
-                custom_id=encode_custom_id("raids_pager", session_id, "first"),
+        super().__init__()
+        for label, action in (("<<", "first"), ("<", "prev"), (">", "next"), (">>", "last")):
+            self.add_item(
+                discord.ui.Button(
+                    label=label,
+                    style=discord.ButtonStyle.primary,
+                    custom_id=encode_custom_id("raids_pager", session_id, action),
+                )
             )
-        )
-        self.add_item(
-            discord.ui.Button(
-                label="<",
-                style=discord.ButtonStyle.primary,
-                custom_id=encode_custom_id("raids_pager", session_id, "prev"),
-            )
-        )
-        self.add_item(
-            discord.ui.Button(
-                label=">",
-                style=discord.ButtonStyle.primary,
-                custom_id=encode_custom_id("raids_pager", session_id, "next"),
-            )
-        )
-        self.add_item(
-            discord.ui.Button(
-                label=">>",
-                style=discord.ButtonStyle.primary,
-                custom_id=encode_custom_id("raids_pager", session_id, "last"),
-            )
-        )
         self.add_item(
             discord.ui.Button(
                 label="Beige reminder",
@@ -320,7 +326,7 @@ async def create_persistent_raids_pager_prompt(
     embeds: list[discord.Embed],
     target_ids: list[str],
     beige_turns: list[int],
-    ttl_seconds: int = interaction_sessions.DEFAULT_TTL_SECONDS,
+    ttl_seconds: int = PAGER_TTL_SECONDS,
 ) -> tuple[PersistentRaidsPagerView, str, discord.Embed]:
     embed_dicts = [embed.to_dict() for embed in embeds]
     session = await interaction_sessions.create_session(
@@ -342,6 +348,7 @@ async def create_persistent_raids_pager_prompt(
         embeds=embed_dicts,
         target_ids=[str(x) for x in target_ids],
         beige_turns=[int(x) for x in beige_turns],
+        ttl_seconds=ttl_seconds,
     )
     first_embed = discord.Embed.from_dict(embed_dicts[0])
     return (
@@ -354,55 +361,90 @@ async def create_persistent_raids_pager_prompt(
     )
 
 
-async def bind_persistent_prompt_message(session_id: str, message_id: int) -> None:
-    await interaction_sessions.set_session_message(session_id, message_id)
+async def _wait_for_completed_session(session_id: str, timeout_seconds: float) -> Optional[dict]:
+    """The session once a click completes it; None when it closes, expires or times out."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    event = _session_events.setdefault(session_id, asyncio.Event())
+    try:
+        while True:
+            # Cleared before the read, so a click landing after it still wakes the wait.
+            event.clear()
+            session = await interaction_sessions.get_session(session_id)
+            if not session:
+                return None
+            status = session.get("status")
+            if status == "completed":
+                return session
+            if status in interaction_sessions.TERMINAL_STATUSES:
+                return None
+            remaining = deadline - loop.time()
+            if interaction_sessions.is_expired(session) or remaining <= 0:
+                # Later clicks then say the prompt expired instead of doing nothing.
+                await interaction_sessions.mark_terminal(session_id, "expired")
+                return None
+            try:
+                await asyncio.wait_for(event.wait(), timeout=min(_POLL_FALLBACK_SECONDS, remaining))
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        _session_events.pop(session_id, None)
 
 
 async def wait_for_persistent_yesno_result(
     session_id: str,
-    timeout_seconds: int = interaction_sessions.DEFAULT_TTL_SECONDS,
+    timeout_seconds: float = PROMPT_TTL_SECONDS,
 ) -> Optional[bool]:
-    """Poll session state for yes/no completion."""
-    deadline = asyncio.get_running_loop().time() + timeout_seconds
-    while asyncio.get_running_loop().time() < deadline:
-        session = await interaction_sessions.get_session(session_id)
-        if not session:
-            return None
-        if interaction_sessions.is_expired(session):
-            await interaction_sessions.mark_terminal(session_id, "expired")
-            return None
-        if session.get("status") == "completed":
-            result = session.get("state", {}).get("result")
-            if isinstance(result, bool):
-                return result
-            return None
-        if session.get("status") in interaction_sessions.TERMINAL_STATUSES:
-            return None
-        await asyncio.sleep(0.05)
+    """The yes/no answer, or None when the prompt closed without one."""
+    session = await _wait_for_completed_session(session_id, timeout_seconds)
+    result = ((session or {}).get("state") or {}).get("result")
+    return result if isinstance(result, bool) else None
+
+
+async def wait_for_persistent_choice(
+    session_id: str,
+    timeout_seconds: float = PROMPT_TTL_SECONDS,
+) -> Optional[tuple[str, dict[str, Any]]]:
+    """The chosen action and the prompt state (``text`` holds a modal's input)."""
+    session = await _wait_for_completed_session(session_id, timeout_seconds)
+    state = dict((session or {}).get("state") or {})
+    result = state.get("result")
+    if isinstance(result, str) and result:
+        return result, state
     return None
 
 
 async def wait_for_persistent_choice_result(
     session_id: str,
-    timeout_seconds: int = interaction_sessions.DEFAULT_TTL_SECONDS,
+    timeout_seconds: float = PROMPT_TTL_SECONDS,
 ) -> Optional[str]:
-    deadline = asyncio.get_running_loop().time() + timeout_seconds
-    while asyncio.get_running_loop().time() < deadline:
-        session = await interaction_sessions.get_session(session_id)
-        if not session:
-            return None
-        if interaction_sessions.is_expired(session):
-            await interaction_sessions.mark_terminal(session_id, "expired")
-            return None
-        if session.get("status") == "completed":
-            result = session.get("state", {}).get("result")
-            if isinstance(result, str) and result:
-                return result
-            return None
-        if session.get("status") in interaction_sessions.TERMINAL_STATUSES:
-            return None
-        await asyncio.sleep(0.05)
-    return None
+    answer = await wait_for_persistent_choice(session_id, timeout_seconds)
+    return answer[0] if answer else None
+
+
+async def _complete_prompt(
+    interaction: discord.Interaction,
+    session: dict,
+    new_state: dict[str, Any],
+    disabled_view: Optional[discord.ui.View],
+) -> None:
+    if disabled_view is not None:
+        # Before completing: the waiting command edits in its next step as soon as
+        # the session completes, and this edit must not land on top of it.
+        try:
+            await _edit_message(interaction, view=disabled_view)
+        except discord.HTTPException:
+            logger.debug("Could not disable prompt buttons", exc_info=True)
+    changed = await interaction_sessions.try_transition(
+        session_id=session["session_id"],
+        expected_version=int(session.get("version", 0)),
+        new_state=new_state,
+        new_status="completed",
+    )
+    if not changed:
+        await _respond_ephemeral(interaction, "This interaction was already handled.")
+        return
+    _session_changed(session["session_id"])
 
 
 async def _yesno_interaction_handler(
@@ -411,44 +453,18 @@ async def _yesno_interaction_handler(
     action_id: str,
 ) -> None:
     state = dict(session.get("state") or {})
-    positive = str(state.get("positive", "Yes"))
-    negative = str(state.get("negative", "No"))
-    result = True if action_id == "yes" else False if action_id == "no" else None
+    result = {"yes": True, "no": False}.get(action_id)
     if result is None:
-        if interaction.response.is_done():
-            await interaction.followup.send("Unknown action.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Unknown action.", ephemeral=True)
+        await _respond_ephemeral(interaction, "Unknown action.")
         return
-
-    new_state = dict(state)
-    new_state["result"] = result
-    disable_on_submit = bool(state.get("disable_on_submit", True))
-    changed = await interaction_sessions.try_transition(
-        session_id=session["session_id"],
-        expected_version=int(session.get("version", 0)),
-        new_state=new_state,
-        new_status="completed",
-    )
-    if not changed:
-        if interaction.response.is_done():
-            await interaction.followup.send("This interaction was already handled.", ephemeral=True)
-        else:
-            await interaction.response.send_message("This interaction was already handled.", ephemeral=True)
-        return
-
-    if disable_on_submit:
-        view = _disabled_yesno_view(session["session_id"], positive=positive, negative=negative)
-        if interaction.response.is_done():
-            await interaction.edit_original_response(view=view)
-        else:
-            await interaction.response.edit_message(view=view)
-    elif interaction.response.is_done():
-        # Keep the current wizard embed visible; the slash command will replace it
-        # with the next step immediately after polling returns.
-        return
-    else:
-        await interaction.response.defer()
+    disabled_view = None
+    if bool(state.get("disable_on_submit", True)):
+        disabled_view = _disabled_yesno_view(
+            session["session_id"],
+            positive=str(state.get("positive", "Yes")),
+            negative=str(state.get("negative", "No")),
+        )
+    await _complete_prompt(interaction, session, {**state, "result": result}, disabled_view)
 
 
 async def _choice_interaction_handler(
@@ -458,42 +474,54 @@ async def _choice_interaction_handler(
 ) -> None:
     state = dict(session.get("state") or {})
     choices = list(state.get("choices") or [])
-    valid_actions = {str(choice.get("action")) for choice in choices}
-    if action_id not in valid_actions:
-        if interaction.response.is_done():
-            await interaction.followup.send("Unknown action.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Unknown action.", ephemeral=True)
+    if action_id not in {str(choice.get("action")) for choice in choices}:
+        await _respond_ephemeral(interaction, "Unknown action.")
         return
+    disabled_view = None
+    if bool(state.get("disable_on_submit", True)):
+        disabled_view = _disabled_choice_view(session["session_id"], choices)
+    await _complete_prompt(interaction, session, {**state, "result": action_id}, disabled_view)
 
-    new_state = dict(state)
-    new_state["result"] = action_id
-    disable_on_submit = bool(state.get("disable_on_submit", True))
+
+async def _choice_modal_interaction_handler(
+    interaction: discord.Interaction,
+    session: dict,
+    action_id: str,
+) -> None:
+    """A choice that first asks for text (registered without the automatic defer).
+
+    A modal can only be the first response to the click, so it is opened here
+    rather than by the waiting command.
+    """
+    state = dict(session.get("state") or {})
+    spec = next(
+        (
+            choice.get("modal")
+            for choice in state.get("choices") or []
+            if str(choice.get("action")) == action_id and choice.get("modal")
+        ),
+        None,
+    )
+    if not spec:
+        await _respond_ephemeral(interaction, "Unknown action.")
+        return
+    modal = SimpleModal(
+        title=str(spec.get("title") or "Autolycus")[:45],
+        label=str(spec.get("label") or "Value")[:45],
+        placeholder=str(spec.get("placeholder") or "")[:100],
+    )
+    await interaction.response.send_modal(modal)
+    await modal.wait()
+    if not modal.submitted:
+        return
     changed = await interaction_sessions.try_transition(
         session_id=session["session_id"],
         expected_version=int(session.get("version", 0)),
-        new_state=new_state,
+        new_state={**state, "result": action_id, "text": modal.text},
         new_status="completed",
     )
-    if not changed:
-        if interaction.response.is_done():
-            await interaction.followup.send("This interaction was already handled.", ephemeral=True)
-        else:
-            await interaction.response.send_message("This interaction was already handled.", ephemeral=True)
-        return
-
-    if disable_on_submit:
-        view = _disabled_choice_view(session["session_id"], choices)
-        if interaction.response.is_done():
-            await interaction.edit_original_response(view=view)
-        else:
-            await interaction.response.edit_message(view=view)
-    elif interaction.response.is_done():
-        # Keep the current wizard embed visible; the slash command will replace it
-        # with the next step immediately after polling returns.
-        return
-    else:
-        await interaction.response.defer()
+    if changed:
+        _session_changed(session["session_id"])
 
 
 async def _tabs_interaction_handler(
@@ -501,43 +529,24 @@ async def _tabs_interaction_handler(
     session: dict,
     action_id: str,
 ) -> None:
-    if not action_id.startswith("t"):
-        if interaction.response.is_done():
-            await interaction.followup.send("Unknown tab action.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Unknown tab action.", ephemeral=True)
-        return
     try:
-        next_index = int(action_id[1:])
+        next_index = int(action_id[1:]) if action_id.startswith("t") else -1
     except ValueError:
-        if interaction.response.is_done():
-            await interaction.followup.send("Invalid tab action.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Invalid tab action.", ephemeral=True)
-        return
-
+        next_index = -1
     state = dict(session.get("state") or {})
     tabs = list(state.get("tabs") or [])
-    if not tabs or next_index < 0 or next_index >= len(tabs):
-        if interaction.response.is_done():
-            await interaction.followup.send("Invalid tab target.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Invalid tab target.", ephemeral=True)
+    if not 0 <= next_index < len(tabs):
+        await _respond_ephemeral(interaction, "Invalid tab.")
         return
 
-    new_state = dict(state)
-    new_state["active_index"] = next_index
     changed = await interaction_sessions.try_transition(
         session_id=session["session_id"],
         expected_version=int(session.get("version", 0)),
-        new_state=new_state,
+        new_state={**state, "active_index": next_index},
         new_status="active",
     )
     if not changed:
-        if interaction.response.is_done():
-            await interaction.followup.send("This interaction was updated elsewhere. Try again.", ephemeral=True)
-        else:
-            await interaction.response.send_message("This interaction was updated elsewhere. Try again.", ephemeral=True)
+        await _respond_ephemeral(interaction, "This interaction was updated elsewhere. Try again.")
         return
 
     embed = discord.Embed.from_dict(tabs[next_index]["embed"])
@@ -548,10 +557,7 @@ async def _tabs_interaction_handler(
         link_label=state.get("link_label"),
         link_url=state.get("link_url"),
     )
-    if interaction.response.is_done():
-        await interaction.edit_original_response(embed=embed, view=view)
-    else:
-        await interaction.response.edit_message(embed=embed, view=view)
+    await _edit_message(interaction, embed=embed, view=view)
 
 
 async def _raids_pager_interaction_handler(
@@ -559,28 +565,17 @@ async def _raids_pager_interaction_handler(
     session: dict,
     action_id: str,
 ) -> None:
-    # Ack immediately to avoid the 3-second interaction timeout while
-    # we do DB/session work for pager updates.
-    if not interaction.response.is_done():
-        await interaction.response.defer()
-
     state = dict(session.get("state") or {})
-    payload = _RAIDS_PAGER_CACHE.get(session["session_id"]) or {}
+    payload = _get_raids_pager_cache(session["session_id"])
     embeds = list(payload.get("embeds") or [])
     target_ids = [str(x) for x in (payload.get("target_ids") or [])]
     beige_turns = [int(x) for x in (payload.get("beige_turns") or [])]
-    # Backward compatibility for old sessions created before cache-only payload.
-    if not embeds:
-        embeds = list(state.get("embeds") or [])
-    if not target_ids:
-        target_ids = [str(x) for x in (state.get("target_ids") or [])]
-    if not beige_turns:
-        beige_turns = [int(x) for x in (state.get("beige_turns") or [])]
     if not embeds or len(embeds) != len(target_ids):
-        await interaction.followup.send("This raid pager is invalid. Please rerun `/raids`.", ephemeral=True)
+        # The pages are kept in memory only, so a restart loses them.
+        await _respond_ephemeral(interaction, "This raid pager is no longer available. Please rerun `/raids`.")
         return
 
-    index = int(state.get("index", 0))
+    index = min(max(int(state.get("index", 0)), 0), len(embeds) - 1)
     max_idx = len(embeds) - 1
     if action_id == "first":
         index = 0
@@ -590,16 +585,14 @@ async def _raids_pager_interaction_handler(
         index = 0 if index >= max_idx else index + 1
     elif action_id == "last":
         index = max_idx
-    elif action_id == "beige":
-        pass
-    else:
-        await interaction.followup.send("Unknown pager action.", ephemeral=True)
+    elif action_id != "beige":
+        await _respond_ephemeral(interaction, "Unknown pager action.")
         return
 
+    cur_target = target_ids[index]
+    cur_beige = beige_turns[index] if index < len(beige_turns) else 0
     ephemeral_text: Optional[str] = None
     if action_id == "beige":
-        cur_target = target_ids[index]
-        cur_beige = beige_turns[index] if index < len(beige_turns) else 0
         if cur_beige <= 0:
             ephemeral_text = "They are not in beige!"
         else:
@@ -613,70 +606,49 @@ async def _raids_pager_interaction_handler(
                         " I'm sending you a test DM. Press **Got it** in it so we know reminders reach you."
                     )
 
-    # Re-check whether beige should be enabled for current index (state + user reminders)
+    # The button is offered for beige targets the user doesn't watch yet.
     beige_enabled = False
-    cur_beige = beige_turns[index] if index < len(beige_turns) else 0
     if cur_beige > 0:
-        db = get_db()
-        user = await db.global_users.find_one({"user": interaction.user.id})
-        alerts = [str(x) for x in (user or {}).get("beige_alerts", [])]
-        beige_enabled = target_ids[index] not in alerts
+        profile = await reminder_db.get_profile(get_db(), interaction.user.id)
+        beige_enabled = cur_target not in reminder_db.watched_nation_ids(profile)
 
-    new_state = dict(state)
-    new_state["index"] = index
     changed = await interaction_sessions.try_transition(
         session_id=session["session_id"],
         expected_version=int(session.get("version", 0)),
-        new_state=new_state,
+        new_state={**state, "index": index},
         new_status="active",
     )
     if not changed:
-        await interaction.followup.send("This pager changed elsewhere. Try again.", ephemeral=True)
+        await _respond_ephemeral(interaction, "This pager changed elsewhere. Try again.")
         return
 
     embed = discord.Embed.from_dict(embeds[index])
     view = PersistentRaidsPagerView(session["session_id"], beige_enabled=beige_enabled)
-    await interaction.edit_original_response(embed=embed, view=view)
+    await _edit_message(interaction, embed=embed, view=view)
     if ephemeral_text:
-        await interaction.followup.send(ephemeral_text, ephemeral=True)
+        await _respond_ephemeral(interaction, ephemeral_text)
 
 
 def register_interaction_handlers(registry) -> None:
     registry.register("yesno", _yesno_interaction_handler)
     registry.register("choice", _choice_interaction_handler)
+    registry.register("choice_modal", _choice_modal_interaction_handler, auto_defer=False)
     registry.register("tabs", _tabs_interaction_handler)
     registry.register("raids_pager", _raids_pager_interaction_handler)
 
-class Dropdown(discord.ui.Select):
-    def __init__(self, main_view, select_options: dict = {}):
-        self.apples = main_view
-        options = []
-        n = 0
-        for x in select_options.get('options', []):
-            options.append(discord.SelectOption(label=x['label'], description=x['description'], emoji=x['emoji'], value=n, default=x.get('default', False)))
-            n += 1
-        self.selectable_options = options
-        super().__init__(
-            placeholder=select_options.get('placeholder', "Select an option from the dropdown"),
-            min_values=select_options.get('min_values', 1),
-            max_values=select_options.get('max_values', 1),
-            options=options,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        self.apples.embeds = sorted(self.apples.embeds, key=self.selectable_options[int(interaction.data['values'][0])]['sort_by'], reverse=True)
-        await interaction.response.edit_message(embed=self.apples.embeds[0])
 
 class Switch(discord.ui.View):
-    def __init__(self, ctx, max_page: int, embeds: list, timeout: int = 600, author_check: bool = True, cur_page: int = 0, select_options: dict = {}):
-        super().__init__(timeout=timeout)
+    """In-memory pager over pre-rendered embeds (for results, not prompts)."""
+
+    def __init__(self, ctx, max_page: int, embeds: list, timeout: int = 600, author_check: bool = True, cur_page: int = 0):
+        # On timeout the buttons are disabled through the command's own token, which
+        # only works for 15 minutes.
+        super().__init__(timeout=min(timeout, PROMPT_TTL_SECONDS))
         self.ctx = ctx
         self.author_check = author_check
         self.cur_page = cur_page
         self.max_page = max_page - 1
         self.embeds = embeds
-        if select_options:
-            self.add_item(Dropdown(self, select_options))
 
     @discord.ui.button(label="<<", style=discord.ButtonStyle.primary)
     async def far_left_callback(self, _button: discord.Button, interaction: discord.Interaction) -> None:
@@ -690,7 +662,7 @@ class Switch(discord.ui.View):
         else:
             self.cur_page -= 1
         await interaction.response.edit_message(embed=self.embeds[self.cur_page])
-    
+
     @discord.ui.button(label=">", style=discord.ButtonStyle.primary)
     async def right_callback(self, _button: discord.Button, interaction: discord.Interaction) -> None:
         if self.cur_page == self.max_page:
@@ -698,40 +670,23 @@ class Switch(discord.ui.View):
         else:
             self.cur_page += 1
         await interaction.response.edit_message(embed=self.embeds[self.cur_page])
-    
+
     @discord.ui.button(label=">>", style=discord.ButtonStyle.primary)
     async def far_right_callback(self, _button: discord.Button, interaction: discord.Interaction) -> None:
         self.cur_page = self.max_page
         await interaction.response.edit_message(embed=self.embeds[self.max_page])
-    
+
     async def interaction_check(self, interaction) -> bool:
         if interaction.user != self.ctx.author and self.author_check:
             await interaction.response.send_message("These buttons are reserved for someone else!", ephemeral=True)
             return False
         return True
-    
-    async def on_timeout(self) -> None:
-        await run_timeout(self.ctx, self)
 
-async def reaction_checker(bot: discord.Bot, message: discord.Message, embeds: list[discord.Embed]) -> None:
-    reactions = []
-    for i in range(len(embeds)):
-        reactions.append(asyncio.create_task(message.add_reaction(f"{i+1}\N{variation selector-16}\N{combining enclosing keycap}")))
-    await asyncio.gather(*reactions)
-    while True:
+    async def on_timeout(self) -> None:
+        # Keep the results on screen; only the paging stops.
+        for child in self.children:
+            child.disabled = True
         try:
-            reaction, user = await bot.wait_for("reaction_add", timeout=600)
-            if user.bot or reaction.message != message:
-                continue
-            elif "\N{variation selector-16}\N{combining enclosing keycap}" in str(reaction.emoji):
-                await message.edit(embed=embeds[int(str(reaction.emoji)[0])-1])
-                await message.remove_reaction(reaction, user)
-        except asyncio.TimeoutError:
-            ref = err_util.new_error_reference()
-            to_embed = err_util.error_embed(
-                "Timed out",
-                "This command closed because nothing was selected in time.",
-                reference=ref,
-            )
-            await message.edit(content=None, embed=to_embed)
-            break
+            await self.ctx.edit(view=self)
+        except discord.HTTPException:
+            logger.debug("Could not disable pager buttons after timeout", exc_info=True)

@@ -285,13 +285,12 @@ export function NukeTargetsPage() {
     linkedNationId && appliedNationId && String(appliedNationId) !== String(linkedNationId)
   );
 
-  const urlAttrition = parseOptionalBoolParam(searchParams, 'attrition');
   const urlGuidingSatellite = parseOptionalBoolParam(searchParams, 'guidingSatellite');
   /**
-   * null = omit override (API uses the nation's real warpolicy / GS).
+   * null = omit override (API uses the nation's real Guiding Satellite project).
    * Setting a boolean (URL or user toggle) is what triggers a targets refetch.
+   * War policies don't change missile/nuke damage dealt, so there is no policy toggle.
    */
-  const [attritionOverride, setAttritionOverride] = useState<boolean | null>(urlAttrition);
   const [guidingSatelliteOverride, setGuidingSatelliteOverride] = useState<boolean | null>(
     urlGuidingSatellite
   );
@@ -471,7 +470,6 @@ export function NukeTargetsPage() {
       appliedNationId,
       apiScoreBounds.minScore,
       apiScoreBounds.maxScore,
-      attritionOverride,
       guidingSatelliteOverride,
     ],
     queryFn: () =>
@@ -480,7 +478,6 @@ export function NukeTargetsPage() {
         minScore: apiScoreBounds.minScore,
         maxScore: apiScoreBounds.maxScore,
         vmode: false,
-        ...(attritionOverride !== null ? { attrition: attritionOverride } : {}),
         ...(guidingSatelliteOverride !== null
           ? { guidingSatellite: guidingSatelliteOverride }
           : {}),
@@ -508,7 +505,7 @@ export function NukeTargetsPage() {
 
   const isInitialLoading = nationLoadPending;
 
-  /** Stay true across attrition/GS refetches; only reset when the applied nation changes. */
+  /** Stay true across GS refetches; only reset when the applied nation changes. */
   const [damageModsReadyFor, setDamageModsReadyFor] = useState<string | null>(null);
   useEffect(() => {
     setDamageModsReadyFor(null);
@@ -522,15 +519,12 @@ export function NukeTargetsPage() {
       setDamageModsReadyFor(appliedNationId);
     }
   }, [appliedNationId, data?.attacker]);
-  const hasDamageModOverrides =
-    attritionOverride !== null || guidingSatelliteOverride !== null;
+  const hasDamageModOverrides = guidingSatelliteOverride !== null;
   const damageModsPending =
     !!appliedNationId &&
     !hasDamageModOverrides &&
     damageModsReadyFor !== appliedNationId;
 
-  const attritionEnabled =
-    attritionOverride ?? data?.attacker?.warpolicy === 'Attrition';
   const guidingSatelliteEnabled =
     guidingSatelliteOverride ?? Boolean(data?.attacker?.guidingSatellite);
 
@@ -539,8 +533,8 @@ export function NukeTargetsPage() {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        if (attritionOverride === null) next.delete('attrition');
-        else next.set('attrition', attritionOverride ? 'true' : 'false');
+        // Links saved while the page had an Attrition toggle.
+        next.delete('attrition');
         if (guidingSatelliteOverride === null) next.delete('guidingSatellite');
         else next.set('guidingSatellite', guidingSatelliteOverride ? 'true' : 'false');
         if (next.toString() === prev.toString()) return prev;
@@ -548,15 +542,14 @@ export function NukeTargetsPage() {
       },
       { replace: true }
     );
-  }, [appliedNationId, attritionOverride, guidingSatelliteOverride, setSearchParams]);
+  }, [appliedNationId, guidingSatelliteOverride, setSearchParams]);
 
   const prevAppliedNationIdRef = useRef(appliedNationId);
   useEffect(() => {
     const prev = prevAppliedNationIdRef.current;
     if (prev === appliedNationId) return;
     prevAppliedNationIdRef.current = appliedNationId;
-    // New nation → drop overrides so the first fetch uses DB warpolicy / GS.
-    setAttritionOverride(null);
+    // New nation → drop overrides so the first fetch uses the nation's own GS.
     setGuidingSatelliteOverride(null);
     // Only clear score when switching between two concrete nations (not initial hydrate).
     if (!prev || !appliedNationId) return;
@@ -778,13 +771,11 @@ export function NukeTargetsPage() {
                   setAppliedNationId(parsed);
                   setDraftNationId(parsed);
                   // Page-only override — keep localStorage / linked home nation for restore.
-                  setAttritionOverride(null);
                   setGuidingSatelliteOverride(null);
                   setSearchParams(
                     (prev) => {
                       const next = new URLSearchParams(prev);
                       next.set('attackerNationId', parsed);
-                      next.delete('attrition');
                       next.delete('guidingSatellite');
                       return next;
                     },
@@ -814,13 +805,11 @@ export function NukeTargetsPage() {
                       setAppliedNationId(linkedNationId);
                       setDraftNationId(linkedNationId);
                       setNationId(linkedNationId);
-                      setAttritionOverride(null);
                       setGuidingSatelliteOverride(null);
                       setSearchParams(
                         (prev) => {
                           const next = new URLSearchParams(prev);
                           next.set('attackerNationId', linkedNationId);
-                          next.delete('attrition');
                           next.delete('guidingSatellite');
                           return next;
                         },
@@ -840,15 +829,6 @@ export function NukeTargetsPage() {
               <Text size="xs" c="dimmed">
                 {NUKE_TARGET_FILTER_DOCS.damageMods}
               </Text>
-              <Switch
-                label="Attrition war policy"
-                description="+10% infrastructure damage dealt with missiles and nukes."
-                checked={Boolean(attritionEnabled)}
-                disabled={!appliedNationId || damageModsPending}
-                onChange={(event) => {
-                  setAttritionOverride(event.currentTarget.checked);
-                }}
-              />
               <Switch
                 label="Guiding Satellite"
                 description="+20% missile and nuke infrastructure damage."

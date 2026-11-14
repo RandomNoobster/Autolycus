@@ -12,7 +12,7 @@ from discord.ext import commands
 
 from bot.discord_utils import errors as err_embeds
 from bot.discord_utils import views as discord_views
-from bot.discord_utils.interaction_framework import InteractionRegistry
+from bot.discord_utils.interaction_framework import InteractionRegistry, route_interaction
 from bot.reminders import notices as reminder_notices
 from bot.reminders.interactions import DM_TEST_ACK_HANDLER, handle_test_dm_ack
 from core.logging_config import setup_logging
@@ -22,17 +22,23 @@ intents = discord.Intents.default()
 intents.members = True
 # REMEMEBR: cannot import a file which is also imported by cogs
 
-# envs
-channel_id = int(os.getenv("DEBUG_CHANNEL"))
-
 # logging
 setup_logging(process_name="bot", level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 # discord bot
-# No member chunking at startup: nothing reads the member cache, and across ~1200
-# servers the gateway rate limit held on_ready (and reminder delivery) back ~11 min.
-bot = commands.Bot(intents=intents, command_prefix="!", chunk_guilds_at_startup=False)
+# No member chunking at startup: across ~1200 servers the gateway rate limit held
+# on_ready (and reminder delivery) back ~11 min. Lookups by Discord name therefore
+# ask the guild for matching members (helpers.find_nation_plus) instead of relying
+# on the member cache.
+bot = commands.Bot(
+    intents=intents,
+    command_prefix="!",
+    chunk_guilds_at_startup=False,
+    # Replies echo user input (command names, alliance names): never let that ping
+    # @everyone, @here or roles.
+    allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=True, replied_user=True),
+)
 bot.interaction_registry = InteractionRegistry()
 discord_views.register_interaction_handlers(bot.interaction_registry)
 bot.interaction_registry.register_stateless(DM_TEST_ACK_HANDLER, handle_test_dm_ack)
@@ -46,23 +52,18 @@ for path in sorted(cogs_dir.glob("*.py")):
 
 @bot.event
 async def on_ready():
-    guilds = sorted(bot.guilds, key=lambda x: x.member_count, reverse=True)
-    n = len(guilds)
-    logger.info(f"I am in {n} servers:")
+    # member_count is None for a guild that is still unavailable.
+    guilds = sorted(bot.guilds, key=lambda x: x.member_count or 0, reverse=True)
+    logger.info(f"I am in {len(guilds)} servers:")
     for guild in guilds:
-        extra = ""
-        n -= 1
-        logger.info(f"-> {guild.member_count} members || {guild} {extra}")
-    logger.info(f"Slash commands are allowed in {n}/{len(bot.guilds)} guilds")
+        logger.info(f"-> {guild.member_count} members || {guild}")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="Orbis"))
     logger.info('We have logged in as {0.user}'.format(bot))
 
 
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
-    handled = await bot.interaction_registry.dispatch(interaction)
-    if not handled and interaction.type == discord.InteractionType.application_command:
-        await bot.process_application_commands(interaction)
+    await route_interaction(bot, interaction)
 
 
 @bot.event
@@ -123,7 +124,7 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
     reference = err_embeds.new_error_reference()
     root = err_embeds.unwrap_command_error(error)
     err_embeds.log_command_error(logger, root, ctx=ctx, reference=reference)
-    debug_channel = bot.get_channel(channel_id)
+    debug_channel = err_embeds.resolve_debug_channel(bot)
 
     async def _debug():
         await err_embeds.send_debug_channel_messages(debug_channel, ctx, error, reference, logger)
@@ -136,29 +137,17 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error):
         await _debug()
         return
 
-    parent = getattr(ctx.command, "full_parent_name", None) or ""
-    if isinstance(root, ValueError) and str(parent) == "cost":
-        embed = err_embeds.error_embed(
-            "Invalid input",
-            "Those cost parameters could not be processed. Check the values you entered and try again.",
-            reference=reference,
-        )
-        await err_embeds.safe_reply_error(ctx, embed, ephemeral=True, reference=reference, log=logger)
-        await _debug()
-        return
-
     err_s = str(error)
     if "Unknown interaction" in err_s:
-        embed = err_embeds.error_embed(
-            "Slow response",
-            f"My bad <@{ctx.author.id}>! Discord did not get a response in time. Please try again.",
-            reference=reference,
-        )
-        await err_embeds.safe_reply_error(ctx, embed, ephemeral=False, reference=reference, log=logger)
+        # The interaction expired before it was answered, so no reply can reach the
+        # user through it; just report it.
         await _debug()
         return
 
-    if isinstance(error, (discord.HTTPException, discord.NotFound)):
+    # Checked on the unwrapped error: py-cord wraps exceptions raised inside a
+    # command in ApplicationCommandInvokeError. Before the P&W check, whose
+    # "internal server error" text a Discord 500 also contains.
+    if isinstance(root, discord.HTTPException):
         embed = err_embeds.error_embed(
             "Discord error",
             "Something went wrong talking to Discord. Please try again in a moment.",

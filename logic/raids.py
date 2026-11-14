@@ -103,3 +103,21 @@ def compute_beige_loot_or_zero(
     if loot_value is None or loot_value <= 0:
         return 0, "NaN"
     return int(loot_value), f"{int(round(loot_value)):,}"
+
+
+# Turns change every two hours on even UTC hours (logic/reminders.TURN_SECONDS).
+_TURN_SECONDS = 2 * 60 * 60
+
+
+def turns_since(written_at: Any, now: datetime) -> int:
+    """Game turns that started after ``written_at`` (epoch seconds); 0 when unknown.
+
+    Cached beige and vacation-mode turn counts are this many turns out of date.
+    """
+    try:
+        written = int(float(written_at))
+    except (TypeError, ValueError):
+        return 0
+    if written <= 0:
+        return 0
+    return max(0, int(now.timestamp()) // _TURN_SECONDS - written // _TURN_SECONDS)

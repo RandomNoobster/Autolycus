@@ -5,23 +5,19 @@ revenue calculations, builds optimizer, and user management.
 """
 
 import asyncio
-import json
 import logging
 import os
-import pathlib
 import time
-from datetime import datetime, timedelta
 from functools import partial
-from typing import Any, Dict, List, Optional
 
 import discord
 from discord.commands import Option, SlashCommandGroup, slash_command
 from discord.ext import commands
 
 from logic import queries
-from database.mongo import get_db, get_global_user_by_any, listify
+from database.mongo import get_db, get_global_user_by_any
 from database import sqlite_cache as db_utils
-from database.users import delete_verification
+from database.users import delete_verification, get_verification
 from bot.discord_utils import help_data, helpers
 from bot.discord_utils import errors as err_util
 from bot.discord_utils.embeds import nation_overview_embed, verification_success_embed, verification_unlinked_embed, with_support_footer
@@ -31,7 +27,7 @@ from logic.builds import calculate_builds as calculate_builds_logic
 from logic.builds import generate_build_template
 from logic.common import str_to_int
 from logic.merge_utils import get_query
-from logic.military import militarization_checker
+from logic.military import max_offensive_wars, militarization_checker
 from logic.revenue import pre_revenue_calc, revenue_calc_sync
 from logic.verification import verify_discord_nation_link
 from core.config import AUTOLYCUS_WEB_BASE_URL
@@ -59,23 +55,9 @@ class Background(commands.Cog):
         *,
         command_name: str,
     ) -> None:
-        ref = await err_util.report_handled_exception(
-            self.bot,
-            ctx,
-            error,
-            logger,
-            command_name=command_name,
+        await err_util.handle_command_exception(
+            self.bot, ctx, error, logger, command_name=command_name
         )
-        embed = err_util.error_embed(
-            "Command failed",
-            (
-                err_util.PNW_SERVER_USER_MESSAGE
-                if err_util.is_pnw_server_error(error)
-                else "I couldn't complete that request. Please try again in a moment."
-            ),
-            reference=ref,
-        )
-        await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
 
     @slash_command(
         name="who",
@@ -97,7 +79,7 @@ class Background(commands.Cog):
             self_lookup = person is None
             if self_lookup:
                 person = ctx.author.id
-            nation = await helpers.find_nation_plus(self.bot, person)
+            nation = await helpers.find_nation_plus(self.bot, person, guild=ctx.guild)
             if nation is None:
                 if self_lookup:
                     await ctx.respond(content=helpers.NATION_NOT_LINKED_MESSAGE)
@@ -143,7 +125,7 @@ class Background(commands.Cog):
 
             dome = "Yes" if nation['irond'] else "No"
             vital = "Yes" if nation['vds'] else "No"
-            max_offense = 7 if nation['advanced_pirate_economy'] else (6 if nation['pirate_economy'] else 5)
+            max_offense = max_offensive_wars(nation)
 
             military_info_2 = f"> Offensive Wars: `{o_wars}`/`{max_offense}`\n> Defensive Wars: `{d_wars}`/`3`\n> Missiles: `{missiles}`\n> Nukes: `{nukes}`\n> Iron Dome: {dome}\n> Vital Defense: {vital}\n> Turns of Beige: `{nation['beige_turns']}`"
 
@@ -163,7 +145,8 @@ class Background(commands.Cog):
         infra: Option(str, "How much infra the builds should be for"),
         land: Option(str, "How much land the builds should be for"),
         mmr: Option(str, "MMR as barracks/factory/hangar/drydock, 4 digits (e.g. 1251), or any. Defaults to 0/0/0/0.") = "0/0/0/0",
-        person: Option(str, "The person the builds should be for. Defaults to you.") = None
+        person: Option(str, "The person the builds should be for. Defaults to you.") = None,
+        military_upkeep: Option(bool, "Subtract the upkeep of the units the build's military buildings hold. Defaults to no.") = False,
     ) -> None:
         """Find optimal city builds from stored JSON configurations.
         
@@ -181,7 +164,7 @@ class Background(commands.Cog):
             await loading.start("Let me think a bit...")
 
             target = person or ctx.author.id
-            db_nation = await helpers.find_nation_plus(self.bot, target)
+            db_nation = await helpers.find_nation_plus(self.bot, target, guild=ctx.guild)
             if not db_nation:
                 if person:
                     await ctx.edit(content="I could not find the specified person!", attachments=[])
@@ -204,6 +187,7 @@ class Background(commands.Cog):
                     infra=infra_level,
                     land=land_amount,
                     mmr=mmr,
+                    include_military_upkeep=bool(military_upkeep),
                 )
                 perf_ms = int((time.perf_counter() - perf_start) * 1000)
                 logger.info(
@@ -267,7 +251,8 @@ class Background(commands.Cog):
             best_build = None
             if unique_builds:
                 best_build = unique_builds[0]
-                revenue_text = f"> Net Income: `${best_build.get('net income', 0):,.2f}` per day"
+                upkeep_note = "" if military_upkeep else " (before military upkeep)"
+                revenue_text = f"> Net Income: `${best_build.get('net income', 0):,.2f}` per day{upkeep_note}"
                 embed.add_field(name="Best Overall Build", value=revenue_text, inline=False)
                 build_template = generate_build_template(best_build)
                 embed.add_field(
@@ -314,18 +299,14 @@ class Background(commands.Cog):
             self_lookup = person is None
             if self_lookup:
                 person = ctx.author.id
-            db_nation = await helpers.find_user(self.bot, person)
-
-            # Reminder-only profiles (created by the website) have no linked nation id.
-            if not helpers.linked_nation_id(db_nation):
-                db_nation = await asyncio.to_thread(db_utils.find_nation, person)
-                if not db_nation:
-                    if self_lookup:
-                        await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, attachments=[])
-                    else:
-                        await ctx.edit(content='I could not find that person!', attachments=[])
-                    return
-                db_nation['nationid'] = db_nation['id']
+            # Nation id, link or name first; a Discord user only by an exact match.
+            db_nation = await helpers.find_nation_plus(self.bot, person, guild=ctx.guild)
+            if not db_nation:
+                if self_lookup:
+                    await ctx.edit(content=helpers.NATION_NOT_LINKED_MESSAGE, attachments=[])
+                else:
+                    await ctx.edit(content='I could not find that person!', attachments=[])
+                return
 
             nation, colors, prices, treasures, radiation, seasonal_mod = await pre_revenue_calc(
                 ctx,
@@ -388,10 +369,13 @@ class Background(commands.Cog):
             await ctx.defer()
 
             alliance_id = None
+            wanted = alliance.strip().lower()
             all_alliances = await asyncio.to_thread(db_utils.list_all_alliances)
             for aa in all_alliances:
                 aa_id = str(aa['id'])
-                if alliance in (f"{aa['name']} ({aa_id})", aa_id, aa['name'], aa['acronym']):
+                name = str(aa.get('name') or '')
+                acronym = str(aa.get('acronym') or '')
+                if wanted in {f"{name} ({aa_id})".lower(), aa_id, name.lower(), acronym.lower()} - {""}:
                     alliance_id = aa_id
                     break
                                 
@@ -471,10 +455,13 @@ class Background(commands.Cog):
         """
         try:
             await ctx.defer()
-            verified_count = len(await listify(get_db().global_users.find({})))
+            # Profiles with a linked nation; reminder-only profiles have no id.
+            verified_count = await get_db().global_users.count_documents({"id": {"$regex": r"^\d+$"}})
+            # The member cache isn't filled at startup, so count from the guilds.
+            member_count = sum(guild.member_count or 0 for guild in self.bot.guilds)
             content = (
-                f"{len(self.bot.users)} people across {len(self.bot.guilds)} servers have access to me, "
-                f"but only {verified_count} have verified themselves.\n\n"
+                f"{member_count:,} server members across {len(self.bot.guilds)} servers have access to me, "
+                f"and {verified_count:,} people have verified themselves.\n\n"
                 "Here you can find the:\n"
                 "> [GitHub Repository](https://github.com/randomnoobster/Autolycus)\n"
                 "> [Invite Link](https://discord.com/api/oauth2/authorize?client_id=946351598223888414&permissions=326417827840&scope=applications.commands%20bot)\n"
@@ -505,6 +492,8 @@ class Background(commands.Cog):
             nation_id: Nation ID or link from Politics & War.
         """
         try:
+            # The P&W lookup can take longer than Discord's 3 s to first reply.
+            await ctx.defer()
             result = await verify_discord_nation_link(
                 discord_user_id=ctx.author.id,
                 discord_username=str(ctx.author.name),
@@ -584,7 +573,12 @@ class Background(commands.Cog):
             ctx: Discord application context.
         """
         try:
-            user = await delete_verification(ctx.author.id)
+            # Reminder-only profiles have no linked nation; unverifying them would
+            # only delete their reminders.
+            if not helpers.linked_nation_id(await get_verification(ctx.author.id)):
+                user = None
+            else:
+                user = await delete_verification(ctx.author.id)
             if user is None:
                 await ctx.respond(
                     embed=err_util.error_embed(
@@ -677,7 +671,12 @@ class Background(commands.Cog):
                 await ctx.edit(content="", embed=embed)
             else:
                 # ── Compact list of all commands ──
-                cmds = sorted(self.bot.application_commands, key=lambda x: f"{x}")
+                # Groups (/revenue, /config, ...) are listed by subcommand, the names
+                # /help <command> knows.
+                cmds = []
+                for cmd in self.bot.application_commands:
+                    cmds.extend(getattr(cmd, "subcommands", None) or [cmd])
+                cmds.sort(key=lambda x: getattr(x, "qualified_name", str(x)))
                 embed = discord.Embed(title="Autolycus Command List", color=0xff5100)
                 embed.description = (
                     "Use `/help <command>` for detailed info, parameters, and examples."
@@ -686,7 +685,7 @@ class Background(commands.Cog):
                 seen: set[str] = set()
                 for cmd in cmds:
                     cmd_name = getattr(cmd, "qualified_name", str(cmd))
-                    if cmd_name in seen:
+                    if cmd_name in seen or len(embed.fields) >= 25:
                         continue
                     seen.add(cmd_name)
 

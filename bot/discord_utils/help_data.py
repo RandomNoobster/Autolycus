@@ -67,6 +67,10 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
                 "The nation to calculate builds for. Accepts the same formats as `/who`. "
                 "Defaults to you."
             ),
+            "military_upkeep": (
+                "Subtract the upkeep of the units the build's military buildings can "
+                "hold from its income. Defaults to no, like the builds webpage."
+            ),
         },
         "examples": [
             "`/builds 2000 3000` — best builds for 2k infra, 3k land, no military",
@@ -148,8 +152,9 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
             "`/verify https://politicsandwar.com/nation/id=12345`",
         ],
         "notes": (
-            "You only need to verify once. To re-verify with a different nation, "
-            "use `/unverify` first."
+            "You only need to verify once. To switch to a different nation, run "
+            "`/verify` again with the new nation; don't `/unverify` first, since that "
+            "also deletes your beige reminders."
         ),
     },
     "unverify": {
@@ -157,10 +162,13 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
         "long": (
             "Removes the link between your Discord account and your Politics & War "
             "nation. After unverifying, commands will no longer auto-detect your nation "
-            "and you will need to provide your nation ID manually."
+            "and you will need to provide your nation ID manually.\n\n"
+            "This also deletes your beige reminders, reminder times and browser "
+            "notification devices."
         ),
         "parameters": {},
         "examples": ["`/unverify`"],
+        "notes": "To switch nations, use `/verify` with the new nation instead.",
     },
 
     # ── Military / Target-Finding Commands ────────────────────────────
@@ -176,7 +184,7 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
             "5. **Inactivity** — no filter, 7+, 14+, or 30+ days inactive\n"
             "6. **Beige** — include or exclude beige nations\n"
             "7. **Minimum previous beige loot** — $0, $5m, $10m, or $20m\n"
-            "8. **Performance filter** — hide targets with negative income, strong ground, or $0 loot\n\n"
+            "8. **Performance filter** — hide targets with negative income, strong ground, or no recorded beige loot\n\n"
             "Your filter choices are saved so you can re-use them next time. "
             "The server's Do Not Raid (DNR) list is automatically respected."
         ),
@@ -300,20 +308,22 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
     "nuketargets": {
         "short": "Find high-infra nations to nuke or missile in your range",
         "long": (
-            "Scans nations within your war range and ranks them by the dollar damage "
-            "a nuke or missile would inflict. Shows damage per nuke, damage per missile, "
-            "max and average infrastructure, and whether they have Iron Dome or Vital "
-            "Defense System.\n\n"
-            "By default, targets are limited to alliances configured via `/config` for "
-            "this server. If none are configured, you can choose to target all nations. "
-            "Beige/VM nations and fully-slotted nations are excluded by default."
+            "Scans nations within your war range and ranks them by the rebuild cost of "
+            "the infrastructure one nuke or missile destroys, the same numbers as the "
+            "nuke targets webpage. Shows damage per nuke, damage per missile, max and "
+            "average infrastructure, and whether they have Iron Dome or Vital Defense "
+            "System.\n\n"
+            "By default, targets are limited to alliances configured with "
+            "`/config targets` for this server. If none are configured, you can choose "
+            "to target all nations. Nations in vacation mode are never listed; beige and "
+            "fully-slotted nations are excluded by default."
         ),
         "parameters": {
             "sort": (
                 "Which metric to rank by: `Nuke damage` or `Missile damage`. "
                 "Defaults to `Nuke damage`."
             ),
-            "include_beige": "Include beige and vacation-mode nations. Defaults to False.",
+            "include_beige": "Include beige nations. Defaults to False.",
             "include_slotted": (
                 "Include nations already in your wars or with 3 defensive wars. "
                 "Defaults to False."
@@ -324,7 +334,7 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
             '`/nuketargets "Missile damage"` — sorted by missile damage',
             "`/nuketargets True True` — include beige and slotted nations",
         ],
-        "notes": "Server admins should use `/config` to set target alliances for best results.",
+        "notes": "Server admins can use `/config targets` to set target alliances for best results.",
     },
     "damage": {
         "short": "View full damage calculations between two nations",
@@ -370,6 +380,24 @@ COMMAND_HELP: Dict[str, CommandHelp] = {
         "examples": [
             "`/config dnr 770,1234` — protect alliances 770 and 1234",
             "`/config dnr` — clear the DNR list",
+        ],
+    },
+    "config targets": {
+        "short": "Set the alliances /nuketargets looks for targets in",
+        "long": (
+            "Configures which alliances `/nuketargets` searches in this server. Run "
+            "the command with no IDs to clear the list, so every alliance is searched "
+            "(after a confirmation).\n\n"
+            "Requires the **Manage Server** permission."
+        ),
+        "parameters": {
+            "alliance_ids": (
+                "Comma-separated enemy alliance IDs (e.g. `770,1234`). Leave empty to clear."
+            ),
+        },
+        "examples": [
+            "`/config targets 770,1234` — target alliances 770 and 1234",
+            "`/config targets` — clear the list",
         ],
     },
     "config view_current_settings": {

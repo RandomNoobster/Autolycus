@@ -62,7 +62,7 @@ export const NUKE_TARGET_COLUMN_DOCS: Record<string, string> = {
     'Iron Dome: 30% of missiles are intercepted. Intercepted launches deal no damage and remove no resistance; successful hits remove 18 resistance.',
   falloutShelter: 'National project that reduces infrastructure damage from nukes by 10%.',
   defenderWarPolicy:
-    'Defender War Policy (e.g. Turtle takes 10% less infrastructure damage; Moneybags, Covert, and Arcane take 5% more infrastructure damage).',
+    'Defender War Policy. Moneybags takes 5% more infrastructure damage from missiles and nukes; Turtle, Covert, and Arcane only change damage from ground, air, and naval battles.',
   daysInactive: 'Days since the nation last logged in.',
   defSlots:
     'Defensive war slots in use. A nation with 3 defensive wars cannot be declared on.',
@@ -85,14 +85,14 @@ export const NUKE_TARGET_FILTER_DOCS = {
   defWars: 'Nations with 3 defensive wars are not attackable. Lower caps find open slots.',
   inactivity: 'Minimum days since last activity.',
   damageMods:
-    'Attrition war policy and Guiding Satellite are preset from your loaded nation. Toggle them to override the damage math without changing your in-game settings.',
+    'Guiding Satellite is preset from your loaded nation. Toggle it to override the damage math without changing your in-game settings.',
 } as const;
 
 /** Cohesive on-page guide copy (PnW domain language). */
 export const NUKE_TARGETS_PAGE_GUIDE = [
   {
     title: 'Attrition damage, not raids',
-    body: 'This page ranks nations by how much infrastructure damage you can inflict in an Attrition war with nukes or missiles. Loot is not considered, we only regard rebuild-cost damage and the resources you spend launching weapons. Load your nation so we apply your War Policy, projects, and score range.',
+    body: 'This page ranks nations by how much infrastructure damage you can inflict in an Attrition war with nukes or missiles. Loot is not considered, we only regard rebuild-cost damage and the resources you spend launching weapons. Load your nation so we apply your projects and score range.',
   },
   {
     title: 'Damage is measured by the rebuild cost',
@@ -100,7 +100,7 @@ export const NUKE_TARGETS_PAGE_GUIDE = [
   },
   {
     title: 'Damage modifiers',
-    body: 'We assume that each strike targets their highest-infrastructure city. Vital Defense System and Iron Dome are modeled as intercept probability (25% / 30%), a miss deals no infra damage. Fallout Shelter cuts nuke infrastructure damage by 10%. Load your nation to preset Attrition war policy (+10% infra dealt) and Guiding Satellite (+20% missile/nuke infra); you can toggle those on or off in Your Nation without changing your in-game settings. The defender\'s War Policy further adjusts damage taken and dealt.',
+    body: 'We assume that each strike targets their highest-infrastructure city. Vital Defense System and Iron Dome are modeled as intercept probability (25% / 30%), a miss deals no infra damage. Fallout Shelter cuts nuke infrastructure damage by 10%. Load your nation to preset Guiding Satellite (+20% missile/nuke infra); you can toggle it in Your Nation without changing your in-game settings. War policies only change ground, air, and naval battle damage, except Moneybags: a Moneybags defender takes 5% more infrastructure damage.',
   },
   {
     title: 'War resistance and full-war net damage',

@@ -109,24 +109,29 @@ def test_without_an_attacker_targets_show_infra_and_projects(client, db_paths):
     assert "nukeDamage" not in target
 
 
-def test_apply_attacker_damage_overrides_attrition_and_satellite():
+def test_apply_attacker_damage_overrides_satellite():
     attacker = {
         "id": 1,
         "warpolicy": "Turtle",
         "guiding_satellite": False,
     }
-    forced = apply_attacker_damage_overrides(
-        attacker, attrition=True, guiding_satellite=True
-    )
-    assert forced["warpolicy"] == "Attrition"
+    forced = apply_attacker_damage_overrides(attacker, guiding_satellite=True)
     assert forced["guiding_satellite"] is True
-    assert attacker["warpolicy"] == "Turtle"
+    assert forced["warpolicy"] == "Turtle"
     assert attacker["guiding_satellite"] is False
 
     cleared = apply_attacker_damage_overrides(
         {"id": 2, "warpolicy": "Attrition", "guiding_satellite": True},
-        attrition=False,
         guiding_satellite=False,
     )
-    assert cleared["warpolicy"] == "None"
     assert cleared["guiding_satellite"] is False
+    assert apply_attacker_damage_overrides(attacker) == attacker
+
+
+def test_attrition_parameter_no_longer_changes_the_damage(client, db_paths):
+    nations, _ = db_paths
+    _store(nations, "nations", [_nation(1, warpolicy="Turtle"), _nation(3)])
+    plain = client.get("/api/nuke-targets/?attackerNationId=1").get_json()
+    forced = client.get("/api/nuke-targets/?attackerNationId=1&attrition=true").get_json()
+    assert plain["targets"][0]["nukeDamage"] == forced["targets"][0]["nukeDamage"]
+    assert "attackerAttrition" not in plain["assumptions"]

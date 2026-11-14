@@ -178,6 +178,48 @@ def _has_table(cur: sqlite3.Cursor, table: str) -> bool:
     return cur.fetchone() is not None
 
 
+def get_nations_by_ids(
+    db_path: Path,
+    nation_ids: List[Any],
+    columns: List[str],
+    json_fields: Optional[Set[str]] = None,
+) -> Dict[int, Dict[str, Any]]:
+    """Selected columns of the given nations, keyed by id (missing ids are left out).
+
+    Only ``json_fields`` are JSON-decoded. Columns that don't exist yet are skipped.
+    """
+    ids = sorted({int(x) for x in nation_ids if str(x).strip().isdigit()})
+    if not ids:
+        return {}
+    json_fields = json_fields or set()
+    out: Dict[int, Dict[str, Any]] = {}
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        if not _has_table(cur, "nations"):
+            return {}
+        existing = {row[1] for row in cur.execute("PRAGMA table_info(nations)")}
+        cols = [c for c in dict.fromkeys(["id", *columns]) if c in existing]
+        # SQLite caps bound parameters per statement.
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            cur.execute(
+                f"SELECT {', '.join(cols)} FROM nations WHERE id IN ({', '.join('?' * len(chunk))})",
+                chunk,
+            )
+            for row in cur.fetchall():
+                nation = dict(row)
+                for key in json_fields:
+                    value = nation.get(key)
+                    if isinstance(value, str):
+                        try:
+                            nation[key] = json.loads(value)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                out[int(nation["id"])] = nation
+    return out
+
+
 def get_all_nations(db_path: Path) -> Dict[str, Any]:
     """Fetch all nations from the nations database."""
     with sqlite3.connect(str(db_path)) as conn:
@@ -353,12 +395,13 @@ def _nation_id_from_arg(arg: str | int) -> Optional[int]:
     return candidate if 0 < candidate <= _SQLITE_MAX_INTEGER else None
 
 
-def find_nation(arg: str | int) -> Optional[Dict[str, Any]]:
+def find_nation(arg: str | int, *, include_discord: bool = True) -> Optional[Dict[str, Any]]:
     """Find a nation in SQLite by id or nation link, then nation_name, leader_name or discord.
 
     Integer arguments (such as a Discord user id) are only looked up as nation ids:
     the ``discord`` column is free text any player can set, so it is matched only
-    against non-numeric text and never stands in for a verified link.
+    against non-numeric text and never stands in for a verified link. Pass
+    ``include_discord=False`` to skip it, so a verified link can be tried first.
     """
     if isinstance(arg, str):
         arg = arg.strip()
@@ -378,7 +421,7 @@ def find_nation(arg: str | int) -> Optional[Dict[str, Any]]:
         if not isinstance(arg, str) or not arg:
             return None
         fields = ["nation_name", "leader_name"]
-        if not arg.isdigit():
+        if include_discord and not arg.isdigit():
             fields.append("discord")
         for field in fields:
             cur.execute(

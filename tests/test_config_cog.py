@@ -65,3 +65,35 @@ def test_view_current_settings_lists_stored_config(monkeypatch):
     assert content.startswith("The configuration for this guild is as follows:")
     assert f"guild_id: {GUILD_ID}\n" in content
     assert "dnr: 1,2\n" in content
+
+
+def _run_dnr(monkeypatch, alliance_ids):
+    update = AsyncMock()
+    fake_db = SimpleNamespace(guild_configs=SimpleNamespace(find_one_and_update=update))
+    monkeypatch.setattr(config_cog.db_mongo, "get_db", lambda: fake_db)
+    cog = config_cog.Config(bot=MagicMock())
+    monkeypatch.setattr(cog, "_handle_command_exception", AsyncMock())
+    ctx = MagicMock()
+    ctx.guild.id = GUILD_ID
+    ctx.respond = AsyncMock()
+    asyncio.run(config_cog.Config.config_dnr.callback(cog, ctx, alliance_ids))
+    return update, ctx.respond.await_args
+
+
+def test_dnr_with_names_instead_of_ids_keeps_the_list(monkeypatch):
+    update, reply = _run_dnr(monkeypatch, "Rose, TKR")
+    update.assert_not_awaited()
+    assert "not changed" in reply.args[0]
+
+
+def test_dnr_ids_and_clearing(monkeypatch):
+    update, reply = _run_dnr(monkeypatch, "770, 1234")
+    assert update.await_args.args[1] == {"$set": {"dnr_alliance_ids": ["770", "1234"]}}
+    update, reply = _run_dnr(monkeypatch, "")
+    assert update.await_args.args[1] == {"$set": {"dnr_alliance_ids": []}}
+    assert reply.args[0] == "DNR set to `None`"
+
+
+def test_config_has_a_targets_command_for_nuketargets():
+    names = {cmd.name for cmd in config_cog.Config.config_group.subcommands}
+    assert {"dnr", "targets", "reminders", "view_current_settings"} <= names

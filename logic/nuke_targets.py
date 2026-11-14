@@ -20,6 +20,11 @@ Intercept chances come from PnWPedia (.ctx/pwpedia_data.jsonl):
 Attacker Guiding Satellite multiplies missile/nuke infrastructure destroyed
 by 1.2 (pwpedia Guiding-Satellite). Improvement destruction is not valued.
 
+War policies (pwpedia War-Policy): Attrition, Turtle, Blitzkrieg, Covert and
+Arcane only change infrastructure damage in Ground Battles, Airstrikes and Naval
+Battles, so they don't apply here. Moneybags' +5% infrastructure damage taken is
+not limited to battles and does.
+
 We never roll individual intercepts; we accumulate *expected* outcomes per
 launch (``value_if_hit * P(hit)``). War simulations repeat launches until
 expected resistance reaches zero.
@@ -59,7 +64,29 @@ IRON_DOME_INTERCEPT_CHANCE = 0.30  # pwpedia Iron-Dome, Missiles
 # Attacker project: +20% missile/nuke infrastructure damage (pwpedia Guiding-Satellite)
 GUIDING_SATELLITE_INFRA_MOD = 1.2
 
+# Defender war policies that change missile/nuke infrastructure damage taken (see
+# the module docstring; the battle-only policies are left out on purpose).
+STRIKE_POLICY_INFRA_LOST = {"MONEYBAGS": 1.05}
+
 MAX_SIMULATION_SHOTS = 500
+
+# SQLite columns the target metrics read (the website route and /nuketargets).
+# Defensive slots and time since war are precomputed by the scanner; only the
+# attacker's own row needs its wars.
+NUKE_TARGET_COLUMNS = [
+    "id", "nation_name", "leader_name", "alliance_id", "alliance_position", "alliance",
+    "num_cities", "score", "color", "beige_turns", "last_active",
+    "vacation_mode_turns", "vmode",
+    "soldiers", "tanks", "aircraft", "ships", "missiles", "nukes",
+    "def_slots", "time_since_war", "cities",
+    "warpolicy", "war_policy", "vds", "vital_defense_system", "irond", "iron_dome",
+    "fallout_shelter",
+    # infra_rebuild_cost discounts (logic/economy.py)
+    "dompolicy", "domestic_policy", "government_support_agency",
+    "bureau_of_domestic_affairs", "center_for_civil_engineering",
+    "advanced_engineering_corps",
+]
+NUKE_TARGET_JSON_FIELDS = {"cities", "alliance"}
 
 # Resource prices aligned with logic/damage.py
 _ALUM_PRICE = 2971
@@ -183,20 +210,14 @@ def _war_policy_label(nation: dict[str, Any]) -> str:
 
 
 def _policy_modifiers(nation: dict[str, Any]) -> dict[str, float]:
+    """Missile/nuke modifiers from this nation's war policy and projects."""
+    # Scans store "Moneybags", subscription rows the enum name "MONEYBAGS".
+    policy = _normalize_war_policy(nation.get("warpolicy") or nation.get("war_policy"))
     mods = {
-        "policy_infra_dealt": 1.0,
-        "policy_infra_lost": 1.0,
+        "policy_infra_lost": STRIKE_POLICY_INFRA_LOST.get(policy, 1.0),
         "fallout_shelter_mod": 1.0,
         "guiding_satellite_mod": 1.0,
     }
-    # Scans store "Attrition", subscription rows the enum name "ATTRITION".
-    policy = _normalize_war_policy(nation.get("warpolicy") or nation.get("war_policy"))
-    if policy == "ATTRITION":
-        mods["policy_infra_dealt"] = 1.1
-    elif policy == "TURTLE":
-        mods["policy_infra_lost"] = 0.9
-    elif policy in ("MONEYBAGS", "COVERT", "ARCANE"):
-        mods["policy_infra_lost"] = 1.05
     if _has_fallout_shelter(nation):
         mods["fallout_shelter_mod"] = 0.9
     if _project_bool(nation, "guiding_satellite", "guidingSatellite"):
@@ -236,7 +257,6 @@ def _strike_mods(attacker: dict[str, Any], defender: dict[str, Any]) -> dict[str
     def_mods = _policy_modifiers(defender)
     return {
         "war_infra_mod": _attacker_war_infra_mod(attacker, str(defender.get("id", ""))),
-        "policy_infra_dealt": att_mods["policy_infra_dealt"],
         "policy_infra_lost": def_mods["policy_infra_lost"],
         "fallout_shelter_mod": def_mods["fallout_shelter_mod"],
         "guiding_satellite_mod": att_mods["guiding_satellite_mod"],
@@ -273,7 +293,6 @@ def _raw_nuke_infra(
     city: CityState,
     *,
     war_infra_mod: float,
-    policy_infra_dealt: float,
     policy_infra_lost: float,
     fallout_shelter_mod: float,
     guiding_satellite_mod: float = 1.0,
@@ -290,7 +309,6 @@ def _raw_nuke_infra(
     return (
         base
         * war_infra_mod
-        * policy_infra_dealt
         * policy_infra_lost
         * fallout_shelter_mod
         * guiding_satellite_mod
@@ -301,7 +319,6 @@ def _raw_missile_infra(
     city: CityState,
     *,
     war_infra_mod: float,
-    policy_infra_dealt: float,
     policy_infra_lost: float,
     guiding_satellite_mod: float = 1.0,
 ) -> float:
@@ -317,7 +334,6 @@ def _raw_missile_infra(
     return (
         base
         * war_infra_mod
-        * policy_infra_dealt
         * policy_infra_lost
         * guiding_satellite_mod
     )
@@ -328,7 +344,6 @@ def _infra_destroyed_if_hit(
     city: CityState,
     *,
     war_infra_mod: float,
-    policy_infra_dealt: float,
     policy_infra_lost: float,
     fallout_shelter_mod: float,
     guiding_satellite_mod: float = 1.0,
@@ -337,7 +352,6 @@ def _infra_destroyed_if_hit(
         raw = _raw_nuke_infra(
             city,
             war_infra_mod=war_infra_mod,
-            policy_infra_dealt=policy_infra_dealt,
             policy_infra_lost=policy_infra_lost,
             fallout_shelter_mod=fallout_shelter_mod,
             guiding_satellite_mod=guiding_satellite_mod,
@@ -346,7 +360,6 @@ def _infra_destroyed_if_hit(
         raw = _raw_missile_infra(
             city,
             war_infra_mod=war_infra_mod,
-            policy_infra_dealt=policy_infra_dealt,
             policy_infra_lost=policy_infra_lost,
             guiding_satellite_mod=guiding_satellite_mod,
         )
@@ -361,7 +374,6 @@ def compute_expected_launch_outcome(
     defender: dict[str, Any],
     *,
     war_infra_mod: float,
-    policy_infra_dealt: float,
     policy_infra_lost: float,
     fallout_shelter_mod: float,
     guiding_satellite_mod: float = 1.0,
@@ -377,7 +389,6 @@ def compute_expected_launch_outcome(
         strike,
         city,
         war_infra_mod=war_infra_mod,
-        policy_infra_dealt=policy_infra_dealt,
         policy_infra_lost=policy_infra_lost,
         fallout_shelter_mod=fallout_shelter_mod,
         guiding_satellite_mod=guiding_satellite_mod,

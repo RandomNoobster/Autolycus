@@ -97,16 +97,9 @@ function defenderWarPolicyCell(policy: string | undefined) {
       </Text>
     );
   }
-  // Turtle: −10% infra taken (worse target). Cooler tone.
-  if (label === 'Turtle') {
-    return (
-      <Text size="sm" c="cyan.4" fw={500}>
-        {label}
-      </Text>
-    );
-  }
-  // Moneybags / Covert / Arcane: +5% infra taken (better target). Warmer tone.
-  if (label === 'Moneybags' || label === 'Covert' || label === 'Arcane') {
+  // Moneybags: +5% infra taken from every attack (better target). Warmer tone.
+  // Other policies only change ground, air, and naval battle damage.
+  if (label.toUpperCase() === 'MONEYBAGS') {
     return (
       <Text size="sm" c="orange.4" fw={500}>
         {label}

@@ -1,8 +1,6 @@
 """Configuration cog for Autolycus Discord bot."""
 
 import logging
-import os
-from typing import Optional
 
 import discord
 from discord.commands import Option, SlashCommandGroup
@@ -17,13 +15,16 @@ from logic import reminders as reminder_rules
 
 logger = logging.getLogger(__name__)
 
+# Discord's limit for a message's content.
+_MAX_MESSAGE_CHARS = 2000
+
 
 class Config(commands.Cog):
     """Handles guild and user configuration for the Autolycus bot."""
 
     def __init__(self, bot: commands.Bot) -> None:
         """Initialize the Config cog.
-        
+
         Args:
             bot: The Discord bot instance.
         """
@@ -36,23 +37,44 @@ class Config(commands.Cog):
         *,
         command_name: str,
     ) -> None:
-        ref = await err_util.report_handled_exception(
+        await err_util.handle_command_exception(
             self.bot,
             ctx,
             error,
             logger,
             command_name=command_name,
+            title="Configuration failed",
+            message="I couldn't update or read that setting. Please try again.",
         )
-        embed = err_util.error_embed(
-            "Configuration failed",
-            (
-                err_util.PNW_SERVER_USER_MESSAGE
-                if err_util.is_pnw_server_error(error)
-                else "I couldn't update or read that setting. Please try again."
-            ),
-            reference=ref,
+
+    async def _set_alliance_list(
+        self,
+        ctx: discord.ApplicationContext,
+        *,
+        field: str,
+        alliance_ids: str,
+        label: str,
+    ) -> None:
+        """Store a guild's alliance id list; empty input clears it."""
+        id_list: list[str] = []
+        id_str = "None"
+        if alliance_ids.strip():
+            id_list, id_str = common.str_to_id_list(alliance_ids)
+            if not id_list:
+                # Names instead of ids would otherwise wipe the stored list.
+                await ctx.respond(
+                    "I couldn't find any alliance ids in that. Use the numeric ids "
+                    "(from the alliance's page link), separated by commas. "
+                    f"The {label} list was not changed.",
+                    ephemeral=True,
+                )
+                return
+        await db_mongo.get_db().guild_configs.find_one_and_update(
+            {"guild_id": ctx.guild.id},
+            {"$set": {field: id_list}},
+            upsert=True,
         )
-        await err_util.safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=logger)
+        await ctx.respond(f"{label} set to `{id_str}`")
 
     config_group = SlashCommandGroup("config", "Server and personal configuration settings")
 
@@ -65,36 +87,42 @@ class Config(commands.Cog):
     async def config_dnr(
         self,
         ctx: discord.ApplicationContext,
-        alliance_ids: Option(str, "The alliance id(s) to include in the DNR list") = "",
+        alliance_ids: Option(str, "The alliance id(s) to include in the DNR list. Leave empty to clear it.") = "",
     ) -> None:
         """Set the Do Not Raid (DNR) alliance list for this server.
-        
+
         Args:
             ctx: The Discord application context.
-            alliance_ids: Comma-separated alliance IDs to add to the DNR list.
-            
-        Raises:
-            Exception: Re-raised after logging for error tracking.
+            alliance_ids: Comma-separated alliance IDs for the DNR list.
         """
         try:
-            id_list: list[int] = []
-            id_str: str = "None"
-            
-            if alliance_ids:
-                id_list, id_str = common.str_to_id_list(alliance_ids)
-            
-            db = db_mongo.get_db()
-            await db.guild_configs.find_one_and_update(
-                {"guild_id": ctx.guild.id},
-                {"$set": {"dnr_alliance_ids": id_list}},
-                upsert=True,
+            await self._set_alliance_list(
+                ctx, field="dnr_alliance_ids", alliance_ids=alliance_ids, label="DNR"
             )
-            await ctx.respond(f"DNR set to `{id_str}`")
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="config dnr")
             return
-    
-    
+
+    @config_group.command(
+        name="targets",
+        description="Set the alliances /nuketargets looks for targets in",
+    )
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def config_targets(
+        self,
+        ctx: discord.ApplicationContext,
+        alliance_ids: Option(str, "The enemy alliance id(s) to target. Leave empty to target all alliances.") = "",
+    ) -> None:
+        """Set the alliances /nuketargets searches (``targets_alliance_ids``)."""
+        try:
+            await self._set_alliance_list(
+                ctx, field="targets_alliance_ids", alliance_ids=alliance_ids, label="Target alliances"
+            )
+        except Exception as e:
+            await self._handle_command_exception(ctx, e, command_name="config targets")
+            return
+
     @config_group.command(
         name="view_current_settings",
         description="View this server's current Autolycus configuration",
@@ -106,29 +134,31 @@ class Config(commands.Cog):
         ctx: discord.ApplicationContext,
     ) -> None:
         """Display the current configuration settings for this server.
-        
+
         Args:
             ctx: The Discord application context.
-            
-        Raises:
-            Exception: Re-raised after logging for error tracking.
         """
         try:
             await ctx.defer(ephemeral=True)
             db = db_mongo.get_db()
             server = await db.guild_configs.find_one({"guild_id": ctx.guild.id})
-            
+
             if not server:
                 await ctx.edit(content="No configurable commands have been configured in this server!")
             else:
                 content = "The configuration for this guild is as follows:\n\n```\n"
                 for key, value in server.items():
+                    if key == "_id":
+                        continue
                     content += f"{key}: {value}\n"
-                await ctx.edit(content=content + "```")
+                closing = "```"
+                if len(content) + len(closing) > _MAX_MESSAGE_CHARS:
+                    content = content[: _MAX_MESSAGE_CHARS - len(closing) - 2] + "…\n"
+                await ctx.edit(content=content + closing)
         except Exception as e:
             await self._handle_command_exception(ctx, e, command_name="config view_current_settings")
             return
-        
+
     @config_group.command(
         name="reminders",
         description="Customize when you receive beige exit reminders",
@@ -149,7 +179,10 @@ class Config(commands.Cog):
             await ctx.defer()
             db = db_mongo.get_db()
             profile = await reminder_db.get_profile(db, ctx.user.id) or {}
-            offsets = reminder_rules.sanitize_offsets(profile.get("beige_alerts_config")) or []
+            stored = profile.get("beige_alerts_config")
+            # The timings the scheduler actually uses (it keeps the valid entries of
+            # an older list); nothing stored means the default applies.
+            offsets = reminder_rules.effective_offsets(stored) if stored else []
 
             def describe(minutes: list[int]) -> str:
                 return common.comma_and_list(
@@ -172,9 +205,7 @@ class Config(commands.Cog):
                     negative="Start over",
                     disable_on_submit=False,
                 )
-                msg = await ctx.edit(embed=embed, view=view)
-                if msg and getattr(msg, "id", None):
-                    await views.bind_persistent_prompt_message(session_id, msg.id)
+                await ctx.edit(embed=embed, view=view)
                 result = await views.wait_for_persistent_yesno_result(session_id)
                 if result is None:
                     return
@@ -197,11 +228,6 @@ class Config(commands.Cog):
                     description=description,
                     color=common.EMBED_COLOR,
                 )
-                modal = views.SimpleModal(
-                    title="Configuration of beige reminders",
-                    label="Minutes before exiting beige",
-                    placeholder="A whole number from 1 to 10080, e.g. 15",
-                )
                 choices = [("finish", "Finish configuration", discord.ButtonStyle.blurple)]
                 if len(offsets) < reminder_rules.MAX_REMINDER_OFFSETS:
                     choices.insert(0, ("add", "Add more", discord.ButtonStyle.blurple))
@@ -210,14 +236,21 @@ class Config(commands.Cog):
                     ctx=ctx,
                     choices=choices,
                     disable_on_submit=False,
+                    # The button opens the modal itself: a modal must be the first
+                    # response to the click.
+                    modals={
+                        "add": {
+                            "title": "Configuration of beige reminders",
+                            "label": "Minutes before exiting beige",
+                            "placeholder": "A whole number from 1 to 10080, e.g. 15",
+                        }
+                    },
                 )
-                msg = await ctx.edit(embed=embed, view=view)
-                if msg and getattr(msg, "id", None):
-                    await views.bind_persistent_prompt_message(session_id, msg.id)
-                result = await views.wait_for_persistent_choice_result(session_id)
-
-                if result is None:
+                await ctx.edit(embed=embed, view=view)
+                answer = await views.wait_for_persistent_choice(session_id)
+                if answer is None:
                     return
+                result, state = answer
 
                 if result == "finish":
                     final = offsets or list(reminder_rules.DEFAULT_REMINDER_OFFSETS)
@@ -232,13 +265,7 @@ class Config(commands.Cog):
                     await ctx.edit(embed=embed, view=None)
                     break
 
-                # Wait for modal submission
-                await ctx.send_modal(modal)
-                submitted = await modal.wait()
-                if not submitted:
-                    return
-
-                minutes = reminder_rules.parse_offset_minutes(modal.text)
+                minutes = reminder_rules.parse_offset_minutes(str(state.get("text") or ""))
                 if minutes is None:
                     await ctx.edit(
                         content="Enter a whole number of minutes from 1 to 10080 (7 days).",
@@ -258,7 +285,7 @@ class Config(commands.Cog):
 
 def setup(bot: commands.Bot) -> None:
     """Load the Config cog into the bot.
-    
+
     Args:
         bot: The Discord bot instance.
     """

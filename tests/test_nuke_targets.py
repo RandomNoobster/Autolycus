@@ -87,17 +87,33 @@ class TestInfraRebuildCost:
 
 
 class TestNukeMissileMetrics:
-    def test_attrition_attacker_policy_boosts_damage(self):
-        attacker = _nation(1, cities=[_city(1000)], warpolicy="Attrition")
-        defender = _nation(2, cities=[_city(2000, 600)])
-        base_attacker = _nation(1, cities=[_city(1000)], warpolicy="None")
+    def test_attacker_war_policy_does_not_change_strike_damage(self):
+        # PWPedia War-Policy: Attrition's +10% is for ground, air and naval battles.
+        defender = _nation(2, cities=[_city(4000, 4000)])
+        base = compute_nuke_missile_metrics(_nation(1, cities=[_city(1000)]), defender)
+        for policy in ("Attrition", "ATTRITION", "Blitzkrieg"):
+            attacker = _nation(1, cities=[_city(1000)], warpolicy=policy)
+            metrics = compute_nuke_missile_metrics(attacker, defender)
+            assert metrics is not None and base is not None
+            assert metrics.nuke_infra_lost == pytest.approx(base.nuke_infra_lost)
+            assert metrics.missile_infra_lost == pytest.approx(base.missile_infra_lost)
 
-        with_attrition = compute_nuke_missile_metrics(attacker, defender)
-        without_attrition = compute_nuke_missile_metrics(base_attacker, defender)
-
-        assert with_attrition is not None
-        assert without_attrition is not None
-        assert with_attrition.nuke_damage > without_attrition.nuke_damage
+    def test_only_moneybags_changes_the_damage_a_defender_takes(self):
+        attacker = _nation(1, cities=[_city(1000)])
+        base = compute_nuke_missile_metrics(attacker, _nation(2, cities=[_city(4000, 4000)]))
+        assert base is not None
+        for policy in ("Turtle", "Covert", "ARCANE"):
+            metrics = compute_nuke_missile_metrics(
+                attacker, _nation(2, cities=[_city(4000, 4000)], warpolicy=policy)
+            )
+            assert metrics is not None
+            assert metrics.nuke_infra_lost == pytest.approx(base.nuke_infra_lost)
+        moneybags = compute_nuke_missile_metrics(
+            attacker, _nation(2, cities=[_city(4000, 4000)], warpolicy="Moneybags")
+        )
+        assert moneybags is not None
+        assert moneybags.nuke_infra_lost == pytest.approx(base.nuke_infra_lost * 1.05)
+        assert moneybags.missile_infra_lost == pytest.approx(base.missile_infra_lost * 1.05)
 
     def test_vds_reduces_expected_nuke_damage(self):
         defender_vds = _nation(2, cities=[_city(2000, 600)], vds=True)
@@ -145,37 +161,21 @@ class TestNukeMissileMetrics:
         assert with_gs.nuke_damage > without_gs.nuke_damage
         assert with_gs.missile_damage > without_gs.missile_damage
 
-    def test_guiding_satellite_stacks_with_attrition(self):
-        defender = _nation(2, cities=[_city(4000, 4000)])
+    def test_guiding_satellite_stacks_with_a_moneybags_defender(self):
+        defender = _nation(2, cities=[_city(4000, 4000)], warpolicy="Moneybags")
         base = compute_nuke_missile_metrics(
-            _nation(1, cities=[_city(1000)], warpolicy="None"), defender
-        )
-        attrition = compute_nuke_missile_metrics(
-            _nation(1, cities=[_city(1000)], warpolicy="Attrition"), defender
-        )
-        gs = compute_nuke_missile_metrics(
-            _nation(1, cities=[_city(1000)], warpolicy="None", guiding_satellite=True),
-            defender,
+            _nation(1, cities=[_city(1000)]), _nation(2, cities=[_city(4000, 4000)])
         )
         both = compute_nuke_missile_metrics(
-            _nation(
-                1,
-                cities=[_city(1000)],
-                warpolicy="Attrition",
-                guiding_satellite=True,
-            ),
-            defender,
+            _nation(1, cities=[_city(1000)], guiding_satellite=True), defender
         )
 
-        assert base is not None and attrition is not None
-        assert gs is not None and both is not None
-        assert both.nuke_infra_lost > attrition.nuke_infra_lost
-        assert both.nuke_infra_lost > gs.nuke_infra_lost
+        assert base is not None and both is not None
         assert both.nuke_infra_lost == pytest.approx(
-            base.nuke_infra_lost * 1.1 * 1.2, rel=1e-6
+            base.nuke_infra_lost * 1.05 * 1.2, rel=1e-6
         )
         assert both.missile_infra_lost == pytest.approx(
-            base.missile_infra_lost * 1.1 * 1.2, rel=1e-6
+            base.missile_infra_lost * 1.05 * 1.2, rel=1e-6
         )
 
 
@@ -247,9 +247,11 @@ class TestWarModifiers:
             assert _attacker_war_infra_mod(self._attacker(war), "2") == 1.0
 
     def test_war_policy_enum_names_apply(self):
-        assert _policy_modifiers({"war_policy": "ATTRITION"})["policy_infra_dealt"] == 1.1
-        assert _policy_modifiers({"warpolicy": "Turtle"})["policy_infra_lost"] == 0.9
         assert _policy_modifiers({"war_policy": "MONEYBAGS"})["policy_infra_lost"] == 1.05
+        assert _policy_modifiers({"warpolicy": "Moneybags"})["policy_infra_lost"] == 1.05
+        # Battle-only policies leave strikes alone.
+        assert _policy_modifiers({"warpolicy": "Turtle"})["policy_infra_lost"] == 1.0
+        assert "policy_infra_dealt" not in _policy_modifiers({"war_policy": "ATTRITION"})
 
 
 class TestInfraCap:

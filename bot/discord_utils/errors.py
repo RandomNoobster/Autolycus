@@ -37,6 +37,9 @@ def is_pnw_server_error(error: BaseException) -> bool:
     root = unwrap_command_error(error)
     if type(root).__name__ == "PnWServerError":
         return True
+    if isinstance(root, discord.HTTPException):
+        # Discord's own 5xx text ("500 Internal Server Error") is not a P&W outage.
+        return False
     msg = str(root).lower()
     return "internal server error" in msg or "pnw server error" in msg
 
@@ -126,7 +129,14 @@ def chunk_text_for_discord(text: str, max_len: int = 1900) -> list[str]:
     chunks: list[str] = []
     cur: list[str] = []
     cur_len = 0
+    lines: list[str] = []
     for line in text.split("\n"):
+        # A single line longer than the limit (a long error message) is cut up too.
+        while len(line) > max_len:
+            lines.append(line[:max_len])
+            line = line[max_len:]
+        lines.append(line)
+    for line in lines:
         line_len = len(line) + 1
         if cur_len + line_len > max_len and cur:
             chunks.append("\n".join(cur))
@@ -231,7 +241,8 @@ async def send_embed_with_trace_thread(
             log.error("failed_debug_channel: %s", e, exc_info=e)
 
 
-def _resolve_debug_channel(bot: discord.Client) -> discord.abc.Messageable | None:
+def resolve_debug_channel(bot: discord.Client) -> discord.abc.Messageable | None:
+    """The DEBUG_CHANNEL channel, or None when it is unset or not visible to the bot."""
     channel_id_raw = os.getenv("DEBUG_CHANNEL")
     if not channel_id_raw:
         return None
@@ -257,8 +268,33 @@ async def report_handled_exception(
     ref = reference or new_error_reference()
     root = unwrap_command_error(error)
     log_command_error(log, root, ctx=ctx, reference=ref, command_name=command_name)
-    await send_debug_channel_messages(_resolve_debug_channel(bot), ctx, error, ref, log)
+    await send_debug_channel_messages(resolve_debug_channel(bot), ctx, error, ref, log)
     return ref
+
+
+async def handle_command_exception(
+    bot: commands.Bot,
+    ctx: discord.ApplicationContext,
+    error: BaseException,
+    log: logging.Logger,
+    *,
+    command_name: str,
+    title: str = "Command failed",
+    message: str = "I couldn't complete that request. Please try again in a moment.",
+) -> None:
+    """Tell the user an error a command caught, then report it with the same reference.
+
+    The reply goes first: posting the trace to the debug channel takes several
+    requests, which could use up a command's 3 s to first reply.
+    """
+    ref = new_error_reference()
+    embed = error_embed(
+        title,
+        PNW_SERVER_USER_MESSAGE if is_pnw_server_error(error) else message,
+        reference=ref,
+    )
+    await safe_reply_error(ctx, embed, ephemeral=True, reference=ref, log=log)
+    await report_handled_exception(bot, ctx, error, log, reference=ref, command_name=command_name)
 
 
 async def report_bot_exception(
@@ -295,7 +331,7 @@ async def report_bot_exception(
     )
     embed.add_field(name="Type", value=type(root).__name__[:1024], inline=False)
     await send_embed_with_trace_thread(
-        _resolve_debug_channel(bot),
+        resolve_debug_channel(bot),
         embed=embed,
         traceback_text=_format_traceback_text(error),
         log=log,

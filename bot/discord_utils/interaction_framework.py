@@ -55,9 +55,19 @@ class InteractionRegistry:
     def __init__(self) -> None:
         self._handlers: dict[str, SessionHandler] = {}
         self._stateless_handlers: dict[str, StatelessHandler] = {}
+        self._no_auto_defer: set[str] = set()
 
-    def register(self, handler_key: str, handler: SessionHandler) -> None:
+    def register(self, handler_key: str, handler: SessionHandler, *, auto_defer: bool = True) -> None:
+        """Route ``ix:<handler_key>:...`` custom IDs to ``handler``.
+
+        ``auto_defer=False`` leaves the interaction unanswered for the handler, which
+        must then respond within Discord's 3 s itself (needed to open a modal).
+        """
         self._handlers[handler_key] = handler
+        if auto_defer:
+            self._no_auto_defer.discard(handler_key)
+        else:
+            self._no_auto_defer.add(handler_key)
 
     def register_stateless(self, handler_key: str, handler: StatelessHandler) -> None:
         """Register a handler for ``ixp:<handler_key>:...`` custom IDs."""
@@ -85,6 +95,7 @@ class InteractionRegistry:
         # when session/db lookups are slow.
         if (
             interaction.type == discord.InteractionType.component
+            and parsed.handler_key not in self._no_auto_defer
             and not interaction.response.is_done()
         ):
             try:
@@ -157,6 +168,16 @@ class InteractionRegistry:
                 f"Something went wrong handling this button. Please try again. (Reference: {ref})",
             )
         return True
+
+
+async def route_interaction(bot, interaction: discord.Interaction) -> None:
+    """Registry buttons first; everything else to py-cord.
+
+    ``process_application_commands`` handles slash commands and autocomplete and
+    ignores other types, as py-cord's default ``on_interaction`` does.
+    """
+    if not await bot.interaction_registry.dispatch(interaction):
+        await bot.process_application_commands(interaction)
 
 
 async def _safe_ephemeral(interaction: discord.Interaction, content: str) -> None:

@@ -21,10 +21,10 @@ NATION = {"id": 123, "nation_name": "Testland", "leader_name": "Tester"}
 
 
 class FakeMember:
-    def __init__(self, member_id: int, name: str) -> None:
+    def __init__(self, member_id: int, name: str, display_name: str | None = None) -> None:
         self.id = member_id
         self.name = name
-        self.display_name = name
+        self.display_name = display_name or name
 
     def __str__(self) -> str:
         return self.name
@@ -44,9 +44,11 @@ def _patch_lookups(monkeypatch: pytest.MonkeyPatch, *, users: dict, nations: dic
     """Replace SQLite/Mongo lookups with in-memory fakes keyed by ``str(arg)``."""
     nation_lookups: list = []
 
-    def fake_find_nation(arg):
+    def fake_find_nation(arg, include_discord=True):
         nation_lookups.append(arg)
         found = nations.get(str(arg))
+        if found is None and include_discord:
+            found = nations.get(f"discord:{arg}")
         return dict(found) if found else None
 
     async def fake_get_global_user_by_any(arg):
@@ -84,9 +86,41 @@ def test_find_nation_plus_member_scan_skips_reminder_only_profiles(monkeypatch):
         users={"1": STUB_PROFILE, "2": {"user": 2, "id": "123"}},
         nations={"123": NATION},
     )
-    bot = FakeBot([FakeMember(1, "tester"), FakeMember(2, "tester_alt")])
+    bot = FakeBot([FakeMember(1, "tester"), FakeMember(2, "tester_alt", display_name="Tester")])
 
     assert asyncio.run(helpers.find_nation_plus(bot, "tester")) == NATION
+
+
+def test_find_nation_plus_ignores_partial_member_names(monkeypatch):
+    # "Rose" must not resolve to the verified member "primrose".
+    _patch_lookups(monkeypatch, users={"2": {"user": 2, "id": "123"}}, nations={"123": NATION})
+    bot = FakeBot([FakeMember(2, "primrose")])
+
+    assert asyncio.run(helpers.find_nation_plus(bot, "Rose")) is None
+
+
+def test_verified_member_beats_the_in_game_discord_field(monkeypatch):
+    impostor = {"id": 999, "nation_name": "Impostor"}
+    _patch_lookups(
+        monkeypatch,
+        users={"2": {"user": 2, "id": "123"}},
+        nations={"123": NATION, "discord:alice": impostor},
+    )
+    bot = FakeBot([FakeMember(2, "alice")])
+
+    assert asyncio.run(helpers.find_nation_plus(bot, "alice")) == NATION
+    # Without a verified member, the in-game field is still a last resort.
+    assert asyncio.run(helpers.find_nation_plus(FakeBot(), "alice")) == impostor
+
+
+def test_member_lookup_asks_the_guild_when_the_cache_misses(monkeypatch):
+    _patch_lookups(monkeypatch, users={"2": {"user": 2, "id": "123"}}, nations={"123": NATION})
+
+    class FakeGuild:
+        async def query_members(self, query, limit):
+            return [FakeMember(2, "bob"), FakeMember(3, "bobby")]
+
+    assert asyncio.run(helpers.find_nation_plus(FakeBot(), "Bob", guild=FakeGuild())) == NATION
 
 
 def test_find_nation_plus_member_scan_with_only_reminder_profiles_returns_none(monkeypatch):
@@ -122,6 +156,7 @@ class FakeCtx:
 
     def __init__(self, author_id: int = 1) -> None:
         self.author = SimpleNamespace(id=author_id, name="tester")
+        self.guild = None
         self.messages: list[str | None] = []
 
     async def defer(self, *args, **kwargs) -> None:
@@ -200,3 +235,30 @@ def test_revenue_nation_other_person_with_reminder_only_profile_not_found(monkey
     asyncio.run(general.Background.nation_revenue.callback(_cog_self(FakeBot()), ctx, person="1"))
 
     assert ctx.messages[-1] == "I could not find that person!"
+
+
+def test_unverify_leaves_a_reminder_only_profile_alone(monkeypatch):
+    from bot.cogs import general
+
+    deleted = []
+
+    async def get_verification(user_id):
+        return STUB_PROFILE
+
+    async def delete_verification(user_id):
+        deleted.append(user_id)
+        return STUB_PROFILE
+
+    monkeypatch.setattr(general, "get_verification", get_verification)
+    monkeypatch.setattr(general, "delete_verification", delete_verification)
+    ctx = FakeCtx(author_id=1)
+    embeds = []
+
+    async def respond(content=None, embed=None, **kwargs):
+        embeds.append(embed)
+
+    ctx.respond = respond
+    asyncio.run(general.Background.unverify.callback(_cog_self(FakeBot()), ctx))
+
+    assert deleted == []  # their reminders survive
+    assert embeds[0].title == "Not linked"

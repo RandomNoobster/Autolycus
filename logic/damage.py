@@ -411,9 +411,13 @@ def _calculate_casualties(results: Dict[str, Any], attacker: str, defender: str)
 
 
 def _apply_policy_modifiers(results: Dict[str, Any], nation_key: str) -> None:
+    # ``policy_infra_*`` apply to Ground Battles, Airstrikes and Naval Battles. Only
+    # Moneybags' damage-taken penalty also covers missiles and nukes, so strikes use
+    # ``strike_policy_infra_lost`` (PWPedia War-Policy).
     results[f"{nation_key}_policy_infra_dealt"] = 1
     results[f"{nation_key}_policy_loot_stolen"] = 1
     results[f"{nation_key}_policy_infra_lost"] = 1
+    results[f"{nation_key}_strike_policy_infra_lost"] = 1
     results[f"{nation_key}_policy_loot_lost"] = 1
     results[f"{nation_key}_vds_mod"] = 1
     results[f"{nation_key}_irond_mod"] = 1
@@ -432,6 +436,7 @@ def _apply_policy_modifiers(results: Dict[str, Any], nation_key: str) -> None:
         results[f"{nation_key}_policy_loot_lost"] = 1.2
     elif policy == "Moneybags":
         results[f"{nation_key}_policy_infra_lost"] = 1.05
+        results[f"{nation_key}_strike_policy_infra_lost"] = 1.05
         results[f"{nation_key}_policy_loot_lost"] = 0.6
     elif policy == "Pirate":
         results[f"{nation_key}_policy_loot_stolen"] = 1.4
@@ -560,7 +565,7 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
             city_infra * 0.8 + 150,
         ),
         0,
-    ) * results[f"{attacker}_war_infra_mod"] * results[f"{attacker}_policy_infra_dealt"] * results[f"{defender}_policy_infra_lost"] * results[f"{defender}_fallout_shelter_mod"] * results[f"{attacker}_guiding_satellite_mod"]
+    ) * results[f"{attacker}_war_infra_mod"] * results[f"{defender}_strike_policy_infra_lost"] * results[f"{defender}_fallout_shelter_mod"] * results[f"{attacker}_guiding_satellite_mod"]
 
     results[f"{attacker}_missile_{defender}_lost_infra_avg"] = max(
         min(
@@ -568,7 +573,7 @@ def _calculate_damage_numbers(results: Dict[str, Any], attacker: str, defender: 
             city_infra * 0.3 + 100,
         ),
         0,
-    ) * results[f"{attacker}_war_infra_mod"] * results[f"{attacker}_policy_infra_dealt"] * results[f"{defender}_policy_infra_lost"] * results[f"{attacker}_guiding_satellite_mod"]
+    ) * results[f"{attacker}_war_infra_mod"] * results[f"{defender}_strike_policy_infra_lost"] * results[f"{attacker}_guiding_satellite_mod"]
 
     for attack in ("ground", "air", "navalvinfra", "navalvships", "nuke", "missile"):
         key = f"{attacker}_{attack}_{defender}_lost_infra"
