@@ -6,9 +6,7 @@ export const INACTIVE_PRESET_DAYS = ['3', '5', '7', '14', '30'] as const;
 
 export const LOOT_PRESET_AMOUNTS = ['0', '5000000', '10000000', '20000000'] as const;
 
-export type LootPresetAmount = (typeof LOOT_PRESET_AMOUNTS)[number];
-
-/** Parse numeric values that might contain $, %, +, commas, and k/m/b suffix */
+/** Parse numeric values that might contain $, %, +, commas, and k/m/b suffix; 0 when unreadable. */
 export function parseNumericValue(value: unknown): number {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -22,8 +20,10 @@ export function parseNumericValue(value: unknown): number {
       const num = base * mult;
       return Number.isNaN(num) ? 0 : num;
     }
-    const parsed = parseFloat(cleaned.replace(/[^0-9.-]/g, ''));
-    return Number.isNaN(parsed) ? 0 : parsed;
+    // The leading number, exponents included ("1e3" is 1000, "10 days" is 10). Deleting the
+    // letters instead would join the digits around them ("1e3" -> 13).
+    const parsed = parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
 }
@@ -132,9 +132,4 @@ export function normalizeDefSlotsFilterValue(value: unknown): string {
   if (!Number.isFinite(n)) return '';
   const clamped = Math.min(Math.max(Math.round(n), 0), 3);
   return String(clamped);
-}
-
-export function defSlotsFilterCompareKey(value: unknown): string {
-  const s = normalizeDefSlotsFilterValue(value);
-  return s === '' ? '' : s;
 }

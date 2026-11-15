@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Box, NumberInput, Tooltip } from '@mantine/core';
+import { Box, NumberInput, TextInput, Tooltip } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { parseNumericValue } from '@/lib/raidFilterParsing';
 
@@ -54,44 +54,93 @@ function numberInputValueFromFilterString(s: string): string | number {
   return Number.isFinite(n) ? n : s;
 }
 
-export const minOnlyFilter = (
-  row: { getValue: (id: string) => unknown },
-  id: string,
-  filterValue: unknown
-) => {
+type FilterableRow = { getValue: (id: string) => unknown };
+
+export const minOnlyFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
   if (filterValue === undefined || filterValue === null || filterValue === '') return true;
   return parseNumericValue(row.getValue(id)) >= parseNumericValue(filterValue);
 };
+
+export const maxOnlyFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
+  if (filterValue === undefined || filterValue === null || filterValue === '') return true;
+  return parseNumericValue(row.getValue(id)) <= parseNumericValue(filterValue);
+};
+
+type FilterColumn = { getFilterValue: () => unknown; setFilterValue: (v: unknown) => void };
+
+/**
+ * Local text that follows the column filter and writes back after a pause. It writes only
+ * values the user typed: echoing the column's own value back (on mount, or after the sidebar
+ * changed it) would rerun every filter and save the page state for nothing.
+ */
+function useDebouncedColumnFilter<T>(
+  column: FilterColumn,
+  toLocal: (filter: string) => T,
+  toFilter: (local: T) => string,
+  wait: number
+) {
+  const colStr = columnFilterString(column.getFilterValue());
+  const [local, setLocal] = useState<T>(() => toLocal(colStr));
+  const [debounced] = useDebouncedValue(local, wait);
+  const lastEmittedRef = useRef(colStr);
+
+  useEffect(() => {
+    const next = toFilter(debounced);
+    if (next === lastEmittedRef.current) return;
+    lastEmittedRef.current = next;
+    // undefined removes the filter instead of keeping an empty one that runs on every row.
+    column.setFilterValue(next === '' ? undefined : next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced]);
+
+  // Sidebar / URL sync updates column state without remounting this cell: keep the input in sync.
+  useEffect(() => {
+    if (colStr !== lastEmittedRef.current) {
+      lastEmittedRef.current = colStr;
+      setLocal(toLocal(colStr));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colStr]);
+
+  return [local, setLocal] as const;
+}
+
+const asText = (s: string) => s;
+const numberToFilter = (v: string | number) =>
+  v === '' || v === undefined || v === null ? '' : String(v);
+
+/** Debounced text filter for min/max columns (accepts 10k, 2m, $5,000 …). */
+export function DebouncedTextFilterInput({
+  column,
+  placeholder,
+}: {
+  column: FilterColumn;
+  placeholder: string;
+}) {
+  const [raw, setRaw] = useDebouncedColumnFilter(column, asText, asText, 500);
+  return (
+    <TextInput
+      placeholder={placeholder}
+      value={raw}
+      onChange={(e) => setRaw(e.currentTarget.value)}
+      size="xs"
+    />
+  );
+}
 
 export function NumericMinOnlyFilterInput({
   column,
   max,
 }: {
-  column: { getFilterValue: () => unknown; setFilterValue: (v: unknown) => void };
+  column: FilterColumn;
   max?: number;
 }) {
-  const colStr = columnFilterString(column.getFilterValue());
-  const [localValue, setLocalValue] = useState<string | number>(() =>
-    numberInputValueFromFilterString(colStr)
+  const [localValue, setLocalValue] = useDebouncedColumnFilter(
+    column,
+    numberInputValueFromFilterString,
+    numberToFilter,
+    400
   );
-  const [debounced] = useDebouncedValue(localValue, 400);
-  const lastEmittedRef = useRef(colStr);
-
-  useEffect(() => {
-    const next =
-      debounced === '' || debounced === undefined || debounced === null ? '' : String(debounced);
-    lastEmittedRef.current = next;
-    column.setFilterValue(debounced ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
-
-  useEffect(() => {
-    if (colStr !== lastEmittedRef.current) {
-      lastEmittedRef.current = colStr;
-      setLocalValue(numberInputValueFromFilterString(colStr));
-    }
-  }, [colStr]);
-
   return (
     <NumberInput
       placeholder="Min"

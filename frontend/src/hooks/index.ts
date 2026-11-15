@@ -1,4 +1,3 @@
-export { useUrlParams } from './useUrlParams';
 export { useRaidsSearchParams } from './useRaidsSearchParams';
 export { useNukeTargetsSearchParams } from './useNukeTargetsSearchParams';
 export {

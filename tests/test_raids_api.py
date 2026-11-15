@@ -4,6 +4,8 @@ import contextlib
 import os
 import sqlite3
 import sys
+import time
+from datetime import datetime, timezone
 
 import pytest
 from flask import Flask, request
@@ -14,6 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import api.request_utils as request_utils
 import api.routes.raids as raids_routes
 from database.sqlite_cache import ensure_table_and_columns, upsert
+from logic.raids import turns_since
 
 
 @pytest.fixture
@@ -72,6 +75,44 @@ def test_rows_with_null_unit_counts_do_not_fail_the_list(client, db_paths):
     by_id = {t["id"]: t for t in response.get_json()["targets"]}
     assert set(by_id) == {1, 2}
     assert by_id[2]["groundWin"] > 0
+    # The web table formats these as numbers and strings; null would crash it.
+    assert (by_id[2]["soldiers"], by_id[2]["tanks"], by_id[2]["color"]) == (0, 0, "")
+
+
+def test_without_a_nation_win_chances_are_left_out(client, db_paths):
+    nations, _ = db_paths
+    _store(nations, "nations", [_nation(1), _nation(2, soldiers=50)])
+
+    payload = client.get("/api/raids/").get_json()
+
+    assert payload["attacker"]["id"] is None
+    assert {t["groundWin"] for t in payload["targets"]} == {None}
+
+
+def test_cached_beige_and_vacation_turns_count_down_to_now(client, db_paths):
+    nations, _ = db_paths
+    # Written during the turn before the last two turn changes.
+    written = int(time.time()) // 7200 * 7200 - 2 * 7200 + 60
+    _store(nations, "nations", [
+        _nation(1, beige_turns=1, _created_at=written),
+        _nation(2, beige_turns=5, _created_at=written),
+        _nation(3, vacation_mode_turns=1, _created_at=written),
+    ])
+
+    targets = {t["id"]: t for t in client.get("/api/raids/").get_json()["targets"]}
+    elapsed = turns_since(written, datetime.now(timezone.utc))
+
+    assert targets[1]["beigeTurns"] == 0
+    assert targets[2]["beigeTurns"] == 5 - elapsed
+    assert 3 in targets  # its vacation mode ended at a turn change since the row was written
+
+
+def test_nations_without_an_alliance_are_listed_as_noalliance(client, db_paths):
+    nations, _ = db_paths
+    _store(nations, "nations", [_nation(1, alliance_id=0, alliance_position="APPLICANT")])
+
+    [target] = client.get("/api/raids/").get_json()["targets"]
+    assert (target["allianceId"], target["alliancePosition"]) == ("0", "NOALLIANCE")
 
 
 def test_taxable_needs_a_member_on_the_alliance_color(client, db_paths):

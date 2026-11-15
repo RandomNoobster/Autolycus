@@ -24,7 +24,7 @@ from infra.async_bridge import run_sync
 from logic import api_client
 from logic.common import normalize_alliance_position
 from logic.military import calculate_win_chance_raw
-from logic.raids import (calculate_days_inactive,
+from logic.raids import (calculate_days_inactive, current_turn_counts,
                          is_in_vacation_mode, stored_time_since_war)
 from api.routes.reminder_views import delivery_view, test_dm_view, upcoming_by_nation
 from database import reminders as reminder_db
@@ -293,10 +293,8 @@ def get_raids() -> tuple[Any, int]:
                     attacker = attacker_data.get('nation')
                 except Exception:
                     pass
-        if attacker is None and nations:
-            attacker = nations[0]
-            logger.info(f"Falling back to first nation: {attacker.get('id')}")
-
+        # Without an attacker, win chances are left out (null) rather than computed
+        # against some arbitrary nation.
         nation_warning = None
         if requested_attacker_missing:
             if attacker:
@@ -304,12 +302,12 @@ def get_raids() -> tuple[Any, int]:
                 fallback_name = attacker.get('nation_name') or f"Nation {fallback_id}"
                 nation_warning = (
                     f"Nation ID {attacker_nation_id} not found in database. "
-                    f"Using {fallback_name} (ID {fallback_id}) for calculations."
+                    f"Using your linked nation {fallback_name} (ID {fallback_id}) for calculations."
                 )
             else:
                 nation_warning = (
                     f"Nation ID {attacker_nation_id} not found in database. "
-                    "No fallback nation available for calculations."
+                    "Win chances need a nation, so they are left out."
                 )
 
         # Normalized like the reminder endpoints' lists (canonical digit strings).
@@ -329,14 +327,23 @@ def get_raids() -> tuple[Any, int]:
 
         loop_t0 = time.perf_counter()
         for nation in nations:
-            alliance_position = normalize_alliance_position(nation.get('alliance_position'))
-            in_vm = is_in_vacation_mode(nation)
+            alliance_id = str(nation.get('alliance_id', '') or '0')
+            # A nation outside any alliance is NOALLIANCE whatever a partial row says,
+            # so the "No alliance" filters agree with alliance_id.
+            alliance_position = (
+                'NOALLIANCE' if alliance_id == '0'
+                else normalize_alliance_position(nation.get('alliance_position'))
+            )
+            # Cached counts are as of the row's write: count down the turns since.
+            beige_turns, vm_turns = current_turn_counts(nation, now_utc, fallback_updated_at)
+            in_vm = is_in_vacation_mode(
+                {'vmode': nation.get('vmode'), 'vacation_mode_turns': vm_turns}
+            )
             if vmode_param is False and in_vm:
                 continue
             if vmode_param is True and not in_vm:
                 continue
 
-            alliance_id = str(nation.get('alliance_id', '') or '0')
             alliance_meta = _alliance_meta(nation, alliances_by_id, alliance_id)
 
             # Prefer scanner-precomputed war fields; default when mid-scan / old rows.
@@ -359,7 +366,7 @@ def get_raids() -> tuple[Any, int]:
                 naval_win = round(calculate_win_chance_raw(_att_naval, naval_def) * 100, 1)
                 total_win = round((ground_win + air_win + naval_win) / 3, 1)
             else:
-                ground_win = air_win = naval_win = total_win = 50.0
+                ground_win = air_win = naval_win = total_win = None
 
             monetary_net_income = _money_int(nation.get('monetary_net_num'))
             net_cash_income = _money_int(nation.get('net_cash_num'))
@@ -371,7 +378,7 @@ def get_raids() -> tuple[Any, int]:
             alliance_name = (
                 str(raw_alliance_name).strip() if raw_alliance_name not in (None, '') else 'None'
             )
-            nation_color = nation.get('color', '')
+            nation_color = nation.get('color') or ''
             taxable = _is_taxable(nation_color, alliance_color, alliance_position)
 
             updated_at = _int_or(nation.get('_created_at'), None)
@@ -385,10 +392,10 @@ def get_raids() -> tuple[Any, int]:
                 'allianceId': alliance_id,
                 'allianceName': alliance_name,
                 'alliancePosition': (alliance_position or 'Unknown'),
-                'numCities': nation.get('num_cities', 0),
+                'numCities': _int_or(nation.get('num_cities'), 0),
                 'score': float(nation.get('score', 0) or 0),
                 'color': nation_color,
-                'beigeTurns': nation.get('beige_turns', 0),
+                'beigeTurns': beige_turns,
                 'nationLoot': f"${nation_loot_value:,}",
                 'daysInactive': days_inactive,
                 'monetaryNetIncome': monetary_net_income,
@@ -397,12 +404,13 @@ def get_raids() -> tuple[Any, int]:
                 'treasures': treasure_count,
                 'defSlots': def_slots,
                 'timeSinceWar': time_since_war,
-                'soldiers': nation.get('soldiers', 0),
-                'tanks': nation.get('tanks', 0),
-                'aircraft': nation.get('aircraft', 0),
-                'ships': nation.get('ships', 0),
-                'missiles': nation.get('missiles', 0),
-                'nukes': nation.get('nukes', 0),
+                # NULL counts (partial subscription rows) as 0, so clients get numbers.
+                'soldiers': _int_or(nation.get('soldiers'), 0),
+                'tanks': _int_or(nation.get('tanks'), 0),
+                'aircraft': _int_or(nation.get('aircraft'), 0),
+                'ships': _int_or(nation.get('ships'), 0),
+                'missiles': _int_or(nation.get('missiles'), 0),
+                'nukes': _int_or(nation.get('nukes'), 0),
                 'groundWin': ground_win,
                 'airWin': air_win,
                 'navalWin': naval_win,
@@ -561,16 +569,20 @@ def get_reminders() -> tuple[Any, int]:
         reminders: list[dict[str, Any]] = []
         data_path = get_nations_db_path()
 
+        now_utc = datetime.now(timezone.utc)
         for nation_id in reminder_ids:
             nation_data = get_nation_by_id(data_path, nation_id)
             nation = (nation_data.get('nation') if nation_data else None) or {}
+            beige_turns, vm_turns = current_turn_counts(
+                nation, now_utc, (nation_data or {}).get('last_fetched')
+            )
             timing = schedule.get(nation_id, {})
             reminders.append({
                 'nationId': int(nation_id),
                 'nationName': nation.get('nation_name', f'Nation {nation_id}'),
                 'leaderName': nation.get('leader_name', 'Unknown'),
-                'beigeTurns': int(nation.get('beige_turns') or 0),
-                'vacationModeTurns': int(nation.get('vacation_mode_turns') or 0),
+                'beigeTurns': beige_turns,
+                'vacationModeTurns': vm_turns,
                 'exitAt': timing.get('exitAt'),
                 'nextReminderAt': timing.get('nextReminderAt'),
             })

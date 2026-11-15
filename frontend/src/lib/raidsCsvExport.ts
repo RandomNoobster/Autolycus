@@ -3,20 +3,39 @@ import type { MRT_TableInstance } from 'mantine-react-table';
 
 import type { RaidTarget } from '@/types';
 
-/** RFC 4180-style escaping; quotes fields that need it (commas, quotes, newlines, leading formula chars). */
+/** Spreadsheets run a cell starting with one of these as a formula, quoted or not. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/**
+ * RFC 4180 escaping (quotes fields with commas, quotes or newlines). Text that a spreadsheet
+ * would run as a formula (a player named "=HYPERLINK(…)") gets a leading apostrophe;
+ * numbers, negative ones included, are left as numbers.
+ */
 export function escapeCsvCell(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const s = String(value);
+  let s = String(value);
   if (s === '') return '';
-  if (/[",\r\n]/.test(s) || /^[=+\-@]/.test(s)) {
+  if (typeof value === 'string' && FORMULA_START.test(s)) {
+    s = `'${s}`;
+  }
+  if (/[",\r\n]/.test(s) || FORMULA_START.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
 }
 
-function exportValueForColumn(column: Column<RaidTarget, unknown>, target: RaidTarget): unknown {
+export interface RaidsCsvOptions {
+  /** Current reminder state (the table may know about changes newer than its data). */
+  hasReminder?: (target: RaidTarget) => boolean;
+}
+
+function exportValueForColumn(
+  column: Column<RaidTarget, unknown>,
+  target: RaidTarget,
+  options: RaidsCsvOptions
+): unknown {
   const id = column.id;
-  if (id === 'reminder') return target.hasReminderActive;
+  if (id === 'reminder') return options.hasReminder ? options.hasReminder(target) : target.hasReminderActive;
   if (id === 'alliancePosition') {
     return target.alliancePosition === 'NOALLIANCE' ? 'None' : target.alliancePosition;
   }
@@ -39,18 +58,20 @@ function headerLabel(column: Column<RaidTarget, unknown>): string {
 }
 
 /** All rows after filters, search, and sort; not limited to the current page. */
-export function buildRaidsCsv(table: MRT_TableInstance<RaidTarget>): string {
+export function buildRaidsCsv(table: MRT_TableInstance<RaidTarget>, options: RaidsCsvOptions = {}): string {
   const rows = table.getPrePaginationRowModel().rows;
-  const visibleCols = table.getVisibleLeafColumns();
+  // MRT's own display columns (e.g. the 'mrt-row-spacer' that column resizing adds) hold no data.
+  const visibleCols = table.getVisibleLeafColumns().filter((c) => !c.id.startsWith('mrt-'));
   const headerRow = visibleCols.map((c) => escapeCsvCell(headerLabel(c))).join(',');
   const dataRows = rows.map((row) =>
-    visibleCols.map((col) => escapeCsvCell(exportValueForColumn(col, row.original))).join(','),
+    visibleCols.map((col) => escapeCsvCell(exportValueForColumn(col, row.original, options))).join(','),
   );
   return [headerRow, ...dataRows].join('\r\n');
 }
 
 export function downloadCsv(filename: string, csvText: string): void {
-  const blob = new Blob([`\uFEFF${csvText}`], { type: 'text/csv;charset=utf-8' });
+  // A byte-order mark so Excel reads the file as UTF-8.
+  const blob = new Blob([String.fromCharCode(0xfeff), csvText], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -59,7 +80,8 @@ export function downloadCsv(filename: string, csvText: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Revoking in the same tick can cancel the download in WebKit; give it time to start.
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export function raidsCsvFilename(): string {

@@ -121,3 +121,26 @@ def turns_since(written_at: Any, now: datetime) -> int:
     if written <= 0:
         return 0
     return max(0, int(now.timestamp()) // _TURN_SECONDS - written // _TURN_SECONDS)
+
+
+def _whole_turns(value: Any) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def current_turn_counts(
+    nation: dict[str, Any], now: datetime, fallback_written_at: Any = None
+) -> tuple[int, int]:
+    """Beige and vacation-mode turns left now: ``(beige_turns, vacation_mode_turns)``.
+
+    Cached counts are as of when the row was written (``_created_at``, else
+    ``fallback_written_at``), so each turn change since then takes one off.
+    Unknown values count as 0.
+    """
+    elapsed = turns_since(nation.get("_created_at") or fallback_written_at, now)
+    return (
+        max(0, _whole_turns(nation.get("beige_turns")) - elapsed),
+        max(0, _whole_turns(nation.get("vacation_mode_turns")) - elapsed),
+    )

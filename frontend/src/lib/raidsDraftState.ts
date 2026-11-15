@@ -1,11 +1,15 @@
 import type { MRT_ColumnFiltersState } from 'mantine-react-table';
 
 import {
+  classifyAlliancePositionFilter,
   classifyInactiveColumnValue,
   classifyLootColumnValue,
   INACTIVE_PRESET_DAYS,
+  normalizeDefSlotsFilterValue,
   parseNumericValue,
+  positionsArrayKey,
 } from '@/lib/raidFilterParsing';
+import { warRangeQueryBounds } from '@/lib/warRange';
 
 export type RaidsDraftFilters = {
   allianceMode: 'include' | 'exclude';
@@ -65,6 +69,17 @@ function parseBooleanParam(sp: URLSearchParams, key: string): boolean | undefine
   return val === 'true' || val === '1';
 }
 
+/**
+ * Raids writes beige=true|false; Nuke Targets writes beige=all|only|hide (the navbar can carry
+ * either page's query to the other). Anything else means all.
+ */
+function parseBeigeParam(sp: URLSearchParams): RaidsDraftFilters['beige'] {
+  const val = sp.get('beige');
+  if (val === 'true' || val === '1' || val === 'only') return 'only';
+  if (val === 'false' || val === '0' || val === 'hide') return 'hide';
+  return 'all';
+}
+
 function parseNumberParam(sp: URLSearchParams, key: string): number | undefined {
   const val = sp.get(key);
   if (val === null || val === '') return undefined;
@@ -77,7 +92,6 @@ export function buildRaidsDraftFromSearchParams(
   savedNationId: string | undefined,
   nationScore: string
 ): RaidsDraftFilters {
-  const beigeBool = parseBooleanParam(sp, 'beige');
   const base = DEFAULT_RAIDS_DRAFT_FILTERS({
     scoreMode: sp.get('scoreMode') || (savedNationId ? 'yours' : 'custom'),
     yourScore: sp.get('yourScore') || nationScore || '',
@@ -92,7 +106,7 @@ export function buildRaidsDraftFromSearchParams(
     allianceMode,
     alliance: parseAlliancesFromSearchParams(sp, 'alliance'),
     allianceExclude: parseAlliancesFromSearchParams(sp, 'allianceExclude'),
-    beige: beigeBool === true ? 'only' : beigeBool === false ? 'hide' : 'all',
+    beige: parseBeigeParam(sp),
     maxWars: (() => {
       const n = parseNumberParam(sp, 'maxWars');
       if (n === undefined) return 'all';
@@ -126,7 +140,7 @@ export function buildRaidsDraftFromSearchParams(
   if (positionsRaw && positionsRaw.trim()) {
     const parts = positionsRaw
       .split(',')
-      .map((s) => decodeURIComponent(s.trim()))
+      .map((s) => s.trim())
       .filter(Boolean);
     if (parts.length > 0) {
       draft.scopeMode = 'custom';
@@ -249,15 +263,13 @@ export function buildMappedColumnFiltersFromDraft(d: RaidsDraftFilters): MRT_Col
   if (d.beige === 'only' || d.beige === 'hide') {
     filters.push({ id: 'beigeTurns', value: d.beige });
   }
-  filters.push({
-    id: 'defSlots',
-    value: d.maxWars === 'all' ? '3' : d.maxWars,
-  });
+  if (d.maxWars !== 'all') {
+    filters.push({ id: 'defSlots', value: d.maxWars });
+  }
   const inactiveMin = effectiveInactiveMinString(d);
-  filters.push({
-    id: 'daysInactive',
-    value: inactiveMin ?? '',
-  });
+  if (inactiveMin) {
+    filters.push({ id: 'daysInactive', value: inactiveMin });
+  }
   if (d.scopeMode === 'custom' && d.scopeCustomPositions.length > 0) {
     filters.push({ id: 'alliancePosition', value: [...d.scopeCustomPositions] });
   } else if (d.scopeMode === 'preset') {
@@ -299,4 +311,144 @@ export function effectiveLootMinNumber(d: RaidsDraftFilters): number | undefined
   }
   const n = parseNumericValue(d.lootCustom);
   return n > 0 ? n : undefined;
+}
+
+/** Draft keys the page keeps in the URL (Raid Targets' own query string). */
+export const RAID_FILTER_URL_KEYS = [
+  'alliance',
+  'allianceMode',
+  'allianceExclude',
+  'beige',
+  'maxWars',
+  'inactiveMinDays',
+  'scope',
+  'positions',
+  'minBeigeLoot',
+  'performance',
+  'scoreMode',
+  'yourScore',
+  'minScore',
+  'maxScore',
+] as const;
+
+/** A score the user or the game gave: finite and above 0; otherwise undefined. */
+export function validScore(text: string): number | undefined {
+  if (!text.trim()) return undefined;
+  const n = Number(text);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/** Replace the draft keys in `next` with the URL form of `draft`. */
+export function writeRaidsDraftToSearchParams(next: URLSearchParams, draft: RaidsDraftFilters): void {
+  RAID_FILTER_URL_KEYS.forEach((key) => next.delete(key));
+
+  if (draft.allianceMode === 'exclude') {
+    next.set('allianceMode', 'exclude');
+    for (const name of draft.allianceExclude) {
+      if (name.trim()) next.append('allianceExclude', name.trim());
+    }
+  } else {
+    for (const name of draft.alliance) {
+      if (name.trim()) next.append('alliance', name.trim());
+    }
+  }
+
+  if (draft.beige === 'only') next.set('beige', 'true');
+  else if (draft.beige === 'hide') next.set('beige', 'false');
+
+  if (draft.maxWars !== 'all') next.set('maxWars', draft.maxWars);
+
+  const inactiveMin = effectiveInactiveMinString(draft);
+  if (inactiveMin) next.set('inactiveMinDays', inactiveMin);
+
+  if (draft.scopeMode === 'custom' && draft.scopeCustomPositions.length > 0) {
+    next.set('positions', draft.scopeCustomPositions.join(','));
+  } else if (draft.scopeMode === 'preset' && draft.scopePreset !== 'all') {
+    next.set('scope', draft.scopePreset);
+  }
+
+  const lootMin = effectiveLootMinNumber(draft);
+  if (lootMin !== undefined) next.set('minBeigeLoot', String(Math.round(lootMin)));
+
+  if (draft.performance) next.set('performance', 'true');
+
+  next.set('scoreMode', draft.scoreMode === 'yours' ? 'yours' : 'custom');
+  if (draft.scoreMode === 'yours') {
+    const score = validScore(draft.yourScore);
+    if (score !== undefined) {
+      const { minScore, maxScore } = warRangeQueryBounds(score);
+      next.set('yourScore', draft.yourScore);
+      next.set('minScore', String(minScore));
+      next.set('maxScore', String(maxScore));
+    }
+  } else {
+    if (draft.minScore) next.set('minScore', draft.minScore);
+    if (draft.maxScore) next.set('maxScore', draft.maxScore);
+  }
+}
+
+export function allianceNamesFromColumnFilterValue(value: unknown): string[] {
+  if (value == null || value === '') return [];
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v)).filter((s) => s.length > 0);
+  }
+  return [String(value)];
+}
+
+function minNumericKey(value: unknown): string {
+  return value == null || value === '' ? '' : String(parseNumericValue(value));
+}
+
+/** Whether two values of a mapped column filter mean the same sidebar setting. */
+export function mappedFilterValuesEqual(id: string, before: unknown, after: unknown): boolean {
+  switch (id) {
+    case 'allianceName':
+      return (
+        JSON.stringify(allianceNamesFromColumnFilterValue(before).sort()) ===
+        JSON.stringify(allianceNamesFromColumnFilterValue(after).sort())
+      );
+    case 'defSlots':
+      return normalizeDefSlotsFilterValue(before) === normalizeDefSlotsFilterValue(after);
+    case 'daysInactive':
+    case 'nationLoot':
+      return minNumericKey(before) === minNumericKey(after);
+    case 'alliancePosition':
+      return (
+        positionsArrayKey(Array.isArray(before) ? (before as string[]) : []) ===
+        positionsArrayKey(Array.isArray(after) ? (after as string[]) : [])
+      );
+    case 'beigeTurns':
+      return String(before ?? '') === String(after ?? '');
+    default:
+      return JSON.stringify(before) === JSON.stringify(after);
+  }
+}
+
+/** The draft with the sidebar settings for `ids` taken from those mapped column filters. */
+export function applyMappedColumnFilters(
+  prev: RaidsDraftFilters,
+  filters: MRT_ColumnFiltersState,
+  ids: readonly string[]
+): RaidsDraftFilters {
+  const valueOf = (id: string) => filters.find((f) => f.id === id)?.value;
+  const next: RaidsDraftFilters = { ...prev };
+  for (const id of ids) {
+    const value = valueOf(id);
+    if (id === 'allianceName') {
+      next.alliance = allianceNamesFromColumnFilterValue(value);
+    } else if (id === 'beigeTurns') {
+      next.beige = value === 'only' ? 'only' : value === 'hide' ? 'hide' : 'all';
+    } else if (id === 'defSlots') {
+      const slots = normalizeDefSlotsFilterValue(value);
+      // 3 used slots is the most a nation can have, so "at most 3" means any.
+      next.maxWars = slots === '' || slots === '3' ? 'all' : slots;
+    } else if (id === 'daysInactive') {
+      Object.assign(next, classifyInactiveColumnValue(value));
+    } else if (id === 'nationLoot') {
+      Object.assign(next, classifyLootColumnValue(value));
+    } else if (id === 'alliancePosition') {
+      Object.assign(next, classifyAlliancePositionFilter(value));
+    }
+  }
+  return next;
 }

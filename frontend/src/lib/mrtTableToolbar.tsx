@@ -1,6 +1,7 @@
 /**
- * Shared Mantine React Table toolbar (Search, Filters, CSV, Columns, density, full screen).
- * Desktop uses text+icon Buttons; mobile uses MRT ActionIcons (breakpoint: 48em).
+ * Shared Mantine React Table toolbar (Search, Filters, CSV, Columns, full screen).
+ * Desktop uses text+icon Buttons; mobile uses MRT ActionIcons (useIsMobile breakpoint).
+ * Both tables use a fixed compact density, so there is no density toggle.
  */
 
 import { ActionIcon, Button, Group, Menu, Tooltip } from '@mantine/core';
@@ -8,21 +9,13 @@ import { IconDownload } from '@tabler/icons-react';
 import {
   MRT_ShowHideColumnsButton,
   MRT_ShowHideColumnsMenu,
-  MRT_ToggleDensePaddingButton,
   MRT_ToggleFiltersButton,
   MRT_ToggleFullScreenButton,
   MRT_ToggleGlobalFilterButton,
-  type MRT_DensityState,
   type MRT_RowData,
   type MRT_TableInstance,
 } from 'mantine-react-table';
 import { useIsMobile } from '@/hooks/useIsMobile';
-
-const DENSITY_NEXT: Record<MRT_DensityState, MRT_DensityState> = {
-  md: 'xs',
-  xl: 'md',
-  xs: 'xl',
-};
 
 const TOOLBAR_ICON_SZ = 18;
 
@@ -47,7 +40,6 @@ export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
     enableColumnFilters,
     enableColumnOrdering,
     enableColumnPinning,
-    enableDensityToggle,
     enableFilters,
     enableFullScreenToggle,
     enableGlobalFilter,
@@ -61,16 +53,12 @@ export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
       IconColumns,
       IconMaximize,
       IconMinimize,
-      IconBaselineDensityLarge,
-      IconBaselineDensityMedium,
-      IconBaselineDensitySmall,
     },
     localization: {
       showHideSearch,
       showHideFilters,
       showHideColumns,
       toggleFullScreen,
-      toggleDensity,
     },
   } = table.options;
 
@@ -80,14 +68,12 @@ export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
     setShowGlobalFilter,
     setShowColumnFilters,
     setIsFullScreen,
-    setDensity,
   } = table;
 
   const toolbarLabel = {
     search: 'Search',
     filters: 'Filters',
     columns: 'Columns',
-    density: toggleDensity,
     fullscreen: 'Full screen',
   } as const;
 
@@ -103,7 +89,6 @@ export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
         {(enableHiding || enableColumnOrdering || enableColumnPinning) && (
           <MRT_ShowHideColumnsButton key="columns" table={table} />
         )}
-        {enableDensityToggle && <MRT_ToggleDensePaddingButton key="density" table={table} />}
         {enableFullScreenToggle && <MRT_ToggleFullScreenButton key="fullscreen" table={table} />}
         <Tooltip
           key="csv"
@@ -126,16 +111,7 @@ export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
     );
   }
 
-  const { globalFilter, showGlobalFilter, showColumnFilters, isFullScreen, density } = getState();
-
-  const densityIcon =
-    density === 'xs' ? (
-      <IconBaselineDensitySmall size={TOOLBAR_ICON_SZ} />
-    ) : density === 'md' ? (
-      <IconBaselineDensityMedium size={TOOLBAR_ICON_SZ} />
-    ) : (
-      <IconBaselineDensityLarge size={TOOLBAR_ICON_SZ} />
-    );
+  const { globalFilter, showGlobalFilter, showColumnFilters, isFullScreen } = getState();
 
   return (
     <Group
@@ -227,21 +203,6 @@ export function MrtTableToolbarInternalActions<TData extends MRT_RowData>({
           </Tooltip>
           <MRT_ShowHideColumnsMenu table={table} />
         </Menu>
-      )}
-      {enableDensityToggle && (
-        <Tooltip key="density" label={toggleDensity} withinPortal>
-          <Button
-            variant="subtle"
-            color="gray"
-            size="sm"
-            fw={500}
-            aria-label={toggleDensity}
-            leftSection={densityIcon}
-            onClick={() => setDensity((d) => DENSITY_NEXT[d])}
-          >
-            {toolbarLabel.density}
-          </Button>
-        </Tooltip>
       )}
       {enableFullScreenToggle && (
         <Tooltip key="fullscreen" label={toggleFullScreen} withinPortal>

@@ -28,7 +28,7 @@ from logic.nuke_targets import (
     NUKE_TARGET_JSON_FIELDS,
     compute_nuke_missile_metrics,
 )
-from logic.raids import calculate_days_inactive, is_in_vacation_mode, turns_since, war_turns_left
+from logic.raids import calculate_days_inactive, current_turn_counts, is_in_vacation_mode, war_turns_left
 from database.sqlite_cache import (
     find_nation as sqlite_find_nation,
     get_alliances_by_ids,
@@ -141,9 +141,7 @@ def select_raid_targets(
         if alliance_id in excluded_alliances:
             continue
 
-        written_at = nation.get("_created_at") or fallback_written_at
-        elapsed = turns_since(written_at, now)
-        vm_turns = max(0, _int(nation.get("vacation_mode_turns")) - elapsed)
+        beige_left, vm_turns = current_turn_counts(nation, now, fallback_written_at)
         # Nations in vacation mode can't be declared on.
         if is_in_vacation_mode({"vmode": nation.get("vmode"), "vacation_mode_turns": vm_turns}):
             continue
@@ -151,7 +149,7 @@ def select_raid_targets(
             beige_turns = 0
             in_beige = nation.get("color") == "beige"
         else:
-            beige_turns = max(0, _int(nation.get("beige_turns")) - elapsed)
+            beige_turns = beige_left
             in_beige = beige_turns > 0
         if in_beige and not include_beige:
             continue
@@ -174,7 +172,7 @@ def select_raid_targets(
             "def_slots": def_slots,
             "days_inactive": days_inactive,
             "nation_loot_value": loot,
-            "updated_at": _int(written_at, 0) or None,
+            "updated_at": _int(nation.get("_created_at") or fallback_written_at, 0) or None,
         })
     return targets
 
@@ -261,11 +259,9 @@ def rank_nuke_targets(
             continue
         if alliance_ids and nation_alliance not in alliance_ids:
             continue
-        elapsed = turns_since(nation.get("_created_at") or fallback_written_at, now)
-        vm_turns = max(0, _int(nation.get("vacation_mode_turns")) - elapsed)
+        beige_turns, vm_turns = current_turn_counts(nation, now, fallback_written_at)
         if is_in_vacation_mode({"vmode": nation.get("vmode"), "vacation_mode_turns": vm_turns}):
             continue
-        beige_turns = max(0, _int(nation.get("beige_turns")) - elapsed)
         if not include_beige and (beige_turns > 0 or (nation.get("beige_turns") is None and nation.get("color") == "beige")):
             continue
         if not include_slotted and (_int(nation.get("def_slots")) >= 3 or _at_war_with(user_nation, nation_id)):

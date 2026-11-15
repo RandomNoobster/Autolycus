@@ -49,7 +49,7 @@ export function formatMetric(value: number, decimals: number = 1): string {
 }
 
 /** Non-breaking space, so a number never wraps between its digit groups. */
-const THOUSANDS_SEPARATOR = ' ';
+const THOUSANDS_SEPARATOR = String.fromCharCode(0xa0);
 
 /**
  * Format a number using spaces as thousands separators.

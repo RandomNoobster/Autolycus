@@ -40,17 +40,19 @@ export interface RaidTarget {
   taxable: boolean;
   treasures: number;
   defSlots: number;
-  timeSinceWar: string;
+  /** Days since the last war, or "14+" when there was none in the cached 14-day window. */
+  timeSinceWar: number | '14+';
   soldiers: number;
   tanks: number;
   aircraft: number;
   ships: number;
   missiles: number;
   nukes: number;
-  groundWin: number;
-  airWin: number;
-  navalWin: number;
-  totalWin: number;
+  /** Win chances (0-100) against the loaded nation; null when no nation is loaded. */
+  groundWin: number | null;
+  airWin: number | null;
+  navalWin: number | null;
+  totalWin: number | null;
   hasReminderActive: boolean;
   updatedAt?: number | null;
 }

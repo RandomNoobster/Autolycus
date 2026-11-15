@@ -3,9 +3,10 @@ import {
   useCallback,
   useState,
   useEffect,
-  useRef,
+  type Dispatch,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type SetStateAction,
 } from 'react';
 import {
   MantineReactTable,
@@ -14,7 +15,6 @@ import {
   type MRT_Row,
   type MRT_ColumnFiltersState,
   type MRT_ColumnOrderState,
-  type MRT_DensityState,
   type MRT_VisibilityState,
   type MRT_TableInstance,
   type MRT_Column,
@@ -28,14 +28,11 @@ import {
   Alert,
   Stack,
   Button,
-  NumberInput,
-  TextInput,
   Menu,
   MultiSelect,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useDebouncedValue } from '@mantine/hooks';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useMutationState, useQueryClient } from '@tanstack/react-query';
 import {
   IconBell,
   IconBellOff,
@@ -51,8 +48,18 @@ import { addReminder, removeReminder } from '@/api';
 import { getDiscordLoginUrl } from '@/api/auth';
 import { internalNavPath } from '@/lib/internalNavPath';
 import { parseNumericValue } from '@/lib/raidFilterParsing';
+import {
+  DebouncedTextFilterInput,
+  MRT_RAIDS_BODY_CELL_PAD,
+  NumericMinOnlyFilterInput,
+  headerWithTooltip,
+  maxOnlyFilter,
+  minOnlyFilter,
+  wrappedHeader,
+} from '@/lib/mrtRaidsTableUi';
 import { MrtTableToolbarInternalActions } from '@/lib/mrtTableToolbar';
 import { buildRaidsCsv, downloadCsv, raidsCsvFilename } from '@/lib/raidsCsvExport';
+import { REMINDERS_QUERY_KEY } from '@/lib/reminderDelivery';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: 'auto',
@@ -72,36 +79,14 @@ function handleSpaMenuAnchorClick(
 }
 
 /** External links in the menu hit the same unmount issue (even with target=_blank); open explicitly. */
-function handleExternalMenuLinkClick(
-  e: ReactMouseEvent<HTMLAnchorElement>,
-  after: () => void
-) {
+function handleExternalMenuLink(e: ReactMouseEvent<HTMLAnchorElement>, after: () => void) {
+  if (e.type === 'auxclick' && e.button !== 1) return;
   const raw = e.currentTarget.getAttribute('href');
   if (!raw || raw === '#' || !raw.startsWith('http')) return;
   e.preventDefault();
   window.open(raw, '_blank', 'noopener,noreferrer');
   after();
 }
-
-function handleExternalMenuLinkAuxClick(
-  e: ReactMouseEvent<HTMLAnchorElement>,
-  after: () => void
-) {
-  if (e.button !== 1) return;
-  const raw = e.currentTarget.getAttribute('href');
-  if (!raw || raw === '#' || !raw.startsWith('http')) return;
-  e.preventDefault();
-  window.open(raw, '_blank', 'noopener,noreferrer');
-  after();
-}
-
-/** Body cell padding for raids table (Reminder column must repeat these — MRT merges props shallowly). */
-const RAIDS_BODY_CELL_PAD = {
-  paddingTop: 2,
-  paddingBottom: 2,
-  paddingLeft: 6,
-  paddingRight: 6,
-} as const;
 
 const formatRelativeUpdatedAt = (unixSeconds: number): string => {
   const nowMs = Date.now();
@@ -134,37 +119,23 @@ const formatRelativeUpdatedAt = (unixSeconds: number): string => {
 };
 
 
-/** The only part of a table row the custom filter fns use (fits both column `filterFn` and table `filterFns`). */
+/** The only part of a table row the custom filter fns use. */
 type FilterableRow = Pick<MRT_Row<RaidTarget>, 'getValue'>;
 
-// Custom filter: min only
-const minOnlyFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
-  if (filterValue === undefined || filterValue === null || filterValue === '') return true;
-  const cellValue = parseNumericValue(row.getValue(id));
-  const minValue = parseNumericValue(filterValue);
-  return cellValue >= minValue;
-};
+/** Money with the sign before the dollar: -$12,345 rather than $-12,345. */
+function formatMoney(value: number | null | undefined): string {
+  const n = Number(value ?? 0);
+  return `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString()}`;
+}
 
-// Custom filter: max only
-const maxOnlyFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
-  if (filterValue === undefined || filterValue === null || filterValue === '') return true;
-  const cellValue = parseNumericValue(row.getValue(id));
-  const maxValue = parseNumericValue(filterValue);
-  return cellValue <= maxValue;
-};
+/** Days since war for sorting/filtering: "14+" (no war in the cached window) sorts above every count. */
+function timeSinceWarDays(value: RaidTarget['timeSinceWar']): number {
+  return value === '14+' ? Number.POSITIVE_INFINITY : Number(value);
+}
 
-// Custom filter: range with min/max
-const rangeFilter = (
-  row: FilterableRow,
-  id: string,
-  filterValue: { min?: unknown; max?: unknown } | null | undefined
-) => {
-  if (!filterValue || (!filterValue.min && !filterValue.max)) return true;
-  const cellValue = parseNumericValue(row.getValue(id));
-  const min = filterValue.min !== undefined ? parseNumericValue(filterValue.min) : -Infinity;
-  const max = filterValue.max !== undefined ? parseNumericValue(filterValue.max) : Infinity;
-  return cellValue >= min && cellValue <= max;
-};
+function winCell(value: number | null): string {
+  return value == null ? '—' : `${value}%`;
+}
 
 const beigeFilter = (row: FilterableRow, id: string, filterValue: unknown) => {
   if (!filterValue) return true;
@@ -192,36 +163,6 @@ const booleanFilter = (row: FilterableRow, id: string, filterValue: unknown) => 
   return cellValue === filterBool;
 };
 
-// --- HEADER LABEL ---
-// Up to 2 lines, centered; when the title area shrinks (e.g. filter icon appears), overflow is hidden
-// with an ellipsis on the second line (see .raids-table thead rules for layout vs icons).
-const wrappedHeader = (text: string) => (
-  <Box
-    style={{
-      display: '-webkit-box',
-      WebkitBoxOrient: 'vertical',
-      WebkitLineClamp: 2,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'normal',
-      wordWrap: 'break-word',
-      overflowWrap: 'break-word',
-      textAlign: 'center',
-      lineHeight: 1.25,
-      width: '100%',
-      minWidth: 0,
-    }}
-  >
-    {text}
-  </Box>
-);
-
-const headerWithTooltip = (text: string, description: string) => (
-  <Tooltip label={description} multiline maw={260} withinPortal>
-    {wrappedHeader(text)}
-  </Tooltip>
-);
-
 /** Center content in the Reminder column; use fullWidth for bell / CTA controls. */
 function ReminderColumnCell({ children, fullWidth = false }: { children: ReactNode; fullWidth?: boolean }) {
   return (
@@ -245,19 +186,6 @@ function ReminderColumnCell({ children, fullWidth = false }: { children: ReactNo
       )}
     </Box>
   );
-}
-
-// --- CUSTOM FILTER COMPONENTS ---
-
-function columnFilterString(value: unknown): string {
-  if (value === undefined || value === null || value === '') return '';
-  return String(value);
-}
-
-function numberInputValueFromFilterString(s: string): string | number {
-  if (s === '') return '';
-  const n = Number(s);
-  return Number.isFinite(n) ? n : s;
 }
 
 function AllianceNameColumnFilter({
@@ -331,124 +259,21 @@ function AllianceNameColumnFilter({
   );
 }
 
-// Filter component: Min only (income, loot, days inactive, etc.)
-type RaidsColumnFilterProps = { column: MRT_Column<RaidTarget> };
-
-const MinOnlyFilterInput = ({ column, placeholder }: RaidsColumnFilterProps & { placeholder?: string }) => {
-  const colStr = columnFilterString(column.getFilterValue());
-  const [raw, setRaw] = useState<string>(colStr);
-  const [debounced] = useDebouncedValue(raw, 500);
-  const lastEmittedRef = useRef(colStr);
-
-  useEffect(() => {
-    const next = debounced ?? '';
-    lastEmittedRef.current = next;
-    column.setFilterValue(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
-
-  // Sidebar / URL sync updates column state without remounting this cell — keep the input in sync.
-  useEffect(() => {
-    if (colStr !== lastEmittedRef.current) {
-      lastEmittedRef.current = colStr;
-      setRaw(colStr);
-    }
-  }, [colStr]);
-
-  return (
-    <TextInput
-      placeholder={placeholder ?? 'Min (e.g. 10k, 2m)'}
-      value={raw}
-      onChange={(e) => setRaw(e.currentTarget.value)}
-      size="xs"
-    />
-  );
-};
-
-// Generic Filter component: Max only (for military units)
-const MaxOnlyFilterInput = ({ column, placeholder }: RaidsColumnFilterProps & { placeholder?: string }) => {
-  const colStr = columnFilterString(column.getFilterValue());
-  const [raw, setRaw] = useState<string>(colStr);
-  const [debounced] = useDebouncedValue(raw, 500);
-  const lastEmittedRef = useRef(colStr);
-
-  useEffect(() => {
-    const next = debounced ?? '';
-    lastEmittedRef.current = next;
-    column.setFilterValue(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
-
-  useEffect(() => {
-    if (colStr !== lastEmittedRef.current) {
-      lastEmittedRef.current = colStr;
-      setRaw(colStr);
-    }
-  }, [colStr]);
-
-  return (
-    <TextInput
-      placeholder={placeholder || "Max (e.g. 500k)"}
-      value={raw}
-      onChange={(e) => setRaw(e.currentTarget.value)}
-      size="xs"
-    />
-  );
-};
-
-// Numeric-only Min filter (for Days Since War and Win% columns)
-const NumericMinOnlyFilterInput = ({ column, max }: RaidsColumnFilterProps & { max?: number }) => {
-  const colStr = columnFilterString(column.getFilterValue());
-  const [localValue, setLocalValue] = useState<string | number>(() => numberInputValueFromFilterString(colStr));
-  const [debounced] = useDebouncedValue(localValue, 400);
-  const lastEmittedRef = useRef(colStr);
-
-  useEffect(() => {
-    const next =
-      debounced === '' || debounced === undefined || debounced === null ? '' : String(debounced);
-    lastEmittedRef.current = next;
-    column.setFilterValue(debounced ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
-
-  useEffect(() => {
-    if (colStr !== lastEmittedRef.current) {
-      lastEmittedRef.current = colStr;
-      setLocalValue(numberInputValueFromFilterString(colStr));
-    }
-  }, [colStr]);
-
-  return (
-    <NumberInput
-      placeholder="Min"
-      value={localValue}
-      onChange={(val) => setLocalValue(val ?? '')}
-      size="xs"
-      min={0}
-      max={typeof max === 'number' ? max : undefined}
-    />
-  );
-};
-
-
 interface RaidsTableProps {
   data: RaidTarget[];
-  /** Alliance names for the column multi-select (from parent: full target list + current picks). Keeps options when filtered rows are empty. */
-  allianceSelectOptions?: string[];
+  /** Sorted alliance names for the column multi-select (full target list + current picks). */
+  allianceSelectOptions: string[];
   /** When set, the Alliance column filter is disabled and this text is shown in a tooltip (e.g. sidebar exclude mode). */
   allianceFilterDisabledReason?: string | null;
-  /** Alliance positions for the column multi-select (from parent: unfiltered targets + picks). Keeps all roles visible while a position filter is active. */
-  positionSelectOptions?: { value: string; label: string }[];
+  /** Sorted alliance positions for the column multi-select (unfiltered targets + picks). */
+  positionSelectOptions: { value: string; label: string }[];
+  /** Signed in with Discord: beige reminders need only this. */
   discordAuthenticated: boolean;
-  discordLinked: boolean;
-  /** When linked, your nation ID used for raids (for damage deep-link vs context row). */
+  /** The nation loaded on the page, for the damage calculator deep link. */
   damageAttackerNationId?: string | null;
-  /** Opens the Verify Nation modal (same flow as banner / sidebar Link Nation). */
-  onOpenVerifyNationModal: () => void;
   initialSorting?: { id: string; desc: boolean }[];
   columnVisibility: MRT_VisibilityState;
   columnOrder: MRT_ColumnOrderState;
-  density: MRT_DensityState;
   columnFilters: MRT_ColumnFiltersState;
   onColumnVisibilityChange: (
     updater: MRT_VisibilityState | ((prev: MRT_VisibilityState) => MRT_VisibilityState)
@@ -456,8 +281,7 @@ interface RaidsTableProps {
   onColumnOrderChange: (
     updater: MRT_ColumnOrderState | ((prev: MRT_ColumnOrderState) => MRT_ColumnOrderState)
   ) => void;
-  onDensityChange: (updater: MRT_DensityState | ((prev: MRT_DensityState) => MRT_DensityState)) => void;
-  onColumnFiltersChange: (updater: MRT_ColumnFiltersState) => void;
+  onColumnFiltersChange: Dispatch<SetStateAction<MRT_ColumnFiltersState>>;
 }
 
 export function RaidsTable({
@@ -466,17 +290,13 @@ export function RaidsTable({
   allianceFilterDisabledReason,
   positionSelectOptions,
   discordAuthenticated,
-  discordLinked,
   damageAttackerNationId,
-  onOpenVerifyNationModal,
   initialSorting = [],
   columnVisibility,
   columnOrder,
-  density,
   columnFilters,
   onColumnVisibilityChange,
   onColumnOrderChange,
-  onDensityChange,
   onColumnFiltersChange,
 }: RaidsTableProps) {
   const queryClient = useQueryClient();
@@ -492,21 +312,47 @@ export function RaidsTable({
     nation: RaidTarget;
   } | null>(null);
   const [selectedNationIds, setSelectedNationIds] = useState<Set<number>>(() => new Set());
+  // Sign in and come back to this page with its filters.
+  const loginUrl = getDiscordLoginUrl(internalNavPath(location.pathname, location.search));
+  // Compare against the loaded nation when there is one; the calculator works without sign-in.
+  const damageLink = contextMenu
+    ? `/damage?${new URLSearchParams({
+        ...(damageAttackerNationId ? { nation1: damageAttackerNationId } : {}),
+        nation2: String(contextMenu.nation.id),
+      }).toString()}`
+    : '#';
   const [lastSelectedNationId, setLastSelectedNationId] = useState<number | null>(null);
 
-  // ... (Keep your mutations same as before) ...
-  const addReminderMutation = useMutation({
+  // Reminder changes made here, by nation id. Kept beside the data instead of rewriting every
+  // cached target list, so a toggle doesn't hand the table a new data array (which would reset
+  // its page) or rerun every filter for one cell.
+  const [reminderOverrides, setReminderOverrides] = useState<ReadonlyMap<number, boolean>>(
+    () => new Map()
+  );
+  const hasReminder = useCallback(
+    (nation: RaidTarget) => reminderOverrides.get(nation.id) ?? nation.hasReminderActive,
+    [reminderOverrides]
+  );
+
+  const onReminderChanged = useCallback(
+    (nationId: number, active: boolean) => {
+      setReminderOverrides((prev) => new Map(prev).set(nationId, active));
+      void queryClient.invalidateQueries({ queryKey: REMINDERS_QUERY_KEY });
+      // Other cached lists refetch next time they are shown.
+      void queryClient.invalidateQueries({ queryKey: ['raids'], refetchType: 'none' });
+    },
+    [queryClient]
+  );
+
+  const { mutate: addReminderForNation } = useMutation({
+    mutationKey: REMINDER_MUTATION_KEY,
     mutationFn: (nationId: number) => {
-      if (!discordLinked) return Promise.reject(new Error('Login with Discord to use reminders'));
+      if (!discordAuthenticated) return Promise.reject(new Error('Log in with Discord to use reminders'));
       return addReminder({ nationId });
     },
     onSuccess: (data, nationId) => {
       notifications.show({ title: 'Reminder Set', message: `Nation ${nationId}`, color: 'green' });
-      queryClient.setQueriesData<{ targets: RaidTarget[] }>({ queryKey: ['raids'] }, (old) => {
-        if (!old) return old;
-        return { ...old, targets: old.targets.map((t) => t.id === nationId ? { ...t, hasReminderActive: true } : t) };
-      });
-      void queryClient.invalidateQueries({ queryKey: ['reminders'] });
+      onReminderChanged(nationId, true);
 
       if (data.delivery?.needsAttention) {
         // Fixed id: adding several targets in a row shows this warning once.
@@ -544,32 +390,37 @@ export function RaidsTable({
     onError: (error: Error) => notifications.show({ title: 'Error', message: error.message, color: 'red' }),
   });
 
-  const removeReminderMutation = useMutation({
+  const { mutate: removeReminderForNation } = useMutation({
+    mutationKey: REMINDER_MUTATION_KEY,
     mutationFn: (nationId: number) => {
-      if (!discordLinked) return Promise.reject(new Error('Login with Discord to use reminders'));
+      if (!discordAuthenticated) return Promise.reject(new Error('Log in with Discord to use reminders'));
       return removeReminder(nationId);
     },
     onSuccess: (_, nationId) => {
       notifications.show({ title: 'Reminder Removed', message: `Nation ${nationId}`, color: 'blue' });
-      queryClient.setQueriesData<{ targets: RaidTarget[] }>({ queryKey: ['raids'] }, (old) => {
-        if (!old) return old;
-        return { ...old, targets: old.targets.map((t) => t.id === nationId ? { ...t, hasReminderActive: false } : t) };
-      });
+      onReminderChanged(nationId, false);
     },
     onError: (error: Error) => notifications.show({ title: 'Error', message: error.message, color: 'red' }),
   });
 
-  const toggleReminderForNation = useCallback((nation: RaidTarget) => {
-    if (nation.hasReminderActive) {
-      removeReminderMutation.mutate(nation.id);
-    } else {
-      addReminderMutation.mutate(nation.id);
-    }
-  }, [addReminderMutation, removeReminderMutation]);
+  // Nations with a reminder request in flight: only their buttons wait.
+  const pendingReminderNationIds = useMutationState({
+    filters: { mutationKey: REMINDER_MUTATION_KEY, status: 'pending' },
+    select: (mutation) => mutation.state.variables as number,
+  });
+  const reminderPending = useMemo(
+    () => new Set(pendingReminderNationIds),
+    [pendingReminderNationIds]
+  );
 
-  const handleReminderToggle = useCallback((row: MRT_Row<RaidTarget>) => {
-    toggleReminderForNation(row.original);
-  }, [toggleReminderForNation]);
+  const toggleReminderForNation = useCallback(
+    (nation: RaidTarget) => {
+      if (reminderPending.has(nation.id)) return;
+      if (hasReminder(nation)) removeReminderForNation(nation.id);
+      else addReminderForNation(nation.id);
+    },
+    [addReminderForNation, removeReminderForNation, hasReminder, reminderPending]
+  );
 
   const isInteractiveElement = useCallback((target: EventTarget | null): boolean => {
     if (!(target instanceof Element)) return false;
@@ -621,9 +472,14 @@ export function RaidsTable({
   );
 
   useEffect(() => {
-    const validIds = new Set(data.map((d) => d.id));
-    setSelectedNationIds((prev) => new Set(Array.from(prev).filter((id) => validIds.has(id))));
-    setLastSelectedNationId((prev) => (prev !== null && validIds.has(prev) ? prev : null));
+    setSelectedNationIds((prev) => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set(data.map((d) => d.id));
+      return Array.from(prev).every((id) => validIds.has(id))
+        ? prev
+        : new Set(Array.from(prev).filter((id) => validIds.has(id)));
+    });
+    setLastSelectedNationId((prev) => (prev !== null && data.some((d) => d.id === prev) ? prev : null));
   }, [data]);
 
   useEffect(() => {
@@ -639,29 +495,11 @@ export function RaidsTable({
     };
   }, [contextMenu]);
 
-  // Get unique values for filters
-  const uniqueAlliances = useMemo(() => {
-    if (allianceSelectOptions !== undefined) {
-      return [...allianceSelectOptions].sort((a, b) => a.localeCompare(b));
-    }
-    const alliances = new Set(data.map((d) => d.allianceName).filter((a) => a && a !== 'None'));
-    return Array.from(alliances).sort();
-  }, [data, allianceSelectOptions]);
-
-  const uniquePositions = useMemo(() => {
-    if (positionSelectOptions !== undefined && positionSelectOptions.length > 0) {
-      return [...positionSelectOptions].sort((a, b) => a.label.localeCompare(b.label));
-    }
-    const positions = new Set(data.map((d) => d.alliancePosition).filter(Boolean));
-    const opts = Array.from(positions).map((p) => ({
-      value: p as string,
-      label: p === 'NOALLIANCE' ? 'None' : (p as string).toLowerCase(),
-    }));
-    return opts.sort((a, b) => a.label.localeCompare(b.label));
-  }, [data, positionSelectOptions]);
+  const uniqueAlliances = allianceSelectOptions;
+  const uniquePositions = positionSelectOptions;
 
   const uniqueColors = useMemo(() => {
-    const colors = new Set(data.map(d => d.color));
+    const colors = new Set(data.map((d) => d.color).filter(Boolean));
     return Array.from(colors).sort();
   }, [data]);
 
@@ -674,7 +512,9 @@ export function RaidsTable({
   const scoreRange = useMemo(() => {
     const scores = data.map((d) => d.score).filter((s) => Number.isFinite(s));
     if (!scores.length) return [0, 0];
-    return [Math.min(...scores), Math.max(...scores)];
+    // Whole-number ends: the slider steps by 1, and fractional ends would round inward and
+    // hide the highest and lowest scores.
+    return [Math.floor(Math.min(...scores)), Math.ceil(Math.max(...scores))];
   }, [data]);
 
   const columns = useMemo<MRT_ColumnDef<RaidTarget>[]>(
@@ -731,7 +571,7 @@ export function RaidsTable({
           hidePickedOptions: false,
         },
         Cell: ({ cell }) => {
-          const value = cell.getValue<string>();
+          const value = cell.getValue<string | null>() ?? '';
           return value === 'NOALLIANCE' ? 'None' : value.toLowerCase();
         },
       },
@@ -773,11 +613,16 @@ export function RaidsTable({
           data: uniqueColors,
           clearable: true,
         },
-        Cell: ({ cell }) => (
-          <Badge variant="light" color={getColorBadge(cell.getValue<string>())}>
-            {cell.getValue<string>()}
-          </Badge>
-        ),
+        Cell: ({ cell }) => {
+          const color = cell.getValue<string | null>() ?? '';
+          return color ? (
+            <Badge variant="light" color={getColorBadge(color)}>
+              {color}
+            </Badge>
+          ) : (
+            '—'
+          );
+        },
       },
       {
         accessorKey: 'beigeTurns',
@@ -798,15 +643,11 @@ export function RaidsTable({
         id: 'reminder',
         header: 'Reminder',
         Header: () =>
-          discordLinked ? (
+          discordAuthenticated ? (
             wrappedHeader('Reminder')
           ) : (
             <Tooltip
-              label={
-                discordAuthenticated
-                  ? 'Link your PnW nation via Link nation in each row, the Reminder setup banner above the table, or the sidebar.'
-                  : 'Use Log in with Discord in each row, the sidebar, or the raids banner.'
-              }
+              label="Log in with Discord (in a beige row, the sidebar or the banner above) to set reminders."
               multiline
               maw={280}
               withinPortal
@@ -814,13 +655,12 @@ export function RaidsTable({
               <Box style={{ cursor: 'help' }}>{wrappedHeader('Reminder')}</Box>
             </Tooltip>
           ),
-        size:
-          !discordLinked && discordAuthenticated ? 128 : !discordLinked ? 176 : 138,
+        size: discordAuthenticated ? 138 : 176,
         enableSorting: false,
         enableColumnFilter: false,
         mantineTableBodyCellProps: {
           align: 'center',
-          style: { verticalAlign: 'middle', ...RAIDS_BODY_CELL_PAD },
+          style: { verticalAlign: 'middle', ...MRT_RAIDS_BODY_CELL_PAD },
         },
         Cell: ({ row }: { row: MRT_Row<RaidTarget> }) => {
           const nation = row.original;
@@ -833,57 +673,39 @@ export function RaidsTable({
               </ReminderColumnCell>
             );
           }
-          if (!discordLinked) {
-            if (!discordAuthenticated) {
-              return (
-                <ReminderColumnCell fullWidth>
-                  <Button
-                    size="compact-xs"
-                    variant="light"
-                    radius="sm"
-                    component="a"
-                    href={getDiscordLoginUrl('/raids')}
-                    leftSection={<IconBrandDiscord size={12} />}
-                    fullWidth
-                  >
-                    Log in with Discord
-                  </Button>
-                </ReminderColumnCell>
-              );
-            }
+          if (!discordAuthenticated) {
             return (
               <ReminderColumnCell fullWidth>
                 <Button
                   size="compact-xs"
                   variant="light"
                   radius="sm"
+                  component="a"
+                  href={loginUrl}
+                  leftSection={<IconBrandDiscord size={12} />}
                   fullWidth
-                  onClick={() => onOpenVerifyNationModal()}
                 >
-                  Link nation
+                  Log in with Discord
                 </Button>
               </ReminderColumnCell>
             );
           }
+          const active = hasReminder(nation);
           return (
             <ReminderColumnCell>
-              <Tooltip label={nation.hasReminderActive ? 'Remove reminder' : 'Set reminder'}>
+              <Tooltip label={active ? 'Remove reminder' : 'Set reminder'}>
                 <Button
                   size="compact-xs"
-                  variant={nation.hasReminderActive ? 'filled' : 'light'}
-                  color={nation.hasReminderActive ? 'green' : 'gray'}
+                  variant={active ? 'filled' : 'light'}
+                  color={active ? 'green' : 'gray'}
                   radius="sm"
                   leftSection={
-                    nation.hasReminderActive ? (
-                      <IconBell size={14} stroke={1.5} />
-                    ) : (
-                      <IconBellOff size={14} stroke={1.5} />
-                    )
+                    active ? <IconBell size={14} stroke={1.5} /> : <IconBellOff size={14} stroke={1.5} />
                   }
-                  onClick={() => handleReminderToggle(row)}
-                  loading={addReminderMutation.isPending || removeReminderMutation.isPending}
+                  onClick={() => toggleReminderForNation(nation)}
+                  loading={reminderPending.has(nation.id)}
                 >
-                  {nation.hasReminderActive ? 'Remove' : 'Add'}
+                  {active ? 'Remove' : 'Add'}
                 </Button>
               </Tooltip>
             </ReminderColumnCell>
@@ -891,18 +713,17 @@ export function RaidsTable({
         },
       } as MRT_ColumnDef<RaidTarget>,
       {
-        accessorKey: 'nationLoot',
+        // Parsed once per row (TanStack caches accessor values) instead of in every comparison.
+        id: 'nationLoot',
+        accessorFn: (row) => parseNumericValue(row.nationLoot),
         header: 'Beige Loot',
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
-        sortingFn: (rowA, rowB, columnId) => {
-          const a = parseNumericValue(rowA.getValue<string>(columnId));
-          const b = parseNumericValue(rowB.getValue<string>(columnId));
-          if (a === b) return 0;
-          return a > b ? 1 : -1;
-        },
+        Cell: ({ row }) => row.original.nationLoot,
         filterFn: minOnlyFilter,
-        Filter: MinOnlyFilterInput,
+        Filter: ({ column }) => (
+          <DebouncedTextFilterInput column={column} placeholder="Min (e.g. 10k, 2m)" />
+        ),
       },
       {
         accessorKey: 'daysInactive',
@@ -910,8 +731,8 @@ export function RaidsTable({
         size: 105,
         mantineTableBodyCellProps: { align: 'center' },
         filterFn: minOnlyFilter,
-        Filter: (props) => (
-          <MinOnlyFilterInput {...props} placeholder="Min days (e.g. 7, 30)" />
+        Filter: ({ column }) => (
+          <DebouncedTextFilterInput column={column} placeholder="Min days (e.g. 7, 30)" />
         ),
       },
       {
@@ -947,9 +768,11 @@ export function RaidsTable({
         Header: () => headerWithTooltip('Net Income', 'Total resource gain/loss valued at current prices (cash + resources).'),
         size: 105,
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
+        Cell: ({ cell }) => formatMoney(cell.getValue<number>()),
         filterFn: minOnlyFilter,
-        Filter: MinOnlyFilterInput,
+        Filter: ({ column }) => (
+          <DebouncedTextFilterInput column={column} placeholder="Min (e.g. 10k, 2m)" />
+        ),
       },
       {
         accessorKey: 'netCashIncome',
@@ -957,9 +780,11 @@ export function RaidsTable({
         Header: () => headerWithTooltip('Cash Income', 'Net cash-only income (excludes the value of produced resources).'),
         size: 105,
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => `$${cell.getValue<number>().toLocaleString()}`,
+        Cell: ({ cell }) => formatMoney(cell.getValue<number>()),
         filterFn: minOnlyFilter,
-        Filter: MinOnlyFilterInput,
+        Filter: ({ column }) => (
+          <DebouncedTextFilterInput column={column} placeholder="Min (e.g. 10k, 2m)" />
+        ),
       },
       {
         accessorKey: 'taxable',
@@ -1002,10 +827,12 @@ export function RaidsTable({
         },
       },
       {
-        accessorKey: 'timeSinceWar',
+        id: 'timeSinceWar',
+        accessorFn: (row) => timeSinceWarDays(row.timeSinceWar),
         header: 'Days Since War',
         size: 120,
         mantineTableBodyCellProps: { align: 'center' },
+        Cell: ({ row }) => String(row.original.timeSinceWar),
         filterFn: minOnlyFilter,
         Filter: NumericMinOnlyFilterInput,
       },
@@ -1015,18 +842,18 @@ export function RaidsTable({
         header: 'Soldiers',
         size: 110,
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
+        Cell: ({ cell }) => (cell.getValue<number | null>() ?? 0).toLocaleString(),
         filterFn: maxOnlyFilter,
-        Filter: MaxOnlyFilterInput,
+        Filter: ({ column }) => <DebouncedTextFilterInput column={column} placeholder="Max (e.g. 500k)" />,
       },
       {
         accessorKey: 'tanks',
         header: 'Tanks',
         size: 90,
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => cell.getValue<number>().toLocaleString(),
+        Cell: ({ cell }) => (cell.getValue<number | null>() ?? 0).toLocaleString(),
         filterFn: maxOnlyFilter,
-        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 20k)" />,
+        Filter: ({ column }) => <DebouncedTextFilterInput column={column} placeholder="Max (e.g. 20k)" />,
       },
       {
         accessorKey: 'aircraft',
@@ -1034,7 +861,7 @@ export function RaidsTable({
         size: 105,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
-        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 2k)" />,
+        Filter: ({ column }) => <DebouncedTextFilterInput column={column} placeholder="Max (e.g. 2k)" />,
       },
       {
         accessorKey: 'ships',
@@ -1042,7 +869,7 @@ export function RaidsTable({
         size: 90,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
-        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 400)" />,
+        Filter: ({ column }) => <DebouncedTextFilterInput column={column} placeholder="Max (e.g. 400)" />,
       },
       {
         accessorKey: 'missiles',
@@ -1050,7 +877,7 @@ export function RaidsTable({
         size: 105,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
-        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 50)" />,
+        Filter: ({ column }) => <DebouncedTextFilterInput column={column} placeholder="Max (e.g. 50)" />,
       },
       {
         accessorKey: 'nukes',
@@ -1058,14 +885,14 @@ export function RaidsTable({
         size: 95,
         mantineTableBodyCellProps: { align: 'right' },
         filterFn: maxOnlyFilter,
-        Filter: ({ column }) => <MaxOnlyFilterInput column={column} placeholder="Max (e.g. 20)" />,
+        Filter: ({ column }) => <DebouncedTextFilterInput column={column} placeholder="Max (e.g. 20)" />,
       },
       {
         accessorKey: 'groundWin',
         header: 'Ground Win %',
         size: 105, // "Ground" needs ~50px + Icon ~20px + Padding
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => `${cell.getValue<number>()}%`,
+        Cell: ({ cell }) => winCell(cell.getValue<number | null>()),
         filterFn: minOnlyFilter,
         Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
@@ -1074,7 +901,7 @@ export function RaidsTable({
         header: 'Air Win %',
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => `${cell.getValue<number>()}%`,
+        Cell: ({ cell }) => winCell(cell.getValue<number | null>()),
         filterFn: minOnlyFilter,
         Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
@@ -1083,7 +910,7 @@ export function RaidsTable({
         header: 'Naval Win %',
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => `${cell.getValue<number>()}%`,
+        Cell: ({ cell }) => winCell(cell.getValue<number | null>()),
         filterFn: minOnlyFilter,
         Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
@@ -1092,19 +919,18 @@ export function RaidsTable({
         header: 'Total Win %',
         size: 100,
         mantineTableBodyCellProps: { align: 'right' },
-        Cell: ({ cell }) => `${cell.getValue<number>()}%`,
+        Cell: ({ cell }) => winCell(cell.getValue<number | null>()),
         filterFn: minOnlyFilter,
         Filter: ({ column }) => <NumericMinOnlyFilterInput column={column} max={100} />,
       },
 
     ],
     [
-      discordLinked,
       discordAuthenticated,
-      onOpenVerifyNationModal,
-      handleReminderToggle,
-      addReminderMutation.isPending,
-      removeReminderMutation.isPending,
+      loginUrl,
+      hasReminder,
+      reminderPending,
+      toggleReminderForNation,
       uniqueAlliances,
       allianceFilterDisabledReason,
       uniquePositions,
@@ -1118,16 +944,15 @@ export function RaidsTable({
     ({ table: t }: { table: MRT_TableInstance<RaidTarget> }) => (
       <MrtTableToolbarInternalActions
         table={t}
-        onExportCsv={() => downloadCsv(raidsCsvFilename(), buildRaidsCsv(t))}
+        onExportCsv={() => downloadCsv(raidsCsvFilename(), buildRaidsCsv(t, { hasReminder }))}
       />
     ),
-    []
+    [hasReminder]
   );
 
   const table = useMantineReactTable({
     columns,
     data,
-    autoResetPageIndex: false,
     defaultColumn: {
       Header: ({ column }) => {
         const h = column.columnDef.header;
@@ -1145,35 +970,24 @@ export function RaidsTable({
     enableDensityToggle: false,
     enableFilterMatchHighlighting: false,
 
-    filterFns: {
-      minOnly: minOnlyFilter,
-      maxOnly: maxOnlyFilter,
-      range: rangeFilter,
-    },
-
     globalFilterFn: 'contains',
 
     initialState: {
       columnFilters,
       sorting: initialSorting,
-      density,
+      density: 'xs',
     },
     state: {
       pagination,
       columnVisibility,
       columnOrder,
-      density,
       columnFilters,
     },
     onPaginationChange: setPagination,
     onColumnVisibilityChange,
     onColumnOrderChange,
-    onDensityChange,
-    onColumnFiltersChange: (updater) => {
-      const nextFilters =
-        typeof updater === 'function' ? updater(columnFilters) : updater;
-      onColumnFiltersChange(nextFilters);
-    },
+    // The page's setter applies MRT's updater to the latest filters.
+    onColumnFiltersChange,
     
     mantineTableContainerProps: {
       style: { maxHeight: '600px' },
@@ -1192,7 +1006,7 @@ export function RaidsTable({
     },
     mantineTableBodyCellProps: {
       fz: 'sm',
-      style: { ...RAIDS_BODY_CELL_PAD },
+      style: { ...MRT_RAIDS_BODY_CELL_PAD },
     },
     mantineTableBodyRowProps: ({ row, table: tableInstance }) => {
       const isSelected = selectedNationIds.has(row.original.id);
@@ -1254,8 +1068,8 @@ export function RaidsTable({
             href={contextMenu ? `https://politicsandwar.com/nation/id=${contextMenu.nation.id}` : '#'}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => handleExternalMenuLinkClick(e, () => setContextMenu(null))}
-            onAuxClick={(e) => handleExternalMenuLinkAuxClick(e, () => setContextMenu(null))}
+            onClick={(e) => handleExternalMenuLink(e, () => setContextMenu(null))}
+            onAuxClick={(e) => handleExternalMenuLink(e, () => setContextMenu(null))}
           >
             Open nation page
           </Menu.Item>
@@ -1266,8 +1080,8 @@ export function RaidsTable({
               href={`https://politicsandwar.com/alliance/id=${contextMenu.nation.allianceId}`}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={(e) => handleExternalMenuLinkClick(e, () => setContextMenu(null))}
-              onAuxClick={(e) => handleExternalMenuLinkAuxClick(e, () => setContextMenu(null))}
+              onClick={(e) => handleExternalMenuLink(e, () => setContextMenu(null))}
+              onAuxClick={(e) => handleExternalMenuLink(e, () => setContextMenu(null))}
             >
               Open alliance page
             </Menu.Item>
@@ -1285,8 +1099,8 @@ export function RaidsTable({
             href={contextMenu ? `https://politicsandwar.com/nation/war/declare/id=${contextMenu.nation.id}` : '#'}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => handleExternalMenuLinkClick(e, () => setContextMenu(null))}
-            onAuxClick={(e) => handleExternalMenuLinkAuxClick(e, () => setContextMenu(null))}
+            onClick={(e) => handleExternalMenuLink(e, () => setContextMenu(null))}
+            onAuxClick={(e) => handleExternalMenuLink(e, () => setContextMenu(null))}
           >
             Declare war
           </Menu.Item>
@@ -1303,77 +1117,36 @@ export function RaidsTable({
             Manage reminders
           </Menu.Item>
           <Menu.Divider />
-          {discordLinked && damageAttackerNationId ? (
-            <Menu.Item
-              leftSection={<IconChartBar size={16} />}
-              component="a"
-              href={
-                contextMenu
-                  ? `/damage?nation1=${encodeURIComponent(damageAttackerNationId)}&nation2=${encodeURIComponent(
-                      String(contextMenu.nation.id)
-                    )}`
-                  : '#'
-              }
-              onClick={(e) => {
-                if (!contextMenu) return;
-                const to = `/damage?nation1=${encodeURIComponent(damageAttackerNationId)}&nation2=${encodeURIComponent(
-                  String(contextMenu.nation.id)
-                )}`;
-                handleSpaMenuAnchorClick(e, navigate, to, () => setContextMenu(null));
-              }}
-            >
-              Damage calculator vs this nation
-            </Menu.Item>
-          ) : (
-            <>
-              <Menu.Label>
-                <Text size="xs" c="dimmed" lh={1.35}>
-                  Compare war damage on the calculator — link your nation there for saved scenarios.
-                </Text>
-              </Menu.Label>
-              <Menu.Item
-                leftSection={<IconChartBar size={16} />}
-                component="a"
-                href={internalNavPath('/damage', location.search)}
-                onClick={(e) =>
-                  handleSpaMenuAnchorClick(
-                    e,
-                    navigate,
-                    internalNavPath('/damage', location.search),
-                    () => setContextMenu(null)
-                  )
-                }
-              >
-                Open damage calculator
-              </Menu.Item>
-            </>
-          )}
+          <Menu.Item
+            leftSection={<IconChartBar size={16} />}
+            component="a"
+            href={damageLink}
+            onClick={(e) => {
+              if (!contextMenu) return;
+              handleSpaMenuAnchorClick(e, navigate, damageLink, () => setContextMenu(null));
+            }}
+          >
+            Damage calculator vs this nation
+          </Menu.Item>
           <Menu.Divider />
           <Menu.Item
             leftSection={
-              contextMenu?.nation.hasReminderActive ? <IconBell size={16} /> : <IconBellOff size={16} />
+              contextMenu && hasReminder(contextMenu.nation) ? <IconBell size={16} /> : <IconBellOff size={16} />
             }
-            disabled={(() => {
-              if (!contextMenu || contextMenu.nation.beigeTurns <= 0) return true;
-              if (discordLinked) return false;
-              if (discordAuthenticated) return false;
-              return true;
-            })()}
+            disabled={
+              !contextMenu ||
+              contextMenu.nation.beigeTurns <= 0 ||
+              !discordAuthenticated ||
+              reminderPending.has(contextMenu.nation.id)
+            }
             onClick={() => {
               if (!contextMenu) return;
-              const nation = contextMenu.nation;
-              if (nation.beigeTurns <= 0) return;
-              if (!discordLinked && discordAuthenticated) {
-                setContextMenu(null);
-                onOpenVerifyNationModal();
-                return;
-              }
-              if (discordLinked) toggleReminderForNation(nation);
+              toggleReminderForNation(contextMenu.nation);
             }}
           >
-            {!discordLinked && discordAuthenticated && contextMenu && contextMenu.nation.beigeTurns > 0
-              ? 'Link nation to set reminders'
-              : contextMenu?.nation.hasReminderActive
+            {!discordAuthenticated
+              ? 'Log in with Discord to set reminders'
+              : contextMenu && hasReminder(contextMenu.nation)
                 ? 'Remove beige reminder'
                 : 'Add beige reminder'}
           </Menu.Item>
@@ -1390,6 +1163,8 @@ export function RaidsTable({
     </Stack>
   );
 }
+
+const REMINDER_MUTATION_KEY = ['raid-reminder'] as const;
 
 function getColorBadge(color: string): string {
   const colorMap: Record<string, string> = {

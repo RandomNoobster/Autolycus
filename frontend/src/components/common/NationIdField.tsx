@@ -8,6 +8,8 @@ interface NationIdFieldProps {
   /** The current id. Typing stays local until submit. */
   value: string;
   onSubmit: (value: string) => void;
+  /** Called when the user types, e.g. so a late prefill doesn't replace their text. */
+  onEdit?: () => void;
   label?: ReactNode;
   placeholder?: string;
   size?: MantineSize;
@@ -25,6 +27,7 @@ interface NationIdFieldProps {
 export function NationIdField({
   value,
   onSubmit,
+  onEdit,
   label,
   placeholder,
   size = 'sm',
@@ -75,7 +78,10 @@ export function NationIdField({
     <Group gap="sm" align="flex-end" wrap="wrap">
       <TextInput
         value={localValue}
-        onChange={(event) => setLocalValue(event.currentTarget.value)}
+        onChange={(event) => {
+          setLocalValue(event.currentTarget.value);
+          onEdit?.();
+        }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         label={label}
